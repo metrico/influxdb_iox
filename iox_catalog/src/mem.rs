@@ -18,7 +18,7 @@ use data_types::{
     SequenceNumber, Sequencer, SequencerId, Table, TableId, TablePartition, Timestamp, Tombstone,
     TombstoneId,
 };
-use iox_time::{SystemProvider, TimeProvider};
+use iox_time::{SystemProvider, Time, TimeProvider};
 use observability_deps::tracing::warn;
 use sqlx::types::Uuid;
 use std::{
@@ -1324,6 +1324,68 @@ impl ParquetFileRepo for MemTxn {
             .iter()
             .find(|f| f.object_store_id.eq(&object_store_id))
             .cloned())
+    }
+
+    async fn get_today_ingested_size(&mut self) -> Result<i64> {
+        let today = self.time_provider.now().date_time().date();
+
+        let stage = self.stage();
+        let sum = stage
+            .parquet_files
+            .iter()
+            .filter(|f| {
+                let created_date = Time::from_timestamp_nanos(f.created_at.get())
+                    .date_time()
+                    .date();
+
+                f.compaction_level == CompactionLevel::Initial && today == created_date
+            })
+            .map(|f| f.file_size_bytes)
+            .sum();
+
+        Ok(sum)
+    }
+
+    async fn get_today_L0_compacted_size(&mut self) -> Result<i64> {
+        let today = self.time_provider.now().date_time().date();
+
+        let stage = self.stage();
+        let sum = stage
+            .parquet_files
+            .iter()
+            .filter(|f| {
+                let created_date = Time::from_timestamp_nanos(f.created_at.get())
+                    .date_time()
+                    .date();
+
+                f.compaction_level == CompactionLevel::Initial
+                    && today == created_date
+                    && f.to_delete.is_some()
+            })
+            .map(|f| f.file_size_bytes)
+            .sum();
+
+        Ok(sum)
+    }
+
+    async fn get_today_compacted_size(&mut self) -> Result<i64> {
+        let today = self.time_provider.now().date_time().date();
+
+        let stage = self.stage();
+        let sum = stage
+            .parquet_files
+            .iter()
+            .filter(|f| {
+                let created_date = Time::from_timestamp_nanos(f.created_at.get())
+                    .date_time()
+                    .date();
+
+                today == created_date && f.to_delete.is_some()
+            })
+            .map(|f| f.file_size_bytes)
+            .sum();
+
+        Ok(sum)
     }
 }
 

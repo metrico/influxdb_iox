@@ -607,6 +607,15 @@ pub trait ParquetFileRepo: Send + Sync {
         &mut self,
         object_store_id: Uuid,
     ) -> Result<Option<ParquetFile>>;
+
+    /// Return today total ingested size
+    async fn get_today_ingested_size(&mut self) -> Result<i64>;
+
+    /// Return today total L0 compacted size
+    async fn get_today_L0_compacted_size(&mut self) -> Result<i64>;
+
+    /// Return today total compacted size
+    async fn get_today_compacted_size(&mut self) -> Result<i64>;
 }
 
 /// Functions for working with processed tombstone pointers in the catalog

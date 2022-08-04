@@ -103,6 +103,12 @@ struct Count {
     count: i64,
 }
 
+// struct to get return value from "select sum(something) ..." query
+#[derive(sqlx::FromRow)]
+struct Sum {
+    sum: i64,
+}
+
 impl PostgresCatalog {
     /// Connect to the catalog store.
     pub async fn connect(
@@ -1899,6 +1905,55 @@ WHERE object_store_id = $1;
         let parquet_file = rec.map_err(|e| Error::SqlxError { source: e })?;
 
         Ok(Some(parquet_file))
+    }
+
+    async fn get_today_ingested_size(&mut self) -> Result<i64> {
+        let read_result = sqlx::query_as::<_, Sum>(
+            r#"
+select sum(file_size_bytes)
+from   parquet_file 
+where  date(to_timestamp(created_at/1000000000)) = current_date 
+       and compaction_level = 0;
+            "#,
+        )
+        .fetch_one(&mut self.inner)
+        .await
+        .map_err(|e| Error::SqlxError { source: e })?;
+
+        Ok(read_result.sum)
+    }
+
+    async fn get_today_L0_compacted_size(&mut self) -> Result<i64> {
+        let read_result = sqlx::query_as::<_, Sum>(
+            r#"
+select sum(file_size_bytes)
+from   parquet_file
+where  date(to_timestamp(to_delete/1000000000)) = current_date 
+     and to_delete is not null and compaction_level = 0;
+            "#,
+        )
+        .fetch_one(&mut self.inner)
+        .await
+        .map_err(|e| Error::SqlxError { source: e })?;
+
+        Ok(read_result.sum)
+    }
+
+    /// Return today total compacted size
+    async fn get_today_compacted_size(&mut self) -> Result<i64> {
+        let read_result = sqlx::query_as::<_, Sum>(
+            r#"
+select sum(file_size_bytes)
+from   parquet_file
+where  date(to_timestamp(to_delete/1000000000)) = current_date 
+       and to_delete is not null;
+            "#,
+        )
+        .fetch_one(&mut self.inner)
+        .await
+        .map_err(|e| Error::SqlxError { source: e })?;
+
+        Ok(read_result.sum)
     }
 }
 

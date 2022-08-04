@@ -281,6 +281,9 @@ decorate!(
         "parquet_get_by_object_store_id" = get_by_object_store_id(&mut self, object_store_id: Uuid) -> Result<Option<ParquetFile>>;
         "recent_highest_throughput_partitions" = recent_highest_throughput_partitions(&mut self, sequencer_id: SequencerId, num_hours: u32, min_num_files: usize, num_partitions: usize) -> Result<Vec<PartitionParam>>;
         "most_level_0_files_partitions" =  most_level_0_files_partitions(&mut self, sequencer_id: SequencerId, num_partitions: usize) -> Result<Vec<PartitionParam>>;
+        "get_today_ingested_size" = get_today_ingested_size(&mut self) -> Result<i64>;
+        "get_today_L0_compacted_size" = get_today_L0_compacted_size(&mut self) -> Result<i64>;
+        "get_today_compacted_size" = get_today_compacted_size(&mut self) -> Result<i64>;
     ]
 );
 
