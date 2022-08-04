@@ -9,7 +9,7 @@ use std::sync::Arc;
 
 #[derive(Debug, Snafu)]
 #[allow(missing_copy_implementations, missing_docs)]
-pub(crate) enum PartitionFilesFromPartitionError {
+pub enum PartitionFilesFromPartitionError {
     #[snafu(display(
         "Error getting parquet files for partition {}: {}",
         partition_id,

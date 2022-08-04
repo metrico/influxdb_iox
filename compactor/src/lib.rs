@@ -27,7 +27,7 @@ use std::sync::Arc;
 
 #[derive(Debug, Snafu)]
 #[allow(missing_copy_implementations, missing_docs)]
-pub(crate) enum Error {
+pub enum Error {
     #[snafu(display("{}", source))]
     ParquetFileLookup {
         source: parquet_file_lookup::PartitionFilesFromPartitionError,
@@ -40,7 +40,7 @@ pub(crate) enum Error {
 }
 
 /// One compaction operation of one partition
-pub(crate) async fn compact_partition(
+pub async fn compact_partition(
     compactor: &Compactor,
     partition: PartitionCompactionCandidateWithInfo,
 ) -> Result<(), Error> {
@@ -98,10 +98,11 @@ mod tests {
     use arrow::record_batch::RecordBatch;
     use arrow_util::assert_batches_sorted_eq;
     use backoff::BackoffConfig;
-    use data_types::{ColumnType, CompactionLevel, ParquetFile};
+    use data_types::{ColumnType, CompactionLevel, ParquetFile, PartitionParam};
     use iox_query::exec::Executor;
     use iox_tests::util::{TestCatalog, TestParquetFileBuilder, TestTable};
     use iox_time::{SystemProvider, TimeProvider};
+    use observability_deps::tracing::info;
     use parquet_file::{storage::ParquetStorage, ParquetFilePath};
 
     // A quite sophisticated integration test

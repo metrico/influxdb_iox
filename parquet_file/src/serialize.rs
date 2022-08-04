@@ -134,7 +134,7 @@ where
         panic!("partition_id={}. Created Parquet metadata has no column metadata. HINT a common reason of this is writing empty data to parquet file: {:#?}", partition_id, meta);
     }
 
-    debug!(?partition_id, ?meta, "Parquet Metadata");
+    // debug!(?partition_id, ?meta, "Parquet Metadata");
 
     bytes.shrink_to_fit();
 

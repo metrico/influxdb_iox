@@ -27,8 +27,8 @@ tokio = { version = "1.20", features = ["macros", "parking_lot", "rt-multi-threa
 tokio-util = { version = "0.7.3" }
 uuid = { version = "1", features = ["v4"] }
 workspace-hack = { path = "../workspace-hack"}
+iox_tests = { path = "../iox_tests" }
+test_helpers = { path = "../test_helpers" }
 
 [dev-dependencies]
 arrow_util = { path = "../arrow_util" }
-iox_tests = { path = "../iox_tests" }
-test_helpers = { path = "../test_helpers" }

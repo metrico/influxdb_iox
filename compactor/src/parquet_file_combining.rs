@@ -25,7 +25,7 @@ use uuid::Uuid;
 
 #[derive(Debug, Snafu)]
 #[allow(missing_copy_implementations, missing_docs)]
-pub(crate) enum Error {
+pub enum Error {
     #[snafu(display(
         "Must specify at least 2 files to compact for {}, got {num_files}", partition_id.get()
     ))]
@@ -387,7 +387,7 @@ fn cutoff_bytes(max_desired_file_size_bytes: u64, percentage_max_file_size: u16)
 
 #[derive(Debug, Snafu)]
 #[allow(missing_copy_implementations, missing_docs)]
-pub(crate) enum CatalogUpdateError {
+pub enum CatalogUpdateError {
     #[snafu(display("Error while starting catalog transaction {}", source))]
     Transaction {
         source: iox_catalog::interface::Error,

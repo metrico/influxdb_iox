@@ -28,7 +28,7 @@ use thiserror::Error;
 use tokio::io::AsyncReadExt;
 
 /// Parquet row group read size
-pub const ROW_GROUP_READ_SIZE: usize = 1024;
+pub const ROW_GROUP_READ_SIZE: usize = 1024 * 1024;
 
 // ensure read and write work well together
 // Skip clippy due to <https://github.com/rust-lang/rust-clippy/issues/8159>.
@@ -132,7 +132,8 @@ impl ParquetStorage {
         // correctly inside the serialize::to_parquet_bytes above
         if parquet_file_meta.row_groups.is_empty() {
             debug!(
-                ?meta.partition_id, ?parquet_file_meta,
+                ?meta.partition_id,
+                // ?parquet_file_meta,
                 "Created parquet_file_meta has no row groups which will introduce panic later when its statistics is read");
         }
 
@@ -141,7 +142,7 @@ impl ParquetStorage {
             IoxParquetMetaData::try_from(parquet_file_meta).map_err(UploadError::Metadata)?;
         debug!(
             ?meta.partition_id,
-            ?parquet_meta,
+            // ?parquet_meta,
             "IoxParquetMetaData coverted from Row Group Metadata (aka FileMetaData)"
         );
 
