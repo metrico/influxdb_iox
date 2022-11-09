@@ -20,6 +20,7 @@
 use crate::{
     objectstore::{checker as os_checker, deleter as os_deleter, lister as os_lister},
     parquetfile::deleter as pf_deleter,
+    partition::deleter as pt_deleter,
     retention::flagger as retention_flagger,
 };
 
@@ -37,6 +38,8 @@ use tokio_util::sync::CancellationToken;
 mod objectstore;
 /// Logic for deleting parquet files from the catalog
 mod parquetfile;
+/// Logic for deleting partitions from the catalog
+mod partition;
 /// Logic for flagging parquet files for deletion based on retention settings
 mod retention;
 
@@ -54,6 +57,7 @@ pub struct GarbageCollector {
     os_checker: tokio::task::JoinHandle<Result<(), os_checker::Error>>,
     os_deleter: tokio::task::JoinHandle<Result<(), os_deleter::Error>>,
     pf_deleter: tokio::task::JoinHandle<Result<(), pf_deleter::Error>>,
+    pt_deleter: tokio::task::JoinHandle<Result<(), pt_deleter::Error>>,
     retention_flagger: tokio::task::JoinHandle<Result<(), retention_flagger::Error>>,
 }
 
@@ -79,6 +83,8 @@ impl GarbageCollector {
             objectstore_sleep_interval_minutes = %sub_config.objectstore_sleep_interval_minutes,
             parquetfile_sleep_interval_minutes = %sub_config.parquetfile_sleep_interval_minutes,
             retention_sleep_interval_minutes = %sub_config.retention_sleep_interval_minutes,
+            partition_cutoff_days = %format_duration(sub_config.partition_cutoff).to_string(),
+            partition_sleep_interval_minutes = %sub_config.partition_sleep_interval_minutes,
             "GarbageCollector starting"
         );
 
@@ -128,6 +134,15 @@ impl GarbageCollector {
             sub_config.parquetfile_sleep_interval_minutes,
         ));
 
+        // Initialise the partition deleter, which is just one thread that calls delete_old()
+        // on the catalog then sleeps.
+        let pt_deleter = tokio::spawn(pt_deleter::perform(
+            shutdown.clone(),
+            Arc::clone(&catalog),
+            sub_config.partition_cutoff,
+            sub_config.partition_sleep_interval_minutes,
+        ));
+
         // Initialise the retention code, which is just one thread that calls
         // flag_for_delete_by_retention() on the catalog then sleeps.
         let retention_flagger = tokio::spawn(retention_flagger::perform(
@@ -142,6 +157,7 @@ impl GarbageCollector {
             os_checker,
             os_deleter,
             pf_deleter,
+            pt_deleter,
             retention_flagger,
         })
     }
@@ -161,19 +177,22 @@ impl GarbageCollector {
             os_checker,
             os_deleter,
             pf_deleter,
+            pt_deleter,
             retention_flagger,
             shutdown: _,
         } = self;
 
-        let (os_lister, os_checker, os_deleter, pf_deleter, retention_flagger) = futures::join!(
+        let (os_lister, os_checker, os_deleter, pf_deleter, pt_deleter, retention_flagger) = futures::join!(
             os_lister,
             os_checker,
             os_deleter,
             pf_deleter,
+            pt_deleter,
             retention_flagger
         );
 
         retention_flagger.context(ParquetFileDeleterPanicSnafu)??;
+        pt_deleter.context(PartitionDeleterPanicSnafu)??;
         pf_deleter.context(ParquetFileDeleterPanicSnafu)??;
         os_deleter.context(ObjectStoreDeleterPanicSnafu)??;
         os_checker.context(ObjectStoreCheckerPanicSnafu)??;
@@ -262,6 +281,27 @@ pub struct SubConfig {
     )]
     parquetfile_sleep_interval_minutes: u64,
 
+    /// Partition rows in the catalog flagged for deletion before this many days ago will be
+    /// deleted.
+    ///
+    /// If not specified, defaults to 14 days ago.
+    #[clap(
+        long,
+        default_value = "14d",
+        value_parser = parse_duration,
+        env = "INFLUXDB_IOX_GC_PARTITION_CUTOFF"
+    )]
+    partition_cutoff: Duration,
+
+    /// Number of minutes to sleep between iterations of the partition deletion loop.
+    /// Defaults to 25 minutes to reduce incidence of it running at the same time as the others.
+    #[clap(
+        long,
+        default_value_t = 30,
+        env = "INFLUXDB_IOX_GC_PARTITION_SLEEP_INTERVAL_MINUTES"
+    )]
+    partition_sleep_interval_minutes: u64,
+
     /// Number of minutes to sleep between iterations of the retention code.
     /// Defaults to 35 minutes to reduce incidence of it running at the same time as the parquet
     /// file deleter.
@@ -302,6 +342,12 @@ pub enum Error {
     ParquetFileDeleter { source: pf_deleter::Error },
     #[snafu(display("The parquet file deleter task panicked"))]
     ParquetFileDeleterPanic { source: tokio::task::JoinError },
+
+    #[snafu(display("The partition deleter task failed"))]
+    #[snafu(context(false))]
+    PartitionDeleter { source: pt_deleter::Error },
+    #[snafu(display("The partition deleter task panicked"))]
+    PartitionDeleterPanic { source: tokio::task::JoinError },
 
     #[snafu(display("The parquet file retention flagger task failed"))]
     #[snafu(context(false))]
