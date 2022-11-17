@@ -140,3 +140,6 @@ opt-level = 3
 
 [profile.dev.package.similar]
 opt-level = 3
+
+[patch.crates-io]
+tokio = { path = "../tokio/tokio" }

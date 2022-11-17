@@ -3781,6 +3781,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "probe"
+version = "0.3.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "216e81fcf486280f0b8b18ca43ceafd32739eb0eb703eb024a8d00814eeba556"
+
+[[package]]
 name = "proc-macro-error"
 version = "1.0.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -5323,8 +5329,6 @@ checksum = "cda74da7e1a664f795bb1f8a87ec406fb89a02522cf6e50620d016add6dbbf5c"
 [[package]]
 name = "tokio"
 version = "1.21.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a9e03c497dc955702ba729190dc4aac6f2a0ce97f913e5b1b5912fc5039d9099"
 dependencies = [
  "autocfg",
  "bytes",
@@ -5334,6 +5338,7 @@ dependencies = [
  "num_cpus",
  "parking_lot 0.12.1",
  "pin-project-lite",
+ "probe",
  "signal-hook-registry",
  "socket2",
  "tokio-macros",
@@ -5354,8 +5359,6 @@ dependencies = [
 [[package]]
 name = "tokio-macros"
 version = "1.8.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "9724f9a975fb987ef7a3cd9be0350edcbe130698af5b8f7a631e23d42d052484"
 dependencies = [
  "proc-macro2",
  "quote",
