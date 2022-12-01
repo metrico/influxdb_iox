@@ -1,21 +1,162 @@
 use std::sync::Arc;
 
 use arrow::{
-    array::{Float32Builder, Float64Builder, Int32Builder, Int64Builder},
+    array::{ArrayRef, Float32Builder, Float64Builder, Int32Builder, Int64Builder, Float64Array},
+    compute::kernels::aggregate,
     datatypes::DataType,
 };
 use datafusion::{
     common::cast::{as_float32_array, as_float64_array, as_int32_array, as_int64_array},
     error::DataFusionError,
     execution::context::SessionState,
-    logical_expr::{ScalarFunctionImplementation, Volatility},
-    physical_plan::ColumnarValue,
+    logical_expr::{
+        AccumulatorFunctionImplementation, AggregateState, AggregateUDF, ReturnTypeFunction,
+        ScalarFunctionImplementation, Signature, StateTypeFunction, Volatility,
+    },
+    physical_plan::{Accumulator, ColumnarValue},
     prelude::create_udf,
     scalar::ScalarValue,
 };
 use observability_deps::tracing::debug;
 use once_cell::sync::Lazy;
-use wasmtime::{Engine, Func, Linker, Module, Store, Val, ValType};
+use wasmtime::{Engine, Func, Instance, Linker, Module, Store, TypedFunc, Val, ValType};
+
+/// registers WASM functions so they can be invoked via SQL
+pub fn register_wasm_udfs(mut state: SessionState) -> SessionState {
+    // TODO: Currently we are compiling the module with each request, we should cache or otherwise
+    // optimize this to align with expected usage patterns
+    use wasmtime::*;
+    let engine = WASM_ENGINE.clone();
+    let module = Module::from_file(
+        engine.as_ref(),
+        // Hardcode for demo location of WASM scalar library
+        "./target/wasm32-unknown-unknown/release/wasm_demo.wasm",
+    )
+    .unwrap();
+
+    let names: Vec<&str> = module
+        .exports()
+        // skip any _internal_ exports
+        .filter(|f| !f.name().starts_with("_"))
+        .map(|f| f.name())
+        .collect();
+
+    let udfs = find_udfs(&names);
+
+    for udf in udfs {
+        match udf {
+            UDF::Scalar(name) => {
+                let f = module.get_export(name.as_str()).unwrap();
+                match f {
+                    ExternType::Func(ft) => {
+                        debug!("found module function export {}: {:?}", name, ft);
+                        let params = ft.params().map(|t| convert_type(t)).collect();
+                        // TODO: Handle multiple return values
+                        let result = Arc::new(
+                            ft.results()
+                                .map(|t| convert_type(t))
+                                .collect::<Vec<DataType>>()
+                                .pop()
+                                .unwrap(),
+                        );
+                        state.scalar_functions.insert(
+                            name.to_string(),
+                            Arc::new(create_udf(
+                                &name,
+                                params,
+                                result,
+                                Volatility::Volatile,
+                                wasm_scalar_impl(module.clone(), name.to_string()),
+                            )),
+                        );
+                    }
+                    // Ignore any other kind of export
+                    _ => {}
+                }
+            }
+            UDF::Aggregate(name) => {
+                debug!("found module aggregate export {}", name);
+                state
+                    .aggregate_functions
+                    .insert("wasm_mean".to_string(), build_wasm_uda());
+            }
+        }
+    }
+
+    // Add aggregate UDAs
+    state
+        .aggregate_functions
+        .insert("native_mean".to_string(), build_mean_uda());
+
+    state
+}
+
+enum UDF {
+    Scalar(String),
+    Aggregate(String),
+}
+
+fn find_udfs(names: &[&str]) -> Vec<UDF> {
+    let mut udfs = Vec::with_capacity(names.len());
+    let mut all_agg_names = Vec::with_capacity(names.len());
+    // Look for aggregate function collections
+    for n in names {
+        if let Some(agg_prefix) = n.strip_suffix("_new") {
+            let agg_prefix = agg_prefix.to_string();
+            let mut agg_names = vec![agg_prefix + "_state", agg_prefix + "_update"];
+            if agg_names
+                .iter()
+                .all(|agg_name| names.iter().any(|n| n == agg_name))
+            {
+                udfs.push(UDF::Aggregate(agg_prefix));
+                all_agg_names.extend(agg_names.drain(..));
+            }
+        }
+    }
+    // Find any extra functions which are then by definition scalars
+    udfs.extend(
+        names
+            .iter()
+            .filter(|n| {
+                !all_agg_names
+                    .iter()
+                    .any(|agg_name| agg_name == n.to_owned())
+            })
+            .map(|n| UDF::Scalar(n.to_string())),
+    );
+    udfs
+}
+
+fn build_mean_uda() -> Arc<AggregateUDF> {
+    let signature = Signature::exact(vec![DataType::Float64], Volatility::Stable);
+    let return_type_func: ReturnTypeFunction = Arc::new(|_types| Ok(Arc::new(DataType::Float64)));
+    let accumulator: AccumulatorFunctionImplementation =
+        Arc::new(|_types| Ok(Box::new(MeanAccumulator::default())));
+    let state_type_func: StateTypeFunction =
+        Arc::new(|_types| Ok(Arc::new(vec![DataType::Float64, DataType::Float64])));
+    Arc::new(AggregateUDF::new(
+        "wasm_native_mean",
+        &signature,
+        &return_type_func,
+        &accumulator,
+        &state_type_func,
+    ))
+}
+fn build_wasm_uda() -> Arc<AggregateUDF> {
+    let signature = Signature::exact(vec![DataType::Float64], Volatility::Stable);
+    let return_type_func: ReturnTypeFunction = Arc::new(|_types| Ok(Arc::new(DataType::Float64)));
+    let accumulator: AccumulatorFunctionImplementation =
+        Arc::new(|_types| Ok(Box::new(MeanAccumulator::default())));
+    let state_type_func: StateTypeFunction =
+        Arc::new(|_types| Ok(Arc::new(vec![DataType::Float64, DataType::Float64])));
+    Arc::new(AggregateUDF::new(
+        "wasm_native_mean",
+        &signature,
+        &return_type_func,
+        &accumulator,
+        &state_type_func,
+    ))
+}
 
 static WASM_ENGINE: Lazy<Arc<Engine>> = Lazy::new(|| Arc::new(Engine::default()));
 
@@ -35,6 +176,8 @@ fn wasm_scalar_impl(module: Module, name: String) -> ScalarFunctionImplementatio
             // The columns of the matrix represent each parameter and the rows each invocation.
             // If value doesn't exist in the matrix this indicates we have a scalar value and
             // should use the value in the 0th row of the matrix.
+            // TODO: Redesign this so that we do not have to allocate O(n) memory compared to the
+            // input parameters
             let param_types: Vec<ValType> = ft.params().collect();
             // Determine how many times we will need to call the function
             let num_calls = args
@@ -280,56 +423,6 @@ impl ValBuilder for Float64Builder {
     }
 }
 
-/// registers WASM functions so they can be invoked via SQL
-pub fn register_wasm_udfs(mut state: SessionState) -> SessionState {
-    // TODO: Currently we are compiling the module with each request, we should cache or otherwise
-    // optimize this to align with expected usage patterns
-    use wasmtime::*;
-    let engine = WASM_ENGINE.clone();
-    let module = Module::from_file(
-        engine.as_ref(),
-        // Hardcode for demo location of WASM scalar library
-        "./target/wasm32-unknown-unknown/release/wasm_demo.wasm",
-    )
-    .unwrap();
-
-    for f in module.exports() {
-        match f.ty() {
-            ExternType::Func(ft) => {
-                debug!("found module export {}: {:?}", f.name(), f.ty());
-                if f.name().starts_with("_") {
-                    // Skip mangled exports
-                    continue;
-                }
-                let params = ft.params().map(|t| convert_type(t)).collect();
-                // TODO: Handle multiple return values
-                let result = Arc::new(
-                    ft.results()
-                        .map(|t| convert_type(t))
-                        .collect::<Vec<DataType>>()
-                        .pop()
-                        .unwrap(),
-                );
-                state.scalar_functions.insert(
-                    f.name().to_string(),
-                    Arc::new(create_udf(
-                        f.name(),
-                        params,
-                        result,
-                        Volatility::Volatile,
-                        wasm_scalar_impl(module.clone(), f.name().to_string()),
-                    )),
-                );
-            }
-            ExternType::Global(_) => {}
-            ExternType::Table(_) => {}
-            ExternType::Memory(_) => {}
-        }
-    }
-
-    state
-}
-
 fn convert_type(t: ValType) -> DataType {
     match t {
         ValType::I32 => DataType::Int32,
@@ -339,5 +432,156 @@ fn convert_type(t: ValType) -> DataType {
         ValType::V128 => todo!(),
         ValType::FuncRef => todo!(),
         ValType::ExternRef => todo!(),
+    }
+}
+
+#[derive(Default, Debug)]
+struct MeanAccumulator {
+    sum: f64,
+    count: f64,
+}
+
+impl Accumulator for MeanAccumulator {
+    fn state(&self) -> datafusion::error::Result<Vec<datafusion::logical_expr::AggregateState>> {
+        Ok(vec![
+            AggregateState::Scalar(ScalarValue::Float64(Some(self.count))),
+            AggregateState::Scalar(ScalarValue::Float64(Some(self.sum))),
+        ])
+    }
+
+    fn update_batch(&mut self, values: &[ArrayRef]) -> datafusion::error::Result<()> {
+        assert_eq!(1, values.len()); // we should only ever have one input array
+        let values = values[0].as_ref();
+        let data = as_float64_array(values)?;
+        self.count += (values.len() - values.null_count()) as f64;
+        if let Some(sum) = aggregate::sum(data) {
+            self.sum += sum;
+        }
+        Ok(())
+    }
+
+    fn merge_batch(&mut self, states: &[ArrayRef]) -> datafusion::error::Result<()> {
+        assert_eq!(states.len(), 2);
+        println!("merge states {:?}", states);
+        let count = as_float64_array(states[0].as_ref())?;
+        let sum = as_float64_array(states[1].as_ref())?;
+        self.count += count.value(0);
+        self.sum += sum.value(0);
+        Ok(())
+    }
+
+    fn evaluate(&self) -> datafusion::error::Result<ScalarValue> {
+        if self.count > 0.0 {
+            Ok(ScalarValue::Float64(Some(self.sum / self.count)))
+        } else {
+            Ok(ScalarValue::Float64(None))
+        }
+    }
+
+    fn size(&self) -> usize {
+        // Two f64s
+        16
+    }
+}
+
+type StateFn = TypedFunc<(i32, i32), ()>;
+type UpdateFn = TypedFunc<(i32, i32, i32), ()>;
+type MergeFn = TypedFunc<(i32, i32, i32), ()>;
+type EvaluateFn = TypedFunc<i32, f64>;
+type SizeFn = TypedFunc<i32, i64>;
+
+struct WASMAccumulator {
+    name: String,
+    module: Module,
+    store: Store<()>,
+    ptr: i32,
+    state_fn: StateFn,
+    update_fn: UpdateFn,
+    merge_fn: MergeFn,
+    evaluate_fn: EvaluateFn,
+    size_fn: SizeFn,
+}
+impl WASMAccumulator {
+    fn new(name: String, module: Module) -> Self {
+        let engine = WASM_ENGINE.clone();
+        let linker: Linker<()> = Linker::new(engine.as_ref());
+        let store = Store::new(engine.as_ref(), ());
+        let instance = linker.instantiate(&mut store, &module).unwrap();
+        let new = instance
+            .get_typed_func::<(), i32, _>(&mut store, &(name + "_new"))
+            .unwrap();
+        let ptr = new.call(&mut store, ()).unwrap();
+        let state_fn = instance
+            .get_typed_func(&mut store, &(name + "_state"))
+            .unwrap();
+        let update_fn = instance
+            .get_typed_func(&mut store, &(name + "_update"))
+            .unwrap();
+        let merge_fn = instance
+            .get_typed_func(&mut store, &(name + "_merge"))
+            .unwrap();
+        let evaluate_fn = instance
+            .get_typed_func(&mut store, &(name + "_evaluate"))
+            .unwrap();
+        let size_fn = instance
+            .get_typed_func(&mut store, &(name + "_size"))
+            .unwrap();
+        Self {
+            name,
+            module,
+            store,
+            ptr,
+            state_fn,
+            update_fn,
+            merge_fn,
+            evaluate_fn,
+            size_fn,
+        }
+    }
+}
+impl std::fmt::Debug for WASMAccumulator {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "wasm_module {:?}", self.module.name())
+    }
+}
+
+impl Accumulator for WASMAccumulator {
+    fn state(&self) -> datafusion::error::Result<Vec<datafusion::logical_expr::AggregateState>> {
+
+        Ok(AggregateState::Array(Float64Array::from()
+    }
+
+    fn update_batch(&mut self, values: &[ArrayRef]) -> datafusion::error::Result<()> {
+        assert_eq!(1, values.len()); // we should only ever have one input array
+        let values = values[0].as_ref();
+        let data = as_float64_array(values)?;
+        self.count += (values.len() - values.null_count()) as f64;
+        if let Some(sum) = aggregate::sum(data) {
+            self.sum += sum;
+        }
+        Ok(())
+    }
+
+    fn merge_batch(&mut self, states: &[ArrayRef]) -> datafusion::error::Result<()> {
+        assert_eq!(states.len(), 2);
+        println!("merge states {:?}", states);
+        let count = as_float64_array(states[0].as_ref())?;
+        let sum = as_float64_array(states[1].as_ref())?;
+        self.count += count.value(0);
+        self.sum += sum.value(0);
+        Ok(())
+    }
+
+    fn evaluate(&self) -> datafusion::error::Result<ScalarValue> {
+        if self.count > 0.0 {
+            Ok(ScalarValue::Float64(Some(self.sum / self.count)))
+        } else {
+            Ok(ScalarValue::Float64(None))
+        }
+    }
+
+    fn size(&self) -> usize {
+        // Two f64s
+        16
     }
 }

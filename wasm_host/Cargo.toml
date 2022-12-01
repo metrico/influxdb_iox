@@ -1,0 +1,12 @@
+[package]
+name = "wasm_host"
+version = "0.1.0"
+edition = "2021"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+anyhow = "1.0.66"
+arrow.workspace = true
+hex = "0.4.3"
+wasmtime = "3.0.0"

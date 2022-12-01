@@ -1,12 +1,10 @@
 [package]
-name = "wasm_demo"
+name = "wasm_arrow"
 version = "0.1.0"
 edition = "2021"
-
 
 [lib]
 crate-type = ['cdylib']
 
 [dependencies]
-wasm-bindgen = "0.2.83"
-
+arrow = { version = "27.0", default-features = false, features = [] }
