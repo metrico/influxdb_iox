@@ -24,6 +24,9 @@ pub mod group_by;
 /// Regular Expressions
 mod regex;
 
+/// WASM Expressions
+pub mod wasm;
+
 /// Flux selector expressions
 pub mod selectors;
 

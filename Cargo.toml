@@ -75,6 +75,7 @@ members = [
     "tracker",
     "trogging",
     "wal",
+    "wasm_demo",
     "workspace-hack",
     "write_buffer",
     "write_summary",
@@ -117,6 +118,10 @@ datafusion = { git = "https://github.com/apache/arrow-datafusion.git", rev="a616
 datafusion-proto = { git = "https://github.com/apache/arrow-datafusion.git", rev="a61615b2949bea9027eefe686613605e135780f2" }
 hashbrown = { version = "0.13.1" }
 parquet = { version = "27.0.0" }
+
+[patch.'https://github.com/apache/arrow-datafusion.git']
+datafusion = { path = "../arrow-datafusion/datafusion/core" }
+datafusion-proto = { path = "../arrow-datafusion/datafusion/proto" }
 
 # This profile optimizes for runtime performance and small binary size at the expense of longer
 # build times. It's most suitable for final release builds.

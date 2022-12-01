@@ -37,6 +37,7 @@ mod commands {
     pub mod remote;
     pub mod run;
     pub mod sql;
+    pub mod wasm;
     pub mod storage;
     pub mod tracing;
     pub mod write;
@@ -88,6 +89,9 @@ Examples:
 
     # Run the interactive SQL prompt
     influxdb_iox sql
+
+    # Run the interactive WASM prompt
+    influxdb_iox wasm
 
 Command are generally structured in the form:
     <type of object> <action> <arguments>
@@ -155,6 +159,9 @@ enum Command {
 
     /// Start IOx interactive SQL REPL loop
     Sql(commands::sql::Config),
+
+    /// Start IOx interactive WASM REPL loop
+    Wasm(commands::wasm::Config),
 
     /// Various commands for catalog manipulation
     Catalog(commands::catalog::Config),
@@ -266,6 +273,14 @@ fn main() -> Result<(), std::io::Error> {
                 let _tracing_guard = handle_init_logs(init_simple_logs(log_verbose_count));
                 let connection = connection().await;
                 if let Err(e) = commands::sql::command(connection, config).await {
+                    eprintln!("{}", e);
+                    std::process::exit(ReturnCode::Failure as _)
+                }
+            }
+            Some(Command::Wasm(config)) => {
+                let _tracing_guard = handle_init_logs(init_simple_logs(log_verbose_count));
+                let connection = connection().await;
+                if let Err(e) = commands::wasm::command(connection, config).await {
                     eprintln!("{}", e);
                     std::process::exit(ReturnCode::Failure as _)
                 }
