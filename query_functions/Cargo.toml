@@ -17,6 +17,7 @@ regex-syntax = "0.6.28"
 schema = { path = "../schema" }
 snafu = "0.7"
 workspace-hack = { path = "../workspace-hack"}
+wasmtime = "3.0.0"
 
 [dev-dependencies]
 tokio = { version = "1.22", features = ["macros", "parking_lot"] }

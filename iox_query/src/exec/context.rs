@@ -45,6 +45,7 @@ use executor::DedicatedExecutor;
 use futures::TryStreamExt;
 use observability_deps::tracing::debug;
 use query_functions::selectors::register_selector_aggregates;
+use query_functions::wasm::register_wasm_udfs;
 use std::{convert::TryInto, fmt, sync::Arc};
 use trace::{
     ctx::SpanContext,
@@ -209,6 +210,7 @@ impl IOxSessionConfig {
             .with_query_planner(Arc::new(IOxQueryPlanner {}));
 
         let state = register_selector_aggregates(state);
+        let state = register_wasm_udfs(state);
 
         let inner = SessionContext::with_state(state);
 
