@@ -1,7 +1,10 @@
-use std::sync::Arc;
+use std::{
+    ops::DerefMut,
+    sync::{Arc, Mutex},
+};
 
 use arrow::{
-    array::{ArrayRef, Float32Builder, Float64Builder, Int32Builder, Int64Builder, Float64Array},
+    array::{ArrayRef, Float32Builder, Float64Builder, Int32Builder, Int64Builder},
     compute::kernels::aggregate,
     datatypes::DataType,
 };
@@ -19,18 +22,18 @@ use datafusion::{
 };
 use observability_deps::tracing::debug;
 use once_cell::sync::Lazy;
-use wasmtime::{Engine, Func, Instance, Linker, Module, Store, TypedFunc, Val, ValType};
+use wasmtime::{Engine, ExternType, Func, Linker, Memory, Module, Store, TypedFunc, Val, ValType};
 
 /// registers WASM functions so they can be invoked via SQL
 pub fn register_wasm_udfs(mut state: SessionState) -> SessionState {
     // TODO: Currently we are compiling the module with each request, we should cache or otherwise
     // optimize this to align with expected usage patterns
-    use wasmtime::*;
     let engine = WASM_ENGINE.clone();
     let module = Module::from_file(
         engine.as_ref(),
         // Hardcode for demo location of WASM scalar library
         "./target/wasm32-unknown-unknown/release/wasm_demo.wasm",
+        //"./target/wasm32-unknown-unknown/release/wasm_demo.wat",
     )
     .unwrap();
 
@@ -42,6 +45,7 @@ pub fn register_wasm_udfs(mut state: SessionState) -> SessionState {
         .collect();
 
     let udfs = find_udfs(&names);
+    debug!("udfs: {:?}", udfs);
 
     for udf in udfs {
         match udf {
@@ -78,7 +82,7 @@ pub fn register_wasm_udfs(mut state: SessionState) -> SessionState {
                 debug!("found module aggregate export {}", name);
                 state
                     .aggregate_functions
-                    .insert("wasm_mean".to_string(), build_wasm_uda());
+                    .insert(name.clone(), build_wasm_uda(name, module.clone()));
             }
         }
     }
@@ -86,11 +90,12 @@ pub fn register_wasm_udfs(mut state: SessionState) -> SessionState {
     // Add aggregate UDAs
     state
         .aggregate_functions
-        .insert("native_mean".to_string(), build_mean_uda());
+        .insert("mean_native".to_string(), build_mean_uda());
 
     state
 }
 
+#[derive(Debug)]
 enum UDF {
     Scalar(String),
     Aggregate(String),
@@ -99,11 +104,21 @@ enum UDF {
 fn find_udfs(names: &[&str]) -> Vec<UDF> {
     let mut udfs = Vec::with_capacity(names.len());
     let mut all_agg_names = Vec::with_capacity(names.len());
+    all_agg_names.push("allocate".to_string());
+    all_agg_names.push("deallocate".to_string());
     // Look for aggregate function collections
     for n in names {
         if let Some(agg_prefix) = n.strip_suffix("_new") {
             let agg_prefix = agg_prefix.to_string();
-            let mut agg_names = vec![agg_prefix + "_state", agg_prefix + "_update"];
+            let mut agg_names = vec![
+                agg_prefix.clone() + "_new",
+                agg_prefix.clone() + "_drop",
+                agg_prefix.clone() + "_state",
+                agg_prefix.clone() + "_update",
+                agg_prefix.clone() + "_merge",
+                agg_prefix.clone() + "_evaluate",
+                agg_prefix.clone() + "_size",
+            ];
             if agg_names
                 .iter()
                 .all(|agg_name| names.iter().any(|n| n == agg_name))
@@ -133,24 +148,25 @@ fn build_mean_uda() -> Arc<AggregateUDF> {
     let accumulator: AccumulatorFunctionImplementation =
         Arc::new(|_types| Ok(Box::new(MeanAccumulator::default())));
     let state_type_func: StateTypeFunction =
-        Arc::new(|_types| Ok(Arc::new(vec![DataType::Float64, DataType::Float64])));
+        Arc::new(|_types| Ok(Arc::new(vec![DataType::Float64])));
     Arc::new(AggregateUDF::new(
-        "wasm_native_mean",
+        "mean_native",
         &signature,
         &return_type_func,
         &accumulator,
         &state_type_func,
     ))
 }
-fn build_wasm_uda() -> Arc<AggregateUDF> {
+
+fn build_wasm_uda(name: String, module: Module) -> Arc<AggregateUDF> {
     let signature = Signature::exact(vec![DataType::Float64], Volatility::Stable);
     let return_type_func: ReturnTypeFunction = Arc::new(|_types| Ok(Arc::new(DataType::Float64)));
     let accumulator: AccumulatorFunctionImplementation =
-        Arc::new(|_types| Ok(Box::new(MeanAccumulator::default())));
+        Arc::new(move |_types| Ok(Box::new(WASMAccumulator::new(name.clone(), module.clone()))));
     let state_type_func: StateTypeFunction =
-        Arc::new(|_types| Ok(Arc::new(vec![DataType::Float64, DataType::Float64])));
+        Arc::new(|_types| Ok(Arc::new(vec![DataType::Float64])));
     Arc::new(AggregateUDF::new(
-        "wasm_native_mean",
+        "wasm_mean",
         &signature,
         &return_type_func,
         &accumulator,
@@ -443,10 +459,11 @@ struct MeanAccumulator {
 
 impl Accumulator for MeanAccumulator {
     fn state(&self) -> datafusion::error::Result<Vec<datafusion::logical_expr::AggregateState>> {
-        Ok(vec![
-            AggregateState::Scalar(ScalarValue::Float64(Some(self.count))),
-            AggregateState::Scalar(ScalarValue::Float64(Some(self.sum))),
-        ])
+        let mut builder = Float64Builder::with_capacity(2);
+        builder.append_value(self.count);
+        builder.append_value(self.sum);
+        let arr = Arc::new(builder.finish());
+        Ok(vec![AggregateState::Array(arr)])
     }
 
     fn update_batch(&mut self, values: &[ArrayRef]) -> datafusion::error::Result<()> {
@@ -461,12 +478,12 @@ impl Accumulator for MeanAccumulator {
     }
 
     fn merge_batch(&mut self, states: &[ArrayRef]) -> datafusion::error::Result<()> {
-        assert_eq!(states.len(), 2);
-        println!("merge states {:?}", states);
-        let count = as_float64_array(states[0].as_ref())?;
-        let sum = as_float64_array(states[1].as_ref())?;
-        self.count += count.value(0);
-        self.sum += sum.value(0);
+        assert_eq!(states.len(), 1);
+        for state in states {
+            let state = as_float64_array(state)?;
+            self.count += state.value(0);
+            self.sum += state.value(1);
+        }
         Ok(())
     }
 
@@ -484,58 +501,75 @@ impl Accumulator for MeanAccumulator {
     }
 }
 
-type StateFn = TypedFunc<(i32, i32), ()>;
+type DropFn = TypedFunc<i32, ()>;
+type StateFn = TypedFunc<(i32, i32, i32), ()>;
 type UpdateFn = TypedFunc<(i32, i32, i32), ()>;
 type MergeFn = TypedFunc<(i32, i32, i32), ()>;
 type EvaluateFn = TypedFunc<i32, f64>;
-type SizeFn = TypedFunc<i32, i64>;
+type SizeFn = TypedFunc<i32, i32>;
+type AllocateFn = TypedFunc<i32, i32>;
+type DeallocateFn = TypedFunc<(i32, i32), ()>;
 
 struct WASMAccumulator {
-    name: String,
     module: Module,
-    store: Store<()>,
+    store: Mutex<Store<()>>,
     ptr: i32,
+    memory: Memory,
+    drop_fn: DropFn,
     state_fn: StateFn,
     update_fn: UpdateFn,
     merge_fn: MergeFn,
     evaluate_fn: EvaluateFn,
     size_fn: SizeFn,
+    allocate_fn: AllocateFn,
+    deallocate_fn: DeallocateFn,
 }
 impl WASMAccumulator {
     fn new(name: String, module: Module) -> Self {
         let engine = WASM_ENGINE.clone();
         let linker: Linker<()> = Linker::new(engine.as_ref());
-        let store = Store::new(engine.as_ref(), ());
+        let mut store = Store::new(engine.as_ref(), ());
         let instance = linker.instantiate(&mut store, &module).unwrap();
+        let memory = instance.get_memory(&mut store, "memory").unwrap();
         let new = instance
-            .get_typed_func::<(), i32, _>(&mut store, &(name + "_new"))
+            .get_typed_func::<(), i32, _>(&mut store, &(name.clone() + "_new"))
             .unwrap();
         let ptr = new.call(&mut store, ()).unwrap();
+        let drop_fn = instance
+            .get_typed_func(&mut store, &(name.clone() + "_drop"))
+            .unwrap();
         let state_fn = instance
-            .get_typed_func(&mut store, &(name + "_state"))
+            .get_typed_func(&mut store, &(name.clone() + "_state"))
             .unwrap();
         let update_fn = instance
-            .get_typed_func(&mut store, &(name + "_update"))
+            .get_typed_func(&mut store, &(name.clone() + "_update"))
             .unwrap();
         let merge_fn = instance
-            .get_typed_func(&mut store, &(name + "_merge"))
+            .get_typed_func(&mut store, &(name.clone() + "_merge"))
             .unwrap();
         let evaluate_fn = instance
-            .get_typed_func(&mut store, &(name + "_evaluate"))
+            .get_typed_func(&mut store, &(name.clone() + "_evaluate"))
             .unwrap();
         let size_fn = instance
-            .get_typed_func(&mut store, &(name + "_size"))
+            .get_typed_func(&mut store, &(name.clone() + "_size"))
             .unwrap();
+        let allocate_fn = instance.get_typed_func(&mut store, "allocate").unwrap();
+        let deallocate_fn = instance.get_typed_func(&mut store, "deallocate").unwrap();
+        let store = Mutex::new(store);
+        debug!("wmean_new({})", ptr);
         Self {
-            name,
             module,
             store,
             ptr,
+            memory,
+            drop_fn,
             state_fn,
             update_fn,
             merge_fn,
             evaluate_fn,
             size_fn,
+            allocate_fn,
+            deallocate_fn,
         }
     }
 }
@@ -544,44 +578,133 @@ impl std::fmt::Debug for WASMAccumulator {
         write!(f, "wasm_module {:?}", self.module.name())
     }
 }
+impl Drop for WASMAccumulator {
+    fn drop(&mut self) {
+        debug!("wmean_drop({})", self.ptr);
+        let mut store = self.store.lock().unwrap();
+        self.drop_fn.call(store.deref_mut(), self.ptr).unwrap();
+    }
+}
 
 impl Accumulator for WASMAccumulator {
-    fn state(&self) -> datafusion::error::Result<Vec<datafusion::logical_expr::AggregateState>> {
+    //fn state(&self) -> datafusion::error::Result<Vec<datafusion::logical_expr::AggregateState>> {
+    //    let mut store = self.store.lock().unwrap();
+    //    let wasm_ptr = self.state_fn.call(store.deref_mut(), self.ptr).unwrap();
+    //    let size = self.size_fn.call(store.deref_mut(), self.ptr).unwrap();
 
-        Ok(AggregateState::Array(Float64Array::from()
+    //    let array = unsafe {
+    //        let raw_ptr = self.memory.data_ptr(store.deref_mut());
+    //        let ptr = NonNull::new_unchecked(raw_ptr.add(wasm_ptr as usize) as *mut u8);
+    //        // Defer ownership of the buffer memory since we do not want it to release the memory
+    //        let allocation = Arc::new(());
+    //        let buffer = Buffer::from_custom_allocation(ptr, size as usize, allocation.clone());
+    //        let data = ArrayData::new_unchecked(
+    //            DataType::Float64,
+    //            (size / 8) as usize,
+    //            None,
+    //            None,
+    //            0,
+    //            vec![buffer],
+    //            Vec::new(),
+    //        );
+    //        make_array(data)
+    //    };
+    //    // TODO we need to free/drop the array later
+    //    let arr = Arc::new(array);
+    //    println!("state array: {:?}", arr);
+    //    Ok(vec![AggregateState::Array(arr)])
+    //}
+    fn state(&self) -> datafusion::error::Result<Vec<datafusion::logical_expr::AggregateState>> {
+        let mut store = self.store.lock().unwrap();
+
+        // TODO Create a mutable arrow buffer from a pointer on the WASM side.
+        let len = 16;
+        let ptr = self.allocate_fn.call(store.deref_mut(), len).unwrap() as usize;
+        self.state_fn
+            .call(store.deref_mut(), (self.ptr, ptr as i32, ptr as i32 + 8))
+            .unwrap();
+
+        let mut bits: [u8; 8] = [0, 0, 0, 0, 0, 0, 0, 0];
+        bits.copy_from_slice(&self.memory.data(store.deref_mut())[ptr..ptr + 8]);
+        let count = f64::from_le_bytes(bits);
+        bits.copy_from_slice(&self.memory.data(store.deref_mut())[ptr + 8..ptr + 16]);
+        let sum = f64::from_le_bytes(bits);
+        self.deallocate_fn
+            .call(store.deref_mut(), (ptr as i32, len))
+            .unwrap();
+
+        let mut builder = Float64Builder::with_capacity(2);
+        builder.append_value(count);
+        builder.append_value(sum);
+        let arr = Arc::new(builder.finish());
+        debug!("state({}): {:?}", self.ptr, arr);
+        Ok(vec![AggregateState::Array(arr)])
     }
 
     fn update_batch(&mut self, values: &[ArrayRef]) -> datafusion::error::Result<()> {
         assert_eq!(1, values.len()); // we should only ever have one input array
+        let mut store = self.store.lock().unwrap();
         let values = values[0].as_ref();
-        let data = as_float64_array(values)?;
-        self.count += (values.len() - values.null_count()) as f64;
-        if let Some(sum) = aggregate::sum(data) {
-            self.sum += sum;
-        }
+        debug!("update_batch({}): {:?}", self.ptr, values);
+        let array = as_float64_array(values).unwrap();
+        // Using the buffer API had a bug, so do this transmute manually
+        let (l, bytes, r) = unsafe { array.values().align_to::<u8>() };
+        // If these assertions fail the data is not aligned
+        assert!(l.is_empty());
+        assert!(r.is_empty());
+        let len = bytes.len();
+        let ptr = self
+            .allocate_fn
+            .call(store.deref_mut(), len as i32)
+            .unwrap() as usize;
+        self.memory.data_mut(store.deref_mut())[ptr..ptr + len].copy_from_slice(bytes);
+        self.update_fn
+            .call(store.deref_mut(), (self.ptr, ptr as i32, len as i32))
+            .unwrap();
+        self.deallocate_fn
+            .call(store.deref_mut(), (ptr as i32, len as i32))
+            .unwrap();
         Ok(())
     }
 
     fn merge_batch(&mut self, states: &[ArrayRef]) -> datafusion::error::Result<()> {
-        assert_eq!(states.len(), 2);
-        println!("merge states {:?}", states);
-        let count = as_float64_array(states[0].as_ref())?;
-        let sum = as_float64_array(states[1].as_ref())?;
-        self.count += count.value(0);
-        self.sum += sum.value(0);
+        assert_eq!(states.len(), 1);
+        let mut store = self.store.lock().unwrap();
+        for state in states {
+            debug!("merge_batch({}): {:?}", self.ptr, state);
+            let array = as_float64_array(state).unwrap();
+            // Using the buffer API had a bug, so do this transmute manually
+            let (l, bytes, r) = unsafe { array.values().align_to::<u8>() };
+            // If these assertions fail the data is not aligned
+            assert!(l.is_empty());
+            assert!(r.is_empty());
+            let len = bytes.len();
+            let ptr = self
+                .allocate_fn
+                .call(store.deref_mut(), len as i32)
+                .unwrap() as usize;
+            self.memory.data_mut(store.deref_mut())[ptr..ptr + len].copy_from_slice(bytes);
+            self.merge_fn
+                .call(store.deref_mut(), (self.ptr, ptr as i32, len as i32))
+                .unwrap();
+            self.deallocate_fn
+                .call(store.deref_mut(), (ptr as i32, len as i32))
+                .unwrap();
+        }
         Ok(())
     }
 
     fn evaluate(&self) -> datafusion::error::Result<ScalarValue> {
-        if self.count > 0.0 {
-            Ok(ScalarValue::Float64(Some(self.sum / self.count)))
-        } else {
-            Ok(ScalarValue::Float64(None))
-        }
+        let mut store = self.store.lock().unwrap();
+        let v = self.evaluate_fn.call(store.deref_mut(), self.ptr).unwrap();
+        debug!("evaluate({}): {:?}", self.ptr, v);
+        Ok(ScalarValue::Float64(Some(v)))
     }
 
     fn size(&self) -> usize {
-        // Two f64s
-        16
+        let mut store = self.store.lock().unwrap();
+        let size = self.size_fn.call(store.deref_mut(), self.ptr).unwrap() as usize;
+        debug!("size({}): {:?}", self.ptr, size);
+        size
     }
 }

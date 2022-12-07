@@ -1,79 +1,107 @@
-use wasm_bindgen::prelude::*;
+use std::{ffi::c_void, mem, ptr::NonNull, sync::Arc};
 
-//#[wasm_bindgen(module = "host")]
-//extern "C" {
-//    fn more() -> i32;
-//    fn next() -> f32;
-//    fn append(v: f32);
-//}
+use arrow::{
+    alloc::Allocation,
+    array::{as_primitive_array, make_array, Array, ArrayData, ArrayRef, Float64Array},
+    buffer::Buffer,
+    compute::kernels::aggregate,
+    datatypes::DataType,
+};
 
-#[wasm_bindgen]
-pub fn wasm_mul(a: f64, b: f64) -> f64 {
+/// Allocate a range of memory in the WASM memory space
+#[no_mangle]
+pub extern "C" fn allocate(size: usize) -> *mut c_void {
+    let mut buffer = Vec::with_capacity(size);
+    let pointer = buffer.as_mut_ptr();
+    mem::forget(buffer);
+
+    pointer as *mut c_void
+}
+
+/// Deallocate a range of memory in the WASM memory space
+#[no_mangle]
+pub extern "C" fn deallocate(pointer: *mut c_void, capacity: usize) {
+    unsafe {
+        let _ = Vec::from_raw_parts(pointer, 0, capacity);
+    }
+}
+
+#[no_mangle]
+pub extern "C" fn wasm_mul(a: f64, b: f64) -> f64 {
     a * b
 }
 
-#[wasm_bindgen]
-pub struct Mean {
-    state: Vec<f64>,
+#[repr(C)]
+pub struct WMean {
+    count: f64,
+    sum: f64,
 }
 
-#[wasm_bindgen]
-impl Mean {
-    pub fn new() -> Self {
-        Self {
-            state: vec![0.0, 0.0],
+impl WMean {
+    #[no_mangle]
+    pub extern "C" fn wmean_new() -> *mut WMean {
+        let wmean = Box::new(Self {
+            count: 0.0,
+            sum: 0.0,
+        });
+        Box::into_raw(wmean)
+    }
+    #[no_mangle]
+    pub extern "C" fn wmean_drop(wmean: *mut WMean) {
+        unsafe {
+            let _ = Box::from_raw(wmean);
         }
     }
-    pub fn state(&self) -> Vec<f64> {
-        self.state.clone()
-    }
-    pub fn update(&mut self, values: Vec<f64>) {
-        self.state[0] += values.len() as f64;
-        for v in values {
-            self.state[1] += v
+    #[no_mangle]
+    pub extern "C" fn wmean_state(&self, out_count: i32, out_sum: i32) {
+        unsafe {
+            *(out_count as *mut f64) = self.count;
+            *(out_sum as *mut f64) = self.sum;
         }
     }
-    pub fn merge(&mut self, state: Vec<f64>) {
-        self.state[0] += state[0];
-        self.state[1] += state[1];
+    #[no_mangle]
+    pub extern "C" fn wmean_update(&mut self, values_ptr: i32, values_size: i32) {
+        // Defer ownership of the buffer memory since we do not want it to release the memory
+        let allocation = Arc::new(());
+        let array = to_array(values_ptr, values_size, allocation.clone());
+        let values: &Float64Array = as_primitive_array(&array);
+        self.count += (values.len() - values.null_count()) as f64;
+        if let Some(sum) = aggregate::sum(values) {
+            self.sum += sum;
+        }
     }
-    pub fn evaluate(&self) -> f64 {
-        self.state[1] / self.state[0]
+    #[no_mangle]
+    pub extern "C" fn wmean_merge(&mut self, ptr: i32, size: i32) {
+        // Defer ownership of the buffer memory since we do not want it to release the memory
+        let allocation = Arc::new(());
+        let array = to_array(ptr, size, allocation.clone());
+        let values: &Float64Array = as_primitive_array(&array);
+        self.count += values.value(0);
+        self.sum += values.value(1);
     }
-    pub fn size(&self) -> i64 {
+    #[no_mangle]
+    pub extern "C" fn wmean_evaluate(&self) -> f64 {
+        self.sum / self.count
+    }
+    #[no_mangle]
+    pub extern "C" fn wmean_size(&self) -> i32 {
         16
     }
 }
 
-#[wasm_bindgen]
-pub struct Stddev {
-    state: Vec<f64>,
-}
-
-#[wasm_bindgen]
-impl Stddev {
-    pub fn new() -> Self {
-        Self {
-            state: vec![0.0, 0.0, 0.0],
-        }
-    }
-    pub fn state(&self) -> Vec<f64> {
-        self.state.clone()
-    }
-    pub fn update(&mut self, values: Vec<f64>) {
-        self.state[0] += values.len() as f64;
-        for v in values {
-            self.state[1] += v
-        }
-    }
-    pub fn merge(&mut self, state: Vec<f64>) {
-        self.state[0] += state[0];
-        self.state[1] += state[1];
-    }
-    pub fn evaluate(&self) -> f64 {
-        self.state[1] / self.state[0]
-    }
-    pub fn size(&self) -> i64 {
-        24
+fn to_array(raw_ptr: i32, size: i32, allocation: Arc<dyn Allocation>) -> ArrayRef {
+    unsafe {
+        let ptr = NonNull::new_unchecked(raw_ptr as *mut u8);
+        let buffer = Buffer::from_custom_allocation(ptr, size as usize, allocation);
+        let data = ArrayData::new_unchecked(
+            DataType::Float64,
+            (size / 8) as usize,
+            None,
+            None,
+            0,
+            vec![buffer],
+            Vec::new(),
+        );
+        make_array(data)
     }
 }

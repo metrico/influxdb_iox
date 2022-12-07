@@ -7,4 +7,4 @@ edition = "2021"
 crate-type = ['cdylib']
 
 [dependencies]
-arrow = { version = "27.0", default-features = false, features = [] }
+arrow = { version = "27.0.0", default-features = false, features = [] }
