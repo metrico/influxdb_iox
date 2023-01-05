@@ -255,6 +255,16 @@ macro_rules! gen_compactor_config {
                 action
             )]
             pub warm_compaction_min_small_file_count: usize,
+
+            /// Partititons with files created later this threshold will be considered for compaction
+            /// This is number of hours ago
+            #[clap(
+                long = "compaction-num-hours-for-recent-threshold",
+                env = "INFLUXDB_IOX_COMPACTION_NUM_HOURS_FOR_RECENT_THRESHOLD",
+                default_value = "4",
+                action
+            )]
+            pub num_hours_for_recent_threshold: u64,
         }
     };
 }
@@ -290,6 +300,7 @@ impl CompactorOnceConfig {
             max_parallel_partitions: self.max_parallel_partitions,
             warm_compaction_small_size_threshold_bytes: self.warm_compaction_small_size_threshold_bytes,
             warm_compaction_min_small_file_count: self.warm_compaction_min_small_file_count,
+            num_hours_for_recent_threshold: self.num_hours_for_recent_threshold,
         }
     }
 }

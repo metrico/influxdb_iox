@@ -13,6 +13,24 @@ use metric::Attributes;
 use observability_deps::tracing::*;
 use std::sync::Arc;
 
+// /// Hot compaction. Returns the number of compacted partitions.
+// pub async fn compact_new(compactor: Arc<Compactor>) -> usize {
+//     let compaction_type = "hot";
+
+    
+
+//     let n_candidates = parittion_candidates.len();
+//     if n_candidates == 0 {
+//         debug!(compaction_type, "no compaction candidates found");
+//         return 0;
+//     } else {
+//         debug!(n_candidates, compaction_type, "found compaction candidates");
+//     }
+
+//     10
+// }
+
+// todo: remove this function
 /// Hot compaction. Returns the number of compacted partitions.
 pub async fn compact(compactor: Arc<Compactor>) -> usize {
     let compaction_type = "hot";
@@ -59,6 +77,7 @@ pub async fn compact(compactor: Arc<Compactor>) -> usize {
     n_candidates
 }
 
+// todo: remove this function
 /// Return a list of the most recent highest ingested throughput partitions.
 /// The highest throughput partitions are prioritized as follows:
 ///  1. If there are partitions with new ingested files within the last 4 hours (the default, but
@@ -713,6 +732,7 @@ mod tests {
             max_parallel_partitions: DEFAULT_MAX_PARALLEL_PARTITIONS,
             warm_compaction_small_size_threshold_bytes: 5_000,
             warm_compaction_min_small_file_count: 10,
+            num_hours_for_recent_threshold: 4,
         };
         let compactor = Arc::new(Compactor::new(
             ShardAssignment::Only(vec![shard1.shard.id, shard2.shard.id]),

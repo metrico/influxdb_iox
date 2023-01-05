@@ -36,7 +36,143 @@ use data_types::{CompactionLevel, PartitionId};
 use metric::Attributes;
 use observability_deps::tracing::*;
 use snafu::{ResultExt, Snafu};
+use utils::get_candidates_with_retry;
 use std::{collections::VecDeque, sync::Arc};
+
+async fn partittion_candidates(
+    compactor: Arc<Compactor>,
+    compaction_type: &'static str,
+) -> Vec<Arc<PartitionCompactionCandidateWithInfo>> {
+    // get partititons of recently created files
+    // let time_in_the_pass = Timestamp::from(compactor.time_provider().hours_ago(compactor.config.num_hours_for_recent_threshold));
+
+    let candidates = get_candidates_with_retry(
+        Arc::clone(&compactor),
+        compaction_type,
+        |compactor_for_retry| async move { partitions_to_compact(compactor_for_retry, compaction_type).await },
+    )
+    .await;
+
+    let n_candidates = candidates.len();
+    if n_candidates == 0 {
+        debug!(compaction_type, "no compaction candidates found");
+        return vec![];
+    } else {
+        debug!(n_candidates, compaction_type, "found compaction candidates");
+    }
+
+   candidates
+}
+
+pub(crate) async fn partitions_to_compact(
+    compactor: Arc<Compactor>,
+    compaction_type: &'static str,
+) -> Result<Vec<Arc<PartitionCompactionCandidateWithInfo>>, compact::Error> {
+
+
+
+    let min_number_recent_ingested_files_per_partition = compactor
+        .config
+        .min_number_recent_ingested_files_per_partition;
+    let max_number_partitions_per_shard = compactor.config.max_number_partitions_per_shard;
+    let mut candidates =
+        Vec::with_capacity(compactor.shards.len() * max_number_partitions_per_shard);
+
+    // Get the most recent highest ingested throughput partitions within the last 4 hours. If not,
+    // increase to 24 hours.
+    let query_times = query_times(
+        compactor.time_provider(),
+        compactor.config.hot_compaction_hours_threshold_1,
+        compactor.config.hot_compaction_hours_threshold_2,
+    );
+
+    match &compactor.shards {
+        ShardAssignment::All => {
+            let mut partitions = hot_partitions_for_shard(
+                Arc::clone(&compactor.catalog),
+                None,
+                &query_times,
+                min_number_recent_ingested_files_per_partition,
+                max_number_partitions_per_shard,
+            )
+            .await?;
+
+            // Record metric for candidates
+            let num_partitions = partitions.len();
+            debug!(n = num_partitions, compaction_type, "compaction candidates",);
+            let attributes = Attributes::from([("partition_type", compaction_type.into())]);
+            let number_gauge = compactor.compaction_candidate_gauge.recorder(attributes);
+            number_gauge.set(num_partitions as u64);
+
+            candidates.append(&mut partitions);
+        }
+        ShardAssignment::Only(shards) => {
+            for &shard_id in shards {
+                let mut partitions = hot_partitions_for_shard(
+                    Arc::clone(&compactor.catalog),
+                    Some(shard_id),
+                    &query_times,
+                    min_number_recent_ingested_files_per_partition,
+                    max_number_partitions_per_shard,
+                )
+                .await?;
+
+                // Record metric for candidates per shard
+                let num_partitions = partitions.len();
+                debug!(
+                    shard_id = shard_id.get(),
+                    n = num_partitions,
+                    compaction_type,
+                    "compaction candidates",
+                );
+                let attributes = Attributes::from([
+                    ("shard_id", format!("{}", shard_id).into()),
+                    ("partition_type", compaction_type.into()),
+                ]);
+                let number_gauge = compactor.compaction_candidate_gauge.recorder(attributes);
+                number_gauge.set(num_partitions as u64);
+
+                candidates.append(&mut partitions);
+            }
+        }
+    }
+
+    // Get extra needed information for selected partitions
+    let start_time = compactor.time_provider.now();
+
+    // Column types and their counts of the tables of the partition candidates
+    debug!(
+        num_candidates=?candidates.len(),
+        compaction_type,
+        "start getting column types for the partition candidates"
+    );
+    let table_columns = compactor.table_columns(&candidates).await?;
+
+    // Add other compaction-needed info into selected partitions
+    debug!(
+        num_candidates=?candidates.len(),
+        compaction_type,
+        "start getting additional info for the partition candidates"
+    );
+    let candidates = compactor
+        .add_info_to_partitions(&candidates, &table_columns)
+        .await?;
+
+    if let Some(delta) = compactor
+        .time_provider
+        .now()
+        .checked_duration_since(start_time)
+    {
+        let attributes = Attributes::from(&[("partition_type", compaction_type)]);
+        let duration = compactor
+            .partitions_extra_info_reading_duration
+            .recorder(attributes);
+        duration.record(delta);
+    }
+
+    Ok(candidates)
+}
+
 
 // For a given list of partition candidates and a memory budget, estimate memory needed to compact
 // each partition candidate and compact as many of them in parallel as possible until all
@@ -604,6 +740,7 @@ pub mod tests {
             max_parallel_partitions: max_parallel_jobs,
             warm_compaction_small_size_threshold_bytes: 50_000_000,
             warm_compaction_min_small_file_count: 10,
+            num_hours_for_recent_threshold: 4,
         }
     }
 
@@ -920,6 +1057,7 @@ pub mod tests {
             max_parallel_partitions: DEFAULT_MAX_PARALLEL_PARTITIONS,
             warm_compaction_small_size_threshold_bytes: 5_000,
             warm_compaction_min_small_file_count: 10,
+            num_hours_for_recent_threshold: 4,
         };
 
         let metrics = Arc::new(metric::Registry::new());

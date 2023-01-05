@@ -462,6 +462,7 @@ impl Config {
             max_parallel_partitions: 20,
             warm_compaction_small_size_threshold_bytes: 15_000,
             warm_compaction_min_small_file_count: 10,
+            num_hours_for_recent_threshold: 4,
         };
 
         let querier_config = QuerierConfig {

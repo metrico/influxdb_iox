@@ -191,6 +191,10 @@ pub struct CompactorConfig {
     /// Minimum number of small files a partition must have in order for it to be selected
     /// as a candidate for warm compaction.
     pub warm_compaction_min_small_file_count: usize,
+
+    /// Partititons with files created later this threshold will be considered for compaction
+    /// This is number of hours ago
+    pub num_hours_for_recent_threshold: u64,
 }
 
 /// How long to pause before checking for more work again if there was

@@ -480,6 +480,7 @@ mod tests {
             max_parallel_partitions: 20,
             warm_compaction_small_size_threshold_bytes,
             warm_compaction_min_small_file_count,
+            num_hours_for_recent_threshold: 4,
         }
     }
 

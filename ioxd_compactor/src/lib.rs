@@ -214,6 +214,7 @@ pub async fn build_compactor2_from_config(
         max_parallel_partitions,
         warm_compaction_small_size_threshold_bytes,
         warm_compaction_min_small_file_count,
+        num_hours_for_recent_threshold,
     } = compactor_config;
 
     let compactor_config = compactor::handler::CompactorConfig {
@@ -234,6 +235,7 @@ pub async fn build_compactor2_from_config(
         max_parallel_partitions,
         warm_compaction_small_size_threshold_bytes,
         warm_compaction_min_small_file_count,
+        num_hours_for_recent_threshold,
     };
     // 4. END
 
@@ -357,6 +359,7 @@ pub async fn build_compactor_from_config(
         max_parallel_partitions,
         warm_compaction_small_size_threshold_bytes,
         warm_compaction_min_small_file_count,
+        num_hours_for_recent_threshold,
         ..
     } = compactor_config;
 
@@ -378,6 +381,7 @@ pub async fn build_compactor_from_config(
         max_parallel_partitions,
         warm_compaction_small_size_threshold_bytes,
         warm_compaction_min_small_file_count,
+        num_hours_for_recent_threshold,
     };
     // 4. END
 
