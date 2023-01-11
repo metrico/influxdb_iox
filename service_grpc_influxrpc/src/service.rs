@@ -385,158 +385,28 @@ where
     }
 
     type ReadGroupStream =
-        StreamWithPermit<QueryCompletedTokenStream<ChunkReadResponses, ReadResponse, Status>>;
+        BoxStream<'static, Result<ReadResponse, Status>>;
 
     async fn read_group(
         &self,
-        req: tonic::Request<ReadGroupRequest>,
+        _req: tonic::Request<ReadGroupRequest>,
     ) -> Result<Response<Self::ReadGroupStream>, Status> {
-        let external_span_ctx: Option<RequestLogContext> = req.extensions().get().cloned();
-        let span_ctx: Option<SpanContext> = req.extensions().get().cloned();
-        let req = req.into_inner();
-        let permit = self
-            .db_store
-            .acquire_semaphore(span_ctx.child_span("query rate limit semaphore"))
-            .await;
-
-        let db_name = get_namespace_name(&req)?;
-
-        info!(
-            %db_name,
-            ?req.range,
-            ?req.group_keys,
-            ?req.group,
-            ?req.aggregate,
-            predicate=%req.predicate.loggable(),
-            trace=%external_span_ctx.format_jaeger(),
-            "read_group",
-        );
-
-        let db = self
-            .db_store
-            .db(&db_name, span_ctx.child_span("get namespace"))
-            .await
-            .context(NamespaceNotFoundSnafu { db_name: &db_name })?;
-
-        let ctx = db.new_query_context(span_ctx);
-        let query_completed_token = db.record_query(&ctx, "read_group", defer_json(&req));
-
-        let ReadGroupRequest {
-            read_source: _read_source,
-            range,
-            predicate,
-            group_keys,
-            group,
-            aggregate,
-        } = req;
-
-        let aggregate_string = format!(
-            "aggregate: {:?}, group: {:?}, group_keys: {:?}",
-            aggregate, group, group_keys
-        );
-
-        let group = expr::convert_group_type(group).context(ConvertingReadGroupTypeSnafu {
-            aggregate_string: &aggregate_string,
-        })?;
-
-        let gby_agg = expr::make_read_group_aggregate(aggregate, group, group_keys)
-            .context(ConvertingReadGroupAggregateSnafu { aggregate_string })?;
-
-        let frames = query_group_impl(
-            Arc::clone(&db),
-            db_name,
-            range,
-            predicate,
-            gby_agg,
-            TagKeyMetaNames::Text,
-            &ctx,
-        )
-        .await
-        .map_err(|e| e.into_status())?
-        .map_err(|e| e.into_status());
-
-        make_response(
-            ChunkReadResponses::new(frames, MAX_READ_RESPONSE_SIZE),
-            query_completed_token,
-            permit,
-        )
+        todo!()
     }
 
     type ReadWindowAggregateStream =
-        StreamWithPermit<QueryCompletedTokenStream<ChunkReadResponses, ReadResponse, Status>>;
+        BoxStream<'static, Result<ReadResponse, Status>>;
 
     async fn read_window_aggregate(
         &self,
-        req: tonic::Request<ReadWindowAggregateRequest>,
+        _req: tonic::Request<ReadWindowAggregateRequest>,
     ) -> Result<Response<Self::ReadGroupStream>, Status> {
-        let external_span_ctx: Option<RequestLogContext> = req.extensions().get().cloned();
-        let span_ctx: Option<SpanContext> = req.extensions().get().cloned();
-        let req = req.into_inner();
-        let permit = self
-            .db_store
-            .acquire_semaphore(span_ctx.child_span("query rate limit semaphore"))
-            .await;
+        let stream = futures::stream::unfold((), |_| async move {
+            std::thread::sleep(std::time::Duration::from_secs(10_000));
+            Some((Ok(ReadResponse{frames: vec![]}), ()))
+        }).boxed();
 
-        let db_name = get_namespace_name(&req)?;
-        info!(
-            %db_name,
-            ?req.range,
-            ?req.window_every,
-            ?req.offset,
-            ?req.aggregate,
-            ?req.window,
-            predicate=%req.predicate.loggable(),
-            trace=%external_span_ctx.format_jaeger(),
-            "read_window_aggregate",
-        );
-
-        let db = self
-            .db_store
-            .db(&db_name, span_ctx.child_span("get namespace"))
-            .await
-            .context(NamespaceNotFoundSnafu { db_name: &db_name })?;
-
-        let ctx = db.new_query_context(span_ctx);
-        let query_completed_token =
-            db.record_query(&ctx, "read_window_aggregate", defer_json(&req));
-
-        let ReadWindowAggregateRequest {
-            read_source: _read_source,
-            range,
-            predicate,
-            window_every,
-            offset,
-            aggregate,
-            window,
-            tag_key_meta_names,
-        } = req;
-
-        let aggregate_string = format!(
-            "aggregate: {:?}, window_every: {:?}, offset: {:?}, window: {:?}",
-            aggregate, window_every, offset, window
-        );
-
-        let gby_agg = expr::make_read_window_aggregate(aggregate, window_every, offset, window)
-            .context(ConvertingWindowAggregateSnafu { aggregate_string })?;
-
-        let frames = query_group_impl(
-            Arc::clone(&db),
-            db_name,
-            range,
-            predicate,
-            gby_agg,
-            TagKeyMetaNames::from_i32(tag_key_meta_names).unwrap_or_default(),
-            &ctx,
-        )
-        .await
-        .map_err(|e| e.into_status())?
-        .map_err(|e| e.into_status());
-
-        make_response(
-            ChunkReadResponses::new(frames, MAX_READ_RESPONSE_SIZE),
-            query_completed_token,
-            permit,
-        )
+        Ok(Response::new(stream))
     }
 
     type TagKeysStream = StreamWithPermit<
