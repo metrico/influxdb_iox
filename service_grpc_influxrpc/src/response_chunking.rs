@@ -65,7 +65,7 @@ impl Stream for ChunkReadResponses {
                         this.frames_size = fsize;
                         let mut tmp = vec![frame];
                         std::mem::swap(&mut tmp, &mut this.frames);
-                        return Poll::Ready(Some(Ok(ReadResponse { frames: tmp })));
+                        return Poll::Ready(Some(Ok(ReadResponse { frames: vec![] })));
                     }
 
                     this.frames.push(frame);
@@ -81,7 +81,7 @@ impl Stream for ChunkReadResponses {
                     if !this.frames.is_empty() {
                         this.frames_size = 0;
                         return Poll::Ready(Some(Ok(ReadResponse {
-                            frames: std::mem::take(&mut this.frames),
+                            frames: vec![],
                         })));
                     } else {
                         return Poll::Ready(None);
