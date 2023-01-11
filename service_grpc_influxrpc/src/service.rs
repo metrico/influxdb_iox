@@ -401,10 +401,9 @@ where
         &self,
         _req: tonic::Request<ReadWindowAggregateRequest>,
     ) -> Result<Response<Self::ReadGroupStream>, Status> {
-        let stream = futures::stream::unfold((), |_| async move {
-            std::thread::sleep(std::time::Duration::from_secs(10_000));
-            Some((Ok(ReadResponse{frames: vec![]}), ()))
-        }).boxed();
+        std::thread::sleep(std::time::Duration::from_secs(10_000));
+
+        let stream = futures::stream::empty().boxed();
 
         Ok(Response::new(stream))
     }
