@@ -9,7 +9,7 @@ use mutable_batch::writer;
 use mutable_batch_pb::decode::decode_database_batch;
 use observability_deps::tracing::*;
 use thiserror::Error;
-use tonic::{Code, Request, Response};
+use tonic::{Code, Request, Response, Status};
 use uuid::Uuid;
 
 use crate::{BufferError, ReplicationBuffer};
@@ -68,6 +68,11 @@ impl From<BufferError> for tonic::Status {
     fn from(e: BufferError) -> Self {
         match e {
             BufferError::MutableBatch(e) => map_write_error(e),
+            BufferError::SchemaCache(_) => Self::internal(e.to_string()),
+            BufferError::ColumnNotFound { .. } => Self::internal(e.to_string()),
+            BufferError::ColumnTypeMismatch { .. } => Self::internal(e.to_string()),
+            BufferError::UnresolvableSchema { .. } => Self::invalid_argument(e.to_string()),
+            BufferError::Arrow(_) => Self::internal(e.to_string()),
         }
     }
 }
@@ -78,7 +83,6 @@ impl From<BufferError> for tonic::Status {
 /// error additions cause a compilation failure, and therefore require the new
 /// error to be explicitly mapped to a gRPC status code.
 fn map_write_error(e: mutable_batch::Error) -> tonic::Status {
-    use tonic::Status;
     match e {
         mutable_batch::Error::ColumnError { .. }
         | mutable_batch::Error::ArrowError { .. }
@@ -156,7 +160,13 @@ impl<B: ReplicationBuffer + 'static> ReplicationService for ReplicationServer<B>
 
         match self
             .buffer
-            .apply_write(namespace_id, batches, ingester_id, sequence_number)
+            .apply_write(
+                namespace_id,
+                partition_key,
+                batches,
+                ingester_id,
+                sequence_number,
+            )
             .await
         {
             Ok(()) => {}

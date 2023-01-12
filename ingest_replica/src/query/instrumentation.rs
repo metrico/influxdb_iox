@@ -21,6 +21,9 @@ pub(crate) struct QueryExecInstrumentation<T, P = SystemProvider> {
 
     /// Query execution duration distribution for "not found" errors
     query_duration_error_not_found: DurationHistogram,
+
+    /// Query execution duration for internal errors
+    query_duration_error_internal: DurationHistogram,
 }
 
 impl<T> QueryExecInstrumentation<T> {
@@ -34,11 +37,15 @@ impl<T> QueryExecInstrumentation<T> {
         let query_duration_error_not_found =
             query_duration.recorder(&[("result", "error"), ("reason", "not_found")]);
 
+        let query_duration_error_internal =
+            query_duration.recorder(&[("result", "error"), ("reason", "internal")]);
+
         Self {
             inner,
             time_provider: Default::default(),
             query_duration_success,
             query_duration_error_not_found,
+            query_duration_error_internal,
         }
     }
 }
@@ -71,6 +78,9 @@ where
                 Ok(_) => self.query_duration_success.record(delta),
                 Err(QueryError::TableNotFound { .. } | QueryError::NamespaceNotFound { .. }) => {
                     self.query_duration_error_not_found.record(delta)
+                }
+                Err(QueryError::Buffer(_) | QueryError::Cache(_)) => {
+                    self.query_duration_error_internal.record(delta)
                 }
             };
         }

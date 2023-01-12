@@ -50,6 +50,7 @@ impl From<QueryError> for tonic::Status {
 
         let code = match e {
             QueryError::TableNotFound(_, _) | QueryError::NamespaceNotFound(_) => Code::NotFound,
+            QueryError::Cache(_) | QueryError::Buffer(_) => Code::Internal,
         };
 
         Self::new(code, e.to_string())

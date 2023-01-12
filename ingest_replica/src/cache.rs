@@ -81,6 +81,8 @@ impl SchemaCache {
         }
     }
 
+    /// Gets the table schema from the in-memory cache, or populates it from the catalog.
+    /// TODO: ensure that catalog failures retry
     pub async fn get_table_schema(
         &self,
         table_id: TableId,
@@ -106,6 +108,8 @@ impl SchemaCache {
         s.table_schemas.get(table_id).cloned()
     }
 
+    /// Force getting the table schema from the catalog, refreshing the cache.
+    /// TODO: ensure catalog failures retry
     pub async fn get_table_schema_from_catalog(
         &self,
         table_id: TableId,
@@ -122,6 +126,9 @@ impl SchemaCache {
         Ok(table_schema)
     }
 
+    /// Get the partition id from the cache, or if not present, get or insert into catalog and
+    /// populate the cache.
+    /// TODO: ensure catalog failures retry
     pub async fn get_partition_id(
         &self,
         table_id: TableId,

@@ -1,5 +1,6 @@
 use std::{fmt::Debug, ops::Deref, sync::Arc};
 
+use crate::{BufferError, CacheError};
 use async_trait::async_trait;
 use data_types::{NamespaceId, TableId};
 use thiserror::Error;
@@ -13,6 +14,12 @@ pub(crate) enum QueryError {
 
     #[error("table id {1} not found in namespace id {0}")]
     TableNotFound(NamespaceId, TableId),
+
+    #[error("buffer error {0}")]
+    Buffer(#[from] BufferError),
+
+    #[error("cache error {0}")]
+    Cache(#[from] CacheError),
 }
 
 #[async_trait]

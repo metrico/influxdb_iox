@@ -29,9 +29,10 @@ mod query_adaptor;
 use crate::cache::CacheError;
 use crate::{buffer::Buffer, cache::SchemaCache, grpc::GrpcDelegate};
 use arrow_flight::flight_service_server::{FlightService, FlightServiceServer};
+use arrow::error::ArrowError;
 use async_trait::async_trait;
 use data_types::sequence_number_set::SequenceNumberSet;
-use data_types::{NamespaceId, PartitionId, SequenceNumber, ShardIndex, TableId};
+use data_types::{NamespaceId, PartitionId, PartitionKey, SequenceNumber, ShardIndex, TableId};
 use generated_types::influxdata::iox::ingester::v1::replication_service_server::{
     ReplicationService, ReplicationServiceServer,
 };
@@ -45,10 +46,35 @@ use uuid::Uuid;
 
 /// An error returned by the `ReplicationBuffer`.
 #[derive(Debug, Error)]
+#[allow(missing_docs)]
 pub enum BufferError {
     /// An error from the mutable batch sent to a buffer.
     #[error("mutable batch error: {0}")]
     MutableBatch(#[from] mutable_batch::Error),
+
+    /// An error from the schema cache while attempting to buffer a write or convert to RecordBatch.
+    #[error("schema cache error: {0}")]
+    SchemaCache(#[from] cache::CacheError),
+
+    /// A column wasn't found in the table schema
+    #[error("column {column_name} not found in table {table_id:?}")]
+    ColumnNotFound {
+        column_name: String,
+        table_id: TableId,
+    },
+
+    /// A column type in the mutable batch didn't match the type in the catalog
+    #[error("column type mismatch from schema to sent mutable batch")]
+    ColumnTypeMismatch,
+
+    /// An error occured with converting data to an Arrow record batch
+    #[error("arrow error: {0}")]
+    Arrow(#[from] ArrowError),
+
+    /// An unresolvable schema mismatch error occurred comparing a mutable batch to the table
+    /// schema. This shouldn't be possible, but just in case...
+    #[error("an unresolveable schema error occured with mutable batch")]
+    UnresolvableSchema,
 }
 
 /// During the testing of ingest replica, the catalog will require a ShardIndex for
@@ -96,6 +122,7 @@ pub(crate) trait ReplicationBuffer: Send + Sync {
     async fn apply_write(
         &self,
         namespace_id: NamespaceId,
+        partition_key: PartitionKey,
         table_batches: TableIdToMutableBatch,
         ingester_id: Uuid,
         sequence_number: SequenceNumber,
