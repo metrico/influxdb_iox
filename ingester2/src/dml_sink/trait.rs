@@ -4,6 +4,8 @@ use async_trait::async_trait;
 use dml::DmlOperation;
 use thiserror::Error;
 
+use crate::replication::replication_sink::ReplicationError;
+
 /// Errors returned due from calls to [`DmlSink::apply()`].
 #[derive(Debug, Error)]
 pub enum DmlError {
@@ -16,6 +18,9 @@ pub enum DmlError {
     /// An error appending the [`DmlOperation`] to the write-ahead log.
     #[error("wal commit failure: {0}")]
     Wal(String),
+
+    #[error("replication error: {0}")]
+    Replication(#[from] ReplicationError),
 }
 
 /// A [`DmlSink`] handles [`DmlOperation`] instances in some abstract way.

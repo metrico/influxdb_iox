@@ -106,6 +106,7 @@ mod ingest_state;
 mod ingester_id;
 mod query;
 mod query_adaptor;
+mod replication;
 pub(crate) mod server;
 mod timestamp_oracle;
 
