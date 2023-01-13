@@ -11,7 +11,7 @@ pub const DEFAULT_CATALOG: &str = "public";
 pub const DEFAULT_SCHEMA: &str = "iox";
 
 /// The maximum number of rows that DataFusion should create in each RecordBatch
-pub const BATCH_SIZE: usize = 8 * 1024;
+pub const BATCH_SIZE: usize = 32 * 1024;
 
 const COALESCE_BATCH_SIZE: usize = BATCH_SIZE / 2;
 
