@@ -1,0 +1,1 @@
+Compact files ingested by thr Ingester2
