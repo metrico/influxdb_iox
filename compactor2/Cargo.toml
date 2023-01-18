@@ -10,5 +10,6 @@ data_types = { path = "../data_types" }
 iox_time = { path = "../iox_time" }
 metric = { path = "../metric" }
 observability_deps = { path = "../observability_deps" }
+workspace-hack = { path = "../workspace-hack"}
 
 [dev-dependencies]

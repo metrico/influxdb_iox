@@ -943,6 +943,7 @@ dependencies = [
  "iox_time",
  "metric",
  "observability_deps",
+ "workspace-hack",
 ]
 
 [[package]]
