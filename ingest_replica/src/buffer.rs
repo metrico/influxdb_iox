@@ -9,8 +9,8 @@ use crate::{
     BufferError, ReplicationBuffer, TableIdToMutableBatch,
 };
 use arrow::array::{
-    ArrayRef, BooleanBuilder, Float64Builder, Int64Builder, StringBuilder, StringDictionaryBuilder,
-    TimestampNanosecondBuilder, UInt64Builder,
+    ArrayRef, BooleanBuilder, Float64Builder, Int64Builder, StringArray, StringBuilder,
+    StringDictionaryBuilder, TimestampNanosecondBuilder, UInt64Builder,
 };
 use arrow::datatypes::Int32Type;
 use arrow::record_batch::RecordBatch;
@@ -106,6 +106,26 @@ impl Buffer {
             }
 
             partition_buffer.buffer_batch(ingester_id, sequence_number, table_schema, &mb);
+        }
+
+        Ok(())
+    }
+
+    pub(crate) async fn apply_persist(
+        &self,
+        ingester_id: Uuid,
+        namespace_id: NamespaceId,
+        table_id: TableId,
+        partition_id: PartitionId,
+        sequence_set: SequenceNumberSet,
+    ) -> Result<(), BufferError> {
+        if let Some(partition) = self.namespaces.read().get(&namespace_id).and_then(|n| {
+            n.tables
+                .read()
+                .get(&table_id)
+                .and_then(|t| t.partitions.get(&partition_id).cloned())
+        }) {
+            partition.persist(ingester_id, sequence_set)?;
         }
 
         Ok(())
@@ -281,6 +301,139 @@ impl PartitionBuffer {
             table_schema,
             mutable_batch,
         );
+    }
+
+    fn persist(
+        &self,
+        ingester_id: Uuid,
+        sequence_set: SequenceNumberSet,
+    ) -> Result<(), BufferError> {
+        let mut data = self.data.write();
+        let mut new_data = PartitionBufferData {
+            persist_count: data.persist_count + 1,
+            ..Default::default()
+        };
+
+        let filter_positions = data
+            .ingester_sequence_column
+            .iter()
+            .map(|v| {
+                let filter_out =
+                    v.ingester_id == ingester_id && sequence_set.contains(v.sequence_number);
+
+                if !filter_out {
+                    new_data.ingester_sequence_column.push(*v);
+                }
+
+                filter_out
+            })
+            .collect::<Vec<_>>();
+
+        for (column_id, column) in &mut data.data_columns {
+            let builder = match &mut column.builder {
+                Builder::F64(b) => {
+                    let vals = b.finish();
+                    let mut filtered = Float64Builder::new();
+                    for (i, v) in vals.into_iter().enumerate() {
+                        if !filter_positions[i] {
+                            filtered.append_option(v);
+                        }
+                    }
+
+                    Builder::F64(filtered)
+                }
+                Builder::I64(b) => {
+                    let vals = b.finish();
+                    let mut filtered = Int64Builder::new();
+                    for (i, v) in vals.into_iter().enumerate() {
+                        if !filter_positions[i] {
+                            filtered.append_option(v);
+                        }
+                    }
+
+                    Builder::I64(filtered)
+                }
+                Builder::U64(b) => {
+                    let vals = b.finish();
+                    let mut filtered = UInt64Builder::new();
+                    for (i, v) in vals.into_iter().enumerate() {
+                        if !filter_positions[i] {
+                            filtered.append_option(v);
+                        }
+                    }
+
+                    Builder::U64(filtered)
+                }
+                Builder::Tag(b) => {
+                    let vals = b.finish();
+                    let mut filtered = StringDictionaryBuilder::<Int32Type>::new();
+                    let dict_values = vals
+                        .values()
+                        .as_any()
+                        .downcast_ref::<StringArray>()
+                        .unwrap();
+                    for (i, v) in vals.keys_iter().enumerate() {
+                        if !filter_positions[i] {
+                            match v {
+                                Some(v) => {
+                                    filtered
+                                        .append(dict_values.value(v))
+                                        .expect("must be able to build dictionary");
+                                }
+                                None => filtered.append_null(),
+                            }
+                        }
+                    }
+
+                    Builder::Tag(filtered)
+                }
+                Builder::Time(b) => {
+                    let vals = b.finish();
+                    let mut filtered = TimestampNanosecondBuilder::new();
+                    for (i, v) in vals.into_iter().enumerate() {
+                        if !filter_positions[i] {
+                            filtered.append_option(v);
+                        }
+                    }
+
+                    Builder::Time(filtered)
+                }
+                Builder::Bool(b) => {
+                    let vals = b.finish();
+                    let mut filtered = BooleanBuilder::new();
+                    for (i, v) in vals.into_iter().enumerate() {
+                        if !filter_positions[i] {
+                            filtered.append_option(v);
+                        }
+                    }
+
+                    Builder::Bool(filtered)
+                }
+                Builder::String(b) => {
+                    let vals = b.finish();
+                    let mut filtered = StringBuilder::new();
+                    for (i, v) in vals.into_iter().enumerate() {
+                        if !filter_positions[i] {
+                            filtered.append_option(v);
+                        }
+                    }
+
+                    Builder::String(filtered)
+                }
+            };
+
+            new_data.data_columns.insert(
+                *column_id,
+                ColumnData {
+                    column_id: *column_id,
+                    builder,
+                },
+            );
+        }
+
+        *data = new_data;
+
+        Ok(())
     }
 
     // Converts the buffer data into RecordBatch wrapped in a QueryAdaptor. Will error if the
@@ -628,13 +781,20 @@ impl ReplicationBuffer for Buffer {
 
     async fn apply_persist(
         &self,
-        _ingester_id: Uuid,
-        _namespace_id: NamespaceId,
-        _table_id: TableId,
-        _partition_id: PartitionId,
-        _sequence_set: SequenceNumberSet,
+        ingester_id: Uuid,
+        namespace_id: NamespaceId,
+        table_id: TableId,
+        partition_id: PartitionId,
+        sequence_set: SequenceNumberSet,
     ) -> Result<(), BufferError> {
-        panic!("unimplemented")
+        self.apply_persist(
+            ingester_id,
+            namespace_id,
+            table_id,
+            partition_id,
+            sequence_set,
+        )
+        .await
     }
 
     async fn append_partition_buffer(
@@ -973,5 +1133,196 @@ mod tests {
         ];
 
         assert_batches_eq!(expected_data, &batches);
+    }
+
+    #[tokio::test]
+    async fn persist_removes_old_data() {
+        let metrics = Arc::new(Registry::new());
+        let catalog: Arc<dyn Catalog> = Arc::new(MemCatalog::new(Arc::clone(&metrics)));
+        let topic = catalog
+            .repositories()
+            .await
+            .topics()
+            .create_or_get("foo")
+            .await
+            .unwrap();
+        let transition_shard = catalog
+            .repositories()
+            .await
+            .shards()
+            .create_or_get(&topic, ShardIndex::new(1))
+            .await
+            .unwrap();
+        let query_pool = catalog
+            .repositories()
+            .await
+            .query_pools()
+            .create_or_get("whatevs")
+            .await
+            .unwrap();
+        let namespace = catalog
+            .repositories()
+            .await
+            .namespaces()
+            .create("asdf", None, topic.id, query_pool.id)
+            .await
+            .unwrap();
+        let table = catalog
+            .repositories()
+            .await
+            .tables()
+            .create_or_get("m1", namespace.id)
+            .await
+            .unwrap();
+        let partition_key = PartitionKey::from("1970-01-01");
+        let partition = catalog
+            .repositories()
+            .await
+            .partitions()
+            .create_or_get(partition_key.clone(), transition_shard.id, table.id)
+            .await
+            .unwrap();
+
+        let cols = HashMap::from([
+            ("t1", ColumnType::Tag),
+            ("t2", ColumnType::Tag),
+            ("f1", ColumnType::I64),
+            ("f2", ColumnType::F64),
+            (TIME_COLUMN_NAME, ColumnType::Time),
+        ]);
+        catalog
+            .repositories()
+            .await
+            .columns()
+            .create_or_get_many_unchecked(table.id, cols)
+            .await
+            .unwrap();
+
+        let schema_cache = SchemaCache::new(Arc::clone(&catalog), transition_shard.id);
+        let buffer = Buffer::new(Arc::new(schema_cache), Arc::new(Executor::new_testing()));
+
+        let table_batches = lp_to_table_batch(table.id.get(), "m1,t1=hi f1=1i 12");
+        let ingester1 = Uuid::new_v4();
+        buffer
+            .apply_write(
+                namespace.id,
+                partition_key.clone(),
+                table_batches,
+                ingester1,
+                SequenceNumber::new(1),
+            )
+            .await
+            .unwrap();
+        let table_batches = lp_to_table_batch(table.id.get(), "m1,t1=two f1=2i 12");
+        let ingester2 = Uuid::new_v4();
+        buffer
+            .apply_write(
+                namespace.id,
+                partition_key.clone(),
+                table_batches,
+                ingester2,
+                SequenceNumber::new(1),
+            )
+            .await
+            .unwrap();
+        let table_batches = lp_to_table_batch(
+            table.id.get(),
+            "m1,t1=two f1=2i 14\nm1,t1=a,t2=b f1=1i,f2=1.1 15",
+        );
+        buffer
+            .apply_write(
+                namespace.id,
+                partition_key.clone(),
+                table_batches,
+                ingester2,
+                SequenceNumber::new(2),
+            )
+            .await
+            .unwrap();
+
+        let data = get_buffer(&buffer, namespace.id, table.id).await;
+        let expected_data = &[
+            "+----+-----+-----+----+--------------------------------+",
+            "| f1 | f2  | t1  | t2 | time                           |",
+            "+----+-----+-----+----+--------------------------------+",
+            "| 1  |     | hi  |    | 1970-01-01T00:00:00.000000012Z |",
+            "| 2  |     | two |    | 1970-01-01T00:00:00.000000012Z |",
+            "| 2  |     | two |    | 1970-01-01T00:00:00.000000014Z |",
+            "| 1  | 1.1 | a   | b  | 1970-01-01T00:00:00.000000015Z |",
+            "+----+-----+-----+----+--------------------------------+",
+        ];
+
+        assert_batches_eq!(expected_data, &data);
+
+        let mut sequence_set = SequenceNumberSet::default();
+        sequence_set.add(SequenceNumber::new(1));
+        buffer
+            .apply_persist(
+                ingester1,
+                namespace.id,
+                table.id,
+                partition.id,
+                sequence_set.clone(),
+            )
+            .await
+            .unwrap();
+
+        let data = get_buffer(&buffer, namespace.id, table.id).await;
+        let expected_data = &[
+            "+----+-----+-----+----+--------------------------------+",
+            "| f1 | f2  | t1  | t2 | time                           |",
+            "+----+-----+-----+----+--------------------------------+",
+            "| 2  |     | two |    | 1970-01-01T00:00:00.000000012Z |",
+            "| 2  |     | two |    | 1970-01-01T00:00:00.000000014Z |",
+            "| 1  | 1.1 | a   | b  | 1970-01-01T00:00:00.000000015Z |",
+            "+----+-----+-----+----+--------------------------------+",
+        ];
+        assert_batches_eq!(expected_data, &data);
+
+        buffer
+            .apply_persist(
+                ingester2,
+                namespace.id,
+                table.id,
+                partition.id,
+                sequence_set,
+            )
+            .await
+            .unwrap();
+
+        let data = get_buffer(&buffer, namespace.id, table.id).await;
+        let expected_data = &[
+            "+----+-----+-----+----+--------------------------------+",
+            "| f1 | f2  | t1  | t2 | time                           |",
+            "+----+-----+-----+----+--------------------------------+",
+            "| 2  |     | two |    | 1970-01-01T00:00:00.000000014Z |",
+            "| 1  | 1.1 | a   | b  | 1970-01-01T00:00:00.000000015Z |",
+            "+----+-----+-----+----+--------------------------------+",
+        ];
+        assert_batches_eq!(expected_data, &data);
+    }
+
+    fn lp_to_table_batch(table_id: i64, lp: &str) -> TableIdToMutableBatch {
+        let (_, mb) = lp_to_mutable_batch(lp);
+        hashbrown::HashMap::from([(table_id, mb)])
+    }
+
+    async fn get_buffer(
+        buffer: &Buffer,
+        namespace_id: NamespaceId,
+        table_id: TableId,
+    ) -> Vec<RecordBatch> {
+        let res = buffer
+            .query_exec(namespace_id, table_id, vec![], None)
+            .await
+            .unwrap();
+
+        res.into_record_batches()
+            .try_collect::<Vec<_>>()
+            .await
+            .expect("query failed")
+            .iter()
+            .map(|b| b.deref().clone())
+            .collect::<Vec<_>>()
     }
 }
