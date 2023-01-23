@@ -23,7 +23,7 @@ use trace::TraceCollector;
 
 #[derive(Debug, Error)]
 pub enum Error {
-    #[error("error initializing ingester2: {0}")]
+    #[error("error initializing ingest-replica: {0}")]
     Ingester(#[from] ingest_replica::InitError),
 }
 
@@ -56,7 +56,7 @@ impl<I: IngestReplicaRpcInterface> IngestReplicaServerType<I> {
 
 impl<I: IngestReplicaRpcInterface> std::fmt::Debug for IngestReplicaServerType<I> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "Ingester2")
+        write!(f, "IngestReplica")
     }
 }
 

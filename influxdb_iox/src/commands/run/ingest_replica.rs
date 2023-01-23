@@ -99,7 +99,7 @@ pub async fn command(config: Config) -> Result<()> {
     )
     .await?;
 
-    info!("starting ingester2");
+    info!("starting ingest-replica");
 
     let services = vec![Service::create(server_type, common_state.run_config())];
     Ok(main::main(common_state, services, metric_registry).await?)
