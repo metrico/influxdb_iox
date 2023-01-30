@@ -37,9 +37,7 @@ impl Commit for CatalogCommit {
     ) -> Vec<ParquetFileId> {
         // https://github.com/influxdata/influxdb_iox/issues/6759
         // Do not delete files if there are no compacted files to create
-        if create.is_empty() {
-            return vec![];
-        }
+        assert!(!create.is_empty());
 
         Backoff::new(&self.backoff_config)
             .retry_all_errors("commit parquet file changes", || async {
