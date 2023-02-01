@@ -15,6 +15,8 @@ mod tests {
         test_util::{list_object_store, AssertFutureExt, TestSetup},
     };
 
+    const TEST_COMPACT_VERSION: usize = 0;
+
     #[tokio::test]
     async fn test_compact_no_file() {
         test_helpers::maybe_start_logging();
@@ -350,6 +352,7 @@ mod tests {
             Duration::from_secs(3_6000),
             job_semaphore,
             &components,
+            TEST_COMPACT_VERSION,
         )
         .await;
     }

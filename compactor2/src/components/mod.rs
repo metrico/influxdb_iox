@@ -7,6 +7,7 @@ use self::{
     partition_files_source::PartitionFilesSource, partition_filter::PartitionFilter,
     partition_source::PartitionSource, partitions_source::PartitionsSource,
     round_split::RoundSplit, scratchpad::ScratchpadGen, tables_source::TablesSource,
+    try_compact_partition::CompactPartition,
 };
 
 pub mod commit;
@@ -28,6 +29,8 @@ pub mod round_split;
 pub mod scratchpad;
 pub mod skipped_compactions_source;
 pub mod tables_source;
+pub mod try_compact_partition;
+pub mod try_compact_partition_version;
 
 #[derive(Debug, Clone)]
 pub struct Components {
@@ -46,4 +49,5 @@ pub struct Components {
     pub round_split: Arc<dyn RoundSplit>,
     pub divide_initial: Arc<dyn DivideInitial>,
     pub scratchpad_gen: Arc<dyn ScratchpadGen>,
+    pub try_compact_partition_version: Arc<dyn CompactPartition>,
 }

@@ -190,4 +190,14 @@ pub struct Compactor2Config {
         action
     )]
     pub shard_id: Option<usize>,
+
+    /// Version of the compaction algorithm.
+    ///
+    #[clap(
+        long = "compaction-compact-version",
+        env = "INFLUXDB_IOX_COMPACTION_COMPACT_VERSION",
+        default_value = "0",
+        action
+    )]
+    pub compact_version: usize,
 }

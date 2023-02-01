@@ -276,6 +276,7 @@ const PARTITION_THRESHOLD: Duration = Duration::from_secs(10 * 60); // 10min
 const MAX_DESIRE_FILE_SIZE: u64 = 100 * 1024;
 const PERCENTAGE_MAX_FILE_SIZE: u16 = 5;
 const SPLIT_PERCENTAGE: u16 = 80;
+const TEST_COMPACT_VERSION: usize = 0;
 
 #[derive(Debug, Default)]
 pub struct TestSetupBuilder {
@@ -465,6 +466,7 @@ impl TestSetupBuilder {
             max_input_files_per_partition: usize::MAX,
             max_input_parquet_bytes_per_partition: usize::MAX,
             shard_config: None,
+            compact_version: TEST_COMPACT_VERSION,
         });
 
         TestSetup {

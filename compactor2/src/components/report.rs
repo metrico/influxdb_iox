@@ -23,6 +23,7 @@ pub fn log_components(components: &Components) {
         round_split,
         divide_initial,
         scratchpad_gen,
+        try_compact_partition_version,
     } = components;
 
     info!(
@@ -41,6 +42,7 @@ pub fn log_components(components: &Components) {
         %round_split,
         %divide_initial,
         %scratchpad_gen,
+        %try_compact_partition_version,
         "component setup",
     );
 }

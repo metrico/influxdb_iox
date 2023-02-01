@@ -101,6 +101,9 @@ pub struct Config {
 
     /// Shard config (if sharding should be enabled).
     pub shard_config: Option<ShardConfig>,
+
+    /// version of the compact algorithm we support
+    pub compact_version: usize,
 }
 
 impl Config {

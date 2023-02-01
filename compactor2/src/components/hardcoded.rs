@@ -56,6 +56,10 @@ use super::{
     round_split::all_now::AllNowRoundSplit,
     scratchpad::{ignore_writes_object_store::IgnoreWrites, prod::ProdScratchpadGen},
     skipped_compactions_source::catalog::CatalogSkippedCompactionsSource,
+    try_compact_partition::compact_partition::TryCompactPartition,
+    try_compact_partition_version::{
+        try_compact_partition_v0::TryCompactPartitionV0, TryCompactPartitionVersion,
+    },
     Components,
 };
 
@@ -129,6 +133,10 @@ pub fn hardcoded_components(config: &Config) -> Arc<Components> {
     } else {
         Arc::clone(config.parquet_store_real.object_store())
     };
+
+    // Add all supported compact_partition versions
+    let mut try_compact_partition_versions: Vec<Arc<dyn TryCompactPartitionVersion>> = vec![];
+    try_compact_partition_versions.push(Arc::new(TryCompactPartitionV0::new()));
 
     Arc::new(Components {
         // Note: Place "not empty" wrapper at the very last so that the logging and metric wrapper work even when there
@@ -228,6 +236,9 @@ pub fn hardcoded_components(config: &Config) -> Arc<Components> {
             Arc::clone(config.parquet_store_real.object_store()),
             Arc::clone(config.parquet_store_scratchpad.object_store()),
             scratchpad_store_output,
+        )),
+        try_compact_partition_version: Arc::new(TryCompactPartition::new(
+            try_compact_partition_versions,
         )),
     })
 }
