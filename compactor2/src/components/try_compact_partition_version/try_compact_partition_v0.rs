@@ -7,11 +7,14 @@ use data_types::{CompactionLevel, ParquetFile, ParquetFileParams, PartitionId};
 use parquet_file::ParquetFilePath;
 use tracker::InstrumentedAsyncSemaphore;
 
-use crate::components::{scratchpad::Scratchpad, Components};
+use crate::{
+    components::{scratchpad::Scratchpad, Components},
+    error::DynError,
+};
 
 use super::{
     utils::{fetch_partition_info, stream_into_file_sink},
-    Error, TryCompactPartitionVersion,
+    TryCompactPartitionVersion,
 };
 
 #[derive(Debug)]
@@ -37,7 +40,7 @@ impl TryCompactPartitionVersion for TryCompactPartitionV0 {
         job_semaphore: Arc<InstrumentedAsyncSemaphore>,
         components: Arc<Components>,
         scratchpad_ctx: &mut dyn Scratchpad,
-    ) -> Result<(), Error> {
+    ) -> Result<(), DynError> {
         let mut files = components.partition_files_source.fetch(partition_id).await;
 
         // fetch partition info only if we need it
@@ -49,7 +52,7 @@ impl TryCompactPartitionVersion for TryCompactPartitionV0 {
             if !components
                 .partition_filter
                 .apply(partition_id, &files)
-                .await
+                .await?
             {
                 return Ok(());
             }
