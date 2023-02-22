@@ -62,7 +62,6 @@ impl TestConfig {
             ingester_config.catalog_schema_name(),
         )
         .with_existing_object_store(ingester_config)
-        .with_env("INFLUXDB_IOX_RPC_MODE", "2")
         .with_ingester_addresses(&[ingester_config.ingester_base()])
     }
 
