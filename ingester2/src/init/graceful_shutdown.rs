@@ -132,7 +132,7 @@ mod tests {
     use std::{future::ready, sync::Arc, task::Poll};
 
     use assert_matches::assert_matches;
-    use data_types::{NamespaceId, PartitionId, PartitionKey, SequenceNumber, ShardId, TableId};
+    use data_types::{NamespaceId, PartitionId, PartitionKey, SequenceNumber, TableId};
     use futures::FutureExt;
     use lazy_static::lazy_static;
     use mutable_batch_lp::test_helpers::lp_to_mutable_batch;
@@ -151,7 +151,6 @@ mod tests {
     use super::*;
 
     const PARTITION_ID: PartitionId = PartitionId::new(1);
-    const TRANSITION_SHARD_ID: ShardId = ShardId::new(84);
 
     lazy_static! {
         static ref PARTITION_KEY: PartitionKey = PartitionKey::from("platanos");
@@ -173,7 +172,6 @@ mod tests {
                 TABLE_NAME.clone()
             })),
             SortKeyState::Provided(None),
-            TRANSITION_SHARD_ID,
         );
 
         let mb = lp_to_mutable_batch(r#"bananas,city=London people=2,pigeons="millions" 10"#).1;

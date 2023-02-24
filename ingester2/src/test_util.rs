@@ -1,6 +1,6 @@
 use std::collections::BTreeMap;
 
-use data_types::{NamespaceId, PartitionKey, SequenceNumber, ShardId, ShardIndex, TableId};
+use data_types::{NamespaceId, PartitionKey, SequenceNumber, TableId};
 use dml::{DmlMeta, DmlWrite};
 use iox_catalog::interface::Catalog;
 use mutable_batch_lp::lines_to_batches;
@@ -155,10 +155,9 @@ pub(crate) fn make_write_op(
 
 pub(crate) async fn populate_catalog(
     catalog: &dyn Catalog,
-    shard_index: ShardIndex,
     namespace: &str,
     table: &str,
-) -> (ShardId, NamespaceId, TableId) {
+) -> (NamespaceId, TableId) {
     let mut c = catalog.repositories().await;
     let topic = c.topics().create_or_get("kafka-topic").await.unwrap();
     let query_pool = c.query_pools().create_or_get("query-pool").await.unwrap();
@@ -169,14 +168,8 @@ pub(crate) async fn populate_catalog(
         .unwrap()
         .id;
     let table_id = c.tables().create_or_get(table, ns_id).await.unwrap().id;
-    let shard_id = c
-        .shards()
-        .create_or_get(&topic, shard_index)
-        .await
-        .unwrap()
-        .id;
 
-    (shard_id, ns_id, table_id)
+    (ns_id, table_id)
 }
 
 /// Assert `a` and `b` have identical metadata, and that when converting

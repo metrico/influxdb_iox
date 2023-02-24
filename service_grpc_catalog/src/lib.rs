@@ -199,8 +199,7 @@ fn to_partition(p: data_types::Partition) -> Partition {
 mod tests {
     use super::*;
     use data_types::{
-        ColumnId, ColumnSet, CompactionLevel, ParquetFileParams, SequenceNumber, ShardIndex,
-        Timestamp,
+        ColumnId, ColumnSet, CompactionLevel, ParquetFileParams, SequenceNumber, Timestamp,
     };
     use generated_types::influxdata::iox::catalog::v1::catalog_service_server::CatalogService;
     use iox_catalog::mem::MemCatalog;
@@ -222,11 +221,6 @@ mod tests {
                 .create_or_get("iox-shared")
                 .await
                 .unwrap();
-            let shard = repos
-                .shards()
-                .create_or_get(&topic, ShardIndex::new(1))
-                .await
-                .unwrap();
             let namespace = repos
                 .namespaces()
                 .create("catalog_partition_test", None, topic.id, pool.id)
@@ -239,11 +233,10 @@ mod tests {
                 .unwrap();
             let partition = repos
                 .partitions()
-                .create_or_get("foo".into(), shard.id, table.id)
+                .create_or_get("foo".into(), table.id)
                 .await
                 .unwrap();
             let p1params = ParquetFileParams {
-                shard_id: shard.id,
                 namespace_id: namespace.id,
                 table_id: table.id,
                 partition_id: partition.id,
@@ -300,11 +293,6 @@ mod tests {
                 .create_or_get("iox-shared")
                 .await
                 .unwrap();
-            let shard = repos
-                .shards()
-                .create_or_get(&topic, ShardIndex::new(1))
-                .await
-                .unwrap();
             let namespace = repos
                 .namespaces()
                 .create("catalog_partition_test", None, topic.id, pool.id)
@@ -317,22 +305,17 @@ mod tests {
                 .unwrap();
             partition1 = repos
                 .partitions()
-                .create_or_get("foo".into(), shard.id, table.id)
+                .create_or_get("foo".into(), table.id)
                 .await
                 .unwrap();
             partition2 = repos
                 .partitions()
-                .create_or_get("bar".into(), shard.id, table.id)
-                .await
-                .unwrap();
-            let shard2 = repos
-                .shards()
-                .create_or_get(&topic, ShardIndex::new(2))
+                .create_or_get("bar".into(), table.id)
                 .await
                 .unwrap();
             partition3 = repos
                 .partitions()
-                .create_or_get("foo".into(), shard2.id, table.id)
+                .create_or_get("foo".into(), table.id)
                 .await
                 .unwrap();
 

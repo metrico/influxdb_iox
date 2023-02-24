@@ -227,8 +227,6 @@ mod tests {
     #[tokio::test]
     async fn test_namespace() {
         let catalog = TestCatalog::new();
-        // QuerierDatabase::new returns an error if there are no shards in the catalog
-        catalog.create_shard(0).await;
 
         let catalog_cache = Arc::new(CatalogCache::new_testing(
             catalog.catalog(),
@@ -256,8 +254,6 @@ mod tests {
     #[tokio::test]
     async fn test_namespaces() {
         let catalog = TestCatalog::new();
-        // QuerierDatabase::new returns an error if there are no shards in the catalog
-        catalog.create_shard(0).await;
 
         let catalog_cache = Arc::new(CatalogCache::new_testing(
             catalog.catalog(),

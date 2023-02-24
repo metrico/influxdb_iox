@@ -13,8 +13,8 @@ use async_trait::async_trait;
 use backoff::{Backoff, BackoffConfig, BackoffError};
 use client_util::connection;
 use data_types::{
-    ChunkId, ChunkOrder, DeletePredicate, NamespaceId, PartitionId, SequenceNumber, ShardId,
-    ShardIndex, TableSummary, TimestampMinMax,
+    ChunkId, ChunkOrder, DeletePredicate, NamespaceId, PartitionId, SequenceNumber, TableSummary,
+    TimestampMinMax,
 };
 use datafusion::error::DataFusionError;
 use futures::{stream::FuturesUnordered, TryStreamExt};
@@ -126,16 +126,6 @@ pub enum Error {
         partition_id: PartitionId,
         ingester_address: String,
     },
-
-    #[snafu(display(
-        "No ingester found in shard to ingester mapping for shard index {shard_index}"
-    ))]
-    NoIngesterFoundForShard { shard_index: ShardIndex },
-
-    #[snafu(display(
-        "Shard index {shard_index} was neither mapped to an ingester nor marked ignore"
-    ))]
-    ShardNotMapped { shard_index: ShardIndex },
 
     #[snafu(display("Could not parse `{ingester_uuid}` as a UUID: {source}"))]
     IngesterUuid {
@@ -506,9 +496,6 @@ enum CurrentPartition {
 
     /// There is no existing partition.
     None,
-
-    /// Skip the current partition (e.g. because it is gone from the catalog).
-    Skip,
 }
 
 impl CurrentPartition {
@@ -517,13 +504,9 @@ impl CurrentPartition {
         std::mem::swap(&mut tmp, self);
 
         match tmp {
-            Self::None | Self::Skip => None,
+            Self::None => None,
             Self::Some(p) => Some(p),
         }
-    }
-
-    fn is_skip(&self) -> bool {
-        matches!(self, Self::Skip)
     }
 
     fn is_some(&self) -> bool {
@@ -648,21 +631,6 @@ impl IngesterStreamDecoder {
                         ingester_address: self.ingester_address.as_ref()
                     },
                 );
-                let shard_id = self
-                    .catalog_cache
-                    .partition()
-                    .shard_id(
-                        Arc::clone(&self.cached_table),
-                        partition_id,
-                        self.span_recorder
-                            .child_span("cache GET partition shard ID"),
-                    )
-                    .await;
-
-                let Some(shard_id) = shard_id else {
-                    self.current_partition = CurrentPartition::Skip;
-                    return Ok(())
-                };
 
                 // Use a temporary empty partition sort key. We are going to fetch this AFTER we
                 // know all chunks because then we are able to detect all relevant primary key
@@ -683,7 +651,6 @@ impl IngesterStreamDecoder {
                 let partition = IngesterPartition::new(
                     ingester_uuid,
                     partition_id,
-                    shard_id,
                     md.completed_persistence_count,
                     status.parquet_max_sequence_number.map(SequenceNumber::new),
                     partition_sort_key,
@@ -691,10 +658,6 @@ impl IngesterStreamDecoder {
                 self.current_partition = CurrentPartition::Some(partition);
             }
             DecodedPayload::Schema(schema) => {
-                if self.current_partition.is_skip() {
-                    return Ok(());
-                }
-
                 self.flush_chunk()?;
                 ensure!(
                     self.current_partition.is_some(),
@@ -716,10 +679,6 @@ impl IngesterStreamDecoder {
                 self.current_chunk = Some((schema, vec![]));
             }
             DecodedPayload::RecordBatch(batch) => {
-                if self.current_partition.is_skip() {
-                    return Ok(());
-                }
-
                 let current_chunk =
                     self.current_chunk
                         .as_mut()
@@ -771,7 +730,7 @@ fn encode_predicate_as_base64(predicate: &Predicate) -> String {
 
 #[async_trait]
 impl IngesterConnection for IngesterConnectionImpl {
-    /// Retrieve chunks from the ingester for the particular table, shard, and predicate
+    /// Retrieve chunks from the ingester for the particular table and predicate
     async fn partitions(
         &self,
         namespace_id: NamespaceId,
@@ -871,12 +830,11 @@ impl IngesterConnection for IngesterConnectionImpl {
 /// Given the catalog hierarchy:
 ///
 /// ```text
-/// (Catalog) Shard -> (Catalog) Table --> (Catalog) Partition
+/// (Catalog) Table --> (Catalog) Partition
 /// ```
 ///
-/// An IngesterPartition contains the unpersisted data for a catalog
-/// partition from a shard. Thus, there can be more than one
-/// IngesterPartition for each table the ingester knows about.
+/// An IngesterPartition contains the unpersisted data for a catalog partition. Thus, there can be
+/// more than one IngesterPartition for each table the ingester knows about.
 #[derive(Debug, Clone)]
 pub struct IngesterPartition {
     /// If using ingester2/rpc write path, the ingester UUID will be present and will identify
@@ -887,7 +845,6 @@ pub struct IngesterPartition {
     ingester_uuid: Option<Uuid>,
 
     partition_id: PartitionId,
-    shard_id: ShardId,
 
     /// If using ingester2/rpc write path, this will be the number of Parquet files this ingester
     /// UUID has persisted for this partition.
@@ -910,7 +867,6 @@ impl IngesterPartition {
     pub fn new(
         ingester_uuid: Option<Uuid>,
         partition_id: PartitionId,
-        shard_id: ShardId,
         completed_persistence_count: u64,
         parquet_max_sequence_number: Option<SequenceNumber>,
         partition_sort_key: Option<Arc<SortKey>>,
@@ -918,7 +874,6 @@ impl IngesterPartition {
         Self {
             ingester_uuid,
             partition_id,
-            shard_id,
             completed_persistence_count,
             parquet_max_sequence_number,
             partition_sort_key,
@@ -994,10 +949,6 @@ impl IngesterPartition {
 
     pub(crate) fn partition_id(&self) -> PartitionId {
         self.partition_id
-    }
-
-    pub(crate) fn shard_id(&self) -> ShardId {
-        self.shard_id
     }
 
     pub(crate) fn completed_persistence_count(&self) -> u64 {
@@ -1407,7 +1358,6 @@ mod tests {
 
         let p = &partitions[0];
         assert_eq!(p.partition_id.get(), 1);
-        assert_eq!(p.shard_id.get(), 1);
         assert_eq!(p.parquet_max_sequence_number, None);
         assert_eq!(p.chunks.len(), 0);
         assert_eq!(p.ingester_uuid.unwrap(), ingester_uuid);
@@ -1516,7 +1466,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_flight_many_batches_no_shard() {
+    async fn test_flight_many_batches() {
         let ingester_uuid1 = Uuid::new_v4();
         let ingester_uuid2 = Uuid::new_v4();
 
@@ -1618,7 +1568,6 @@ mod tests {
 
         let p1 = &partitions[0];
         assert_eq!(p1.partition_id.get(), 1);
-        assert_eq!(p1.shard_id.get(), 1);
         assert_eq!(
             p1.parquet_max_sequence_number,
             Some(SequenceNumber::new(11))
@@ -1634,7 +1583,6 @@ mod tests {
 
         let p2 = &partitions[1];
         assert_eq!(p2.partition_id.get(), 2);
-        assert_eq!(p2.shard_id.get(), 1);
         assert_eq!(
             p2.parquet_max_sequence_number,
             Some(SequenceNumber::new(21))
@@ -1646,7 +1594,6 @@ mod tests {
 
         let p3 = &partitions[2];
         assert_eq!(p3.partition_id.get(), 3);
-        assert_eq!(p3.shard_id.get(), 2);
         assert_eq!(
             p3.parquet_max_sequence_number,
             Some(SequenceNumber::new(31))
@@ -1756,7 +1703,6 @@ mod tests {
         assert_eq!(p1.ingester_uuid.unwrap(), ingester_uuid1);
         assert_eq!(p1.completed_persistence_count, 0);
         assert_eq!(p1.partition_id.get(), 1);
-        assert_eq!(p1.shard_id.get(), 1);
         assert_eq!(
             p1.parquet_max_sequence_number,
             Some(SequenceNumber::new(11))
@@ -1766,7 +1712,6 @@ mod tests {
         assert_eq!(p2.ingester_uuid.unwrap(), ingester_uuid1);
         assert_eq!(p2.completed_persistence_count, 42);
         assert_eq!(p2.partition_id.get(), 2);
-        assert_eq!(p2.shard_id.get(), 1);
         assert_eq!(
             p2.parquet_max_sequence_number,
             Some(SequenceNumber::new(21))
@@ -1776,7 +1721,6 @@ mod tests {
         assert_eq!(p3.ingester_uuid.unwrap(), ingester_uuid2);
         assert_eq!(p3.completed_persistence_count, 9000);
         assert_eq!(p3.partition_id.get(), 3);
-        assert_eq!(p3.shard_id.get(), 2);
         assert_eq!(
             p3.parquet_max_sequence_number,
             Some(SequenceNumber::new(31))
@@ -1965,12 +1909,9 @@ mod tests {
             let ns = catalog.create_namespace_1hr_retention("namespace").await;
             let table = ns.create_table("table").await;
 
-            let s0 = ns.create_shard(0).await;
-            let s1 = ns.create_shard(1).await;
-
-            table.with_shard(&s0).create_partition("k1").await;
-            table.with_shard(&s0).create_partition("k2").await;
-            table.with_shard(&s1).create_partition("k3").await;
+            table.create_partition("k1").await;
+            table.create_partition("k2").await;
+            table.create_partition("k3").await;
 
             Self {
                 catalog,
@@ -2045,7 +1986,6 @@ mod tests {
             let ingester_partition = IngesterPartition::new(
                 Some(ingester_uuid),
                 PartitionId::new(1),
-                ShardId::new(1),
                 0,
                 parquet_max_sequence_number,
                 None,
@@ -2075,7 +2015,6 @@ mod tests {
         let err = IngesterPartition::new(
             Some(ingester_uuid),
             PartitionId::new(1),
-            ShardId::new(1),
             0,
             parquet_max_sequence_number,
             None,

@@ -472,7 +472,7 @@ mod tests {
     use std::{sync::Arc, task::Poll, time::Duration};
 
     use assert_matches::assert_matches;
-    use data_types::{NamespaceId, PartitionId, PartitionKey, ShardId, TableId};
+    use data_types::{NamespaceId, PartitionId, PartitionKey, TableId};
     use dml::DmlOperation;
     use futures::Future;
     use iox_catalog::mem::MemCatalog;
@@ -507,7 +507,6 @@ mod tests {
     const TABLE_ID: TableId = TableId::new(2442);
     const TABLE_NAME: &str = "banana-report";
     const NAMESPACE_NAME: &str = "platanos";
-    const TRANSITION_SHARD_ID: ShardId = ShardId::new(84);
 
     lazy_static! {
         static ref EXEC: Arc<Executor> = Arc::new(Executor::new_testing());
@@ -540,12 +539,10 @@ mod tests {
                     TABLE_ID,
                     Arc::clone(&TABLE_NAME_LOADER),
                     sort_key,
-                    TRANSITION_SHARD_ID,
                 )),
             ),
             Arc::new(MockPostWriteObserver::default()),
             Default::default(),
-            TRANSITION_SHARD_ID,
         );
 
         buffer_tree

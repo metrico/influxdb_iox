@@ -5,7 +5,7 @@ pub(crate) mod name_resolver;
 use std::{fmt::Debug, sync::Arc};
 
 use async_trait::async_trait;
-use data_types::{NamespaceId, PartitionKey, SequenceNumber, ShardId, TableId};
+use data_types::{NamespaceId, PartitionKey, SequenceNumber, TableId};
 use datafusion_util::MemoryStream;
 use mutable_batch::MutableBatch;
 use parking_lot::Mutex;
@@ -66,7 +66,7 @@ impl PartialEq<str> for TableName {
     }
 }
 
-/// Data of a Table in a given Namesapce that belongs to a given Shard
+/// Data of a Table in a given Namesapce
 #[derive(Debug)]
 pub(crate) struct TableData<O> {
     table_id: TableId,
@@ -84,7 +84,6 @@ pub(crate) struct TableData<O> {
     partition_data: ArcMap<PartitionKey, Mutex<PartitionData>>,
 
     post_write_observer: Arc<O>,
-    transition_shard_id: ShardId,
 }
 
 impl<O> TableData<O> {
@@ -105,7 +104,6 @@ impl<O> TableData<O> {
         namespace_name: Arc<DeferredLoad<NamespaceName>>,
         partition_provider: Arc<dyn PartitionProvider>,
         post_write_observer: Arc<O>,
-        transition_shard_id: ShardId,
     ) -> Self {
         Self {
             table_id,
@@ -115,7 +113,6 @@ impl<O> TableData<O> {
             partition_data: Default::default(),
             partition_provider,
             post_write_observer,
-            transition_shard_id,
         }
     }
 
@@ -176,7 +173,6 @@ where
                         Arc::clone(&self.namespace_name),
                         self.table_id,
                         Arc::clone(&self.table_name),
-                        self.transition_shard_id,
                     )
                     .await;
                 // Add the partition to the map.
@@ -282,7 +278,6 @@ mod tests {
     const NAMESPACE_ID: NamespaceId = NamespaceId::new(42);
     const PARTITION_KEY: &str = "platanos";
     const PARTITION_ID: PartitionId = PartitionId::new(0);
-    const TRANSITION_SHARD_ID: ShardId = ShardId::new(84);
 
     #[tokio::test]
     async fn test_partition_init() {
@@ -301,7 +296,6 @@ mod tests {
                     TableName::from(TABLE_NAME)
                 })),
                 SortKeyState::Provided(None),
-                TRANSITION_SHARD_ID,
             ),
         ));
 
@@ -316,7 +310,6 @@ mod tests {
             })),
             partition_provider,
             Arc::new(MockPostWriteObserver::default()),
-            TRANSITION_SHARD_ID,
         );
 
         let batch = lines_to_batches(r#"bananas,bat=man value=24 42"#, 0)

@@ -1,7 +1,7 @@
 use std::{fmt::Debug, sync::Arc};
 
 use async_trait::async_trait;
-use data_types::{NamespaceId, PartitionKey, ShardId, TableId};
+use data_types::{NamespaceId, PartitionKey, TableId};
 
 use crate::{
     buffer_tree::{namespace::NamespaceName, partition::PartitionData, table::TableName},
@@ -24,7 +24,6 @@ pub(crate) trait PartitionProvider: Send + Sync + Debug {
         namespace_name: Arc<DeferredLoad<NamespaceName>>,
         table_id: TableId,
         table_name: Arc<DeferredLoad<TableName>>,
-        transition_shard_id: ShardId,
     ) -> PartitionData;
 }
 
@@ -40,7 +39,6 @@ where
         namespace_name: Arc<DeferredLoad<NamespaceName>>,
         table_id: TableId,
         table_name: Arc<DeferredLoad<TableName>>,
-        transition_shard_id: ShardId,
     ) -> PartitionData {
         (**self)
             .get_partition(
@@ -49,7 +47,6 @@ where
                 namespace_name,
                 table_id,
                 table_name,
-                transition_shard_id,
             )
             .await
     }
@@ -59,12 +56,10 @@ where
 mod tests {
     use std::{sync::Arc, time::Duration};
 
-    use data_types::{PartitionId, ShardId};
+    use data_types::{PartitionId};
 
     use super::*;
     use crate::buffer_tree::partition::{resolver::mock::MockPartitionProvider, SortKeyState};
-
-    const TRANSITION_SHARD_ID: ShardId = ShardId::new(84);
 
     #[tokio::test]
     async fn test_arc_impl() {
@@ -86,7 +81,6 @@ mod tests {
             table_id,
             Arc::clone(&table_name),
             SortKeyState::Provided(None),
-            TRANSITION_SHARD_ID,
         );
 
         let mock = Arc::new(MockPartitionProvider::default().with_partition(data));
@@ -98,7 +92,6 @@ mod tests {
                 Arc::clone(&namespace_name),
                 table_id,
                 Arc::clone(&table_name),
-                TRANSITION_SHARD_ID,
             )
             .await;
         assert_eq!(got.partition_id(), partition);

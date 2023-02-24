@@ -3,7 +3,7 @@ use std::{collections::HashMap, sync::Arc, time::Duration};
 use async_trait::async_trait;
 use backoff::BackoffConfig;
 use data_types::{
-    NamespaceId, Partition, PartitionId, PartitionKey, SequenceNumber, ShardId, TableId,
+    NamespaceId, Partition, PartitionId, PartitionKey, SequenceNumber, TableId,
 };
 use iox_catalog::interface::Catalog;
 use observability_deps::tracing::debug;
@@ -166,7 +166,6 @@ where
         namespace_name: Arc<DeferredLoad<NamespaceName>>,
         table_id: TableId,
         table_name: Arc<DeferredLoad<TableName>>,
-        transition_shard_id: ShardId,
     ) -> PartitionData {
         // Use the cached PartitionKey instead of the caller's partition_key,
         // instead preferring to reuse the already-shared Arc<str> in the cache.
@@ -196,7 +195,6 @@ where
                 table_id,
                 table_name,
                 SortKeyState::Deferred(Arc::new(sort_key_resolver)),
-                transition_shard_id,
             );
         }
 
@@ -210,7 +208,6 @@ where
                 namespace_name,
                 table_id,
                 table_name,
-                transition_shard_id,
             )
             .await
     }
@@ -218,7 +215,6 @@ where
 
 #[cfg(test)]
 mod tests {
-    use data_types::ShardId;
     use iox_catalog::mem::MemCatalog;
 
     use super::*;
@@ -230,7 +226,6 @@ mod tests {
     const NAMESPACE_NAME: &str = "ns-bananas";
     const TABLE_ID: TableId = TableId::new(3);
     const TABLE_NAME: &str = "platanos";
-    const TRANSITION_SHARD_ID: ShardId = ShardId::new(84);
 
     fn new_cache<P>(
         inner: MockPartitionProvider,
@@ -262,7 +257,6 @@ mod tests {
                 TableName::from(TABLE_NAME)
             })),
             SortKeyState::Provided(None),
-            TRANSITION_SHARD_ID,
         );
         let inner = MockPartitionProvider::default().with_partition(data);
 
@@ -278,7 +272,6 @@ mod tests {
                 Arc::new(DeferredLoad::new(Duration::from_secs(1), async {
                     TableName::from(TABLE_NAME)
                 })),
-                TRANSITION_SHARD_ID,
             )
             .await;
 
@@ -296,7 +289,6 @@ mod tests {
         let stored_partition_key = PartitionKey::from(PARTITION_KEY);
         let partition = Partition {
             id: PARTITION_ID,
-            shard_id: TRANSITION_SHARD_ID,
             table_id: TABLE_ID,
             partition_key: stored_partition_key.clone(),
             sort_key: vec!["dos".to_string(), "bananas".to_string()],
@@ -318,7 +310,6 @@ mod tests {
                 Arc::new(DeferredLoad::new(Duration::from_secs(1), async {
                     TableName::from(TABLE_NAME)
                 })),
-                TRANSITION_SHARD_ID,
             )
             .await;
 
@@ -356,12 +347,10 @@ mod tests {
                 TableName::from(TABLE_NAME)
             })),
             SortKeyState::Provided(None),
-            TRANSITION_SHARD_ID,
         ));
 
         let partition = Partition {
             id: PARTITION_ID,
-            shard_id: TRANSITION_SHARD_ID,
             table_id: TABLE_ID,
             partition_key: PARTITION_KEY.into(),
             sort_key: Default::default(),
@@ -381,7 +370,6 @@ mod tests {
                 Arc::new(DeferredLoad::new(Duration::from_secs(1), async {
                     TableName::from(TABLE_NAME)
                 })),
-                TRANSITION_SHARD_ID,
             )
             .await;
 
@@ -405,12 +393,10 @@ mod tests {
                 TableName::from(TABLE_NAME)
             })),
             SortKeyState::Provided(None),
-            TRANSITION_SHARD_ID,
         ));
 
         let partition = Partition {
             id: PARTITION_ID,
-            shard_id: TRANSITION_SHARD_ID,
             table_id: TABLE_ID,
             partition_key: PARTITION_KEY.into(),
             sort_key: Default::default(),
@@ -430,7 +416,6 @@ mod tests {
                 Arc::new(DeferredLoad::new(Duration::from_secs(1), async {
                     TableName::from(TABLE_NAME)
                 })),
-                TRANSITION_SHARD_ID,
             )
             .await;
 

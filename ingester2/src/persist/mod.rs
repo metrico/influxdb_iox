@@ -15,7 +15,7 @@ mod tests {
     use std::{sync::Arc, time::Duration};
 
     use assert_matches::assert_matches;
-    use data_types::{CompactionLevel, ParquetFile, PartitionKey, SequenceNumber, ShardId};
+    use data_types::{CompactionLevel, ParquetFile, PartitionKey, SequenceNumber};
     use dml::DmlOperation;
     use futures::TryStreamExt;
     use iox_catalog::{
@@ -46,14 +46,12 @@ mod tests {
         ingest_state::IngestState,
         persist::{completion_observer::mock::MockCompletionObserver, queue::PersistQueue},
         test_util::{make_write_op, populate_catalog},
-        TRANSITION_SHARD_INDEX,
     };
 
     use super::handle::PersistHandle;
 
     const TABLE_NAME: &str = "bananas";
     const NAMESPACE_NAME: &str = "platanos";
-    const TRANSITION_SHARD_ID: ShardId = ShardId::new(84);
 
     lazy_static! {
         static ref EXEC: Arc<Executor> = Arc::new(Executor::new_testing());
@@ -65,9 +63,8 @@ mod tests {
     /// partition entry exists (by driving the buffer tree to create it).
     async fn partition_with_write(catalog: Arc<dyn Catalog>) -> Arc<Mutex<PartitionData>> {
         // Create the namespace in the catalog and it's the schema
-        let (_shard_id, namespace_id, table_id) = populate_catalog(
+        let (namespace_id, table_id) = populate_catalog(
             &*catalog,
-            TRANSITION_SHARD_INDEX,
             NAMESPACE_NAME,
             TABLE_NAME,
         )
@@ -80,7 +77,6 @@ mod tests {
             Arc::new(CatalogPartitionResolver::new(Arc::clone(&catalog))),
             Arc::new(MockPostWriteObserver::default()),
             Arc::new(metric::Registry::default()),
-            TRANSITION_SHARD_ID,
         );
 
         let write = make_write_op(
@@ -449,7 +445,6 @@ mod tests {
         let want_path = ParquetFilePath::new(
             namespace_id,
             table_id,
-            TRANSITION_SHARD_ID,
             partition_id,
             object_store_id,
         )

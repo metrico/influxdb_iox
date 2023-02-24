@@ -5,7 +5,7 @@ use compactor2::{
     compactor::Compactor2,
     config::{Config, PartitionsSourceConfig, ShardConfig},
 };
-use data_types::{PartitionId, TRANSITION_SHARD_NUMBER};
+use data_types::PartitionId;
 use hyper::{Body, Request, Response};
 use iox_catalog::interface::Catalog;
 use iox_query::exec::Executor;
@@ -27,10 +27,6 @@ use std::{
 };
 use tokio_util::sync::CancellationToken;
 use trace::TraceCollector;
-
-// There is only one shard with index 1
-const TOPIC: &str = "iox-shared";
-const TRANSITION_SHARD_INDEX: i32 = TRANSITION_SHARD_NUMBER;
 
 pub struct Compactor2ServerType {
     compactor: Compactor2,
@@ -170,15 +166,7 @@ pub async fn create_compactor2_server_type(
         ),
     };
 
-    let shard_id = Config::fetch_shard_id(
-        Arc::clone(&catalog),
-        backoff_config.clone(),
-        TOPIC.to_string(),
-        TRANSITION_SHARD_INDEX,
-    )
-    .await;
     let compactor = Compactor2::start(Config {
-        shard_id,
         metric_registry: Arc::clone(&metric_registry),
         catalog,
         parquet_store_real,

@@ -258,7 +258,7 @@ mod tests {
 
     use assert_matches::assert_matches;
     use async_trait::async_trait;
-    use data_types::{NamespaceId, PartitionId, PartitionKey, ShardId, TableId};
+    use data_types::{NamespaceId, PartitionId, PartitionKey, TableId};
     use metric::{Attributes, Metric};
     use parking_lot::Mutex;
     use wal::Wal;
@@ -392,7 +392,6 @@ mod tests {
                 TABLE_NAME.into()
             })),
             SortKeyState::Provided(None),
-            ShardId::new(1234),
         );
         // Put at least one write into the buffer so it is a candidate for persistence
         partition
