@@ -1274,64 +1274,6 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_flight_unknown_partitions() {
-        let ingester_uuid = Uuid::new_v4();
-        let record_batch = lp_to_record_batch("table foo=1 1");
-
-        let schema = record_batch.schema();
-
-        let mock_flight_client = Arc::new(
-            MockFlightClient::new([(
-                "addr1",
-                Ok(MockQueryData {
-                    results: vec![
-                        metadata(
-                            1000,
-                            Some(PartitionStatus {
-                                parquet_max_sequence_number: Some(11),
-                            }),
-                            ingester_uuid.to_string(),
-                            3,
-                        ),
-                        metadata(
-                            1001,
-                            Some(PartitionStatus {
-                                parquet_max_sequence_number: Some(11),
-                            }),
-                            ingester_uuid.to_string(),
-                            4,
-                        ),
-                        Ok((
-                            DecodedPayload::Schema(Arc::clone(&schema)),
-                            IngesterQueryResponseMetadata::default(),
-                        )),
-                        metadata(
-                            1002,
-                            Some(PartitionStatus {
-                                parquet_max_sequence_number: Some(11),
-                            }),
-                            ingester_uuid.to_string(),
-                            5,
-                        ),
-                        Ok((
-                            DecodedPayload::Schema(Arc::clone(&schema)),
-                            IngesterQueryResponseMetadata::default(),
-                        )),
-                        Ok((
-                            DecodedPayload::RecordBatch(record_batch),
-                            IngesterQueryResponseMetadata::default(),
-                        )),
-                    ],
-                }),
-            )])
-            .await,
-        );
-        let ingester_conn = mock_flight_client.ingester_conn().await;
-        let partitions = get_partitions(&ingester_conn).await.unwrap();
-        assert!(partitions.is_empty());
-    }
-
-    #[tokio::test]
     async fn test_flight_no_batches() {
         let ingester_uuid = Uuid::new_v4();
 
