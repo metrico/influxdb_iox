@@ -220,38 +220,28 @@ mod tests {
         interface::{IngesterPartitionInfo, ParquetFileInfo},
         *,
     };
-    use data_types::{CompactionLevel, SequenceNumber};
+    use data_types::CompactionLevel;
 
     #[derive(Debug)]
     struct MockIngesterPartitionInfo {
         partition_id: PartitionId,
-        parquet_max_sequence_number: Option<SequenceNumber>,
     }
 
     impl IngesterPartitionInfo for MockIngesterPartitionInfo {
         fn partition_id(&self) -> PartitionId {
             self.partition_id
         }
-
-        fn parquet_max_sequence_number(&self) -> Option<SequenceNumber> {
-            self.parquet_max_sequence_number
-        }
     }
 
     #[derive(Debug, Clone, PartialEq, Eq)]
     struct MockParquetFileInfo {
         partition_id: PartitionId,
-        max_sequence_number: SequenceNumber,
         compaction_level: CompactionLevel,
     }
 
     impl ParquetFileInfo for MockParquetFileInfo {
         fn partition_id(&self) -> PartitionId {
             self.partition_id
-        }
-
-        fn max_sequence_number(&self) -> SequenceNumber {
-            self.max_sequence_number
         }
 
         fn compaction_level(&self) -> CompactionLevel {

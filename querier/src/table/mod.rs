@@ -444,7 +444,7 @@ mod tests {
         table::test_util::{querier_table, IngesterPartitionBuilder},
     };
     use arrow_util::assert_batches_eq;
-    use data_types::{ChunkId, ColumnType, SequenceNumber};
+    use data_types::{ChunkId, ColumnType};
     use iox_query::exec::IOxSessionContext;
     use iox_tests::{TestCatalog, TestParquetFileBuilder, TestTable};
     use iox_time::TimeProvider;
@@ -699,8 +699,7 @@ mod tests {
         let builder = IngesterPartitionBuilder::new(schema, &partition)
             .with_lp(["table,tag1=val1,tag2=val2 foo=3,bar=4 11"]);
 
-        let ingester_partition =
-            builder.build_with_max_parquet_sequence_number(Some(SequenceNumber::new(1)));
+        let ingester_partition = builder.build();
 
         let querier_table = TestQuerierTable::new(&catalog, &table)
             .await
