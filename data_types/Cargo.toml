@@ -7,7 +7,6 @@ edition.workspace = true
 license.workspace = true
 
 [dependencies]
-croaring = "0.8.1"
 influxdb-line-protocol = { path = "../influxdb_line_protocol" }
 iox_time = { path = "../iox_time" }
 observability_deps = { path = "../observability_deps" }
@@ -21,5 +20,4 @@ uuid = { version = "1", features = ["v4"] }
 workspace-hack = { version = "0.1", path = "../workspace-hack" }
 
 [dev-dependencies] # In alphabetical order
-proptest = "1.1.0"
 test_helpers = { path = "../test_helpers" }

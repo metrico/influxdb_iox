@@ -1,7 +1,7 @@
 use std::sync::Arc;
 
-use data_types::{
-    sequence_number_set::{self, SequenceNumberSet},
+use dml::{
+    SequenceNumberSet,
     SequenceNumber,
 };
 use hashbrown::HashMap;
@@ -339,7 +339,7 @@ where
 /// Remove the intersection of `a` and `b`, from both `a` and `b`, and return
 /// the cardinality of the intersection.
 fn clear_intersection(a: &mut SequenceNumberSet, b: &mut SequenceNumberSet) -> usize {
-    let intersection = sequence_number_set::intersect(a, b);
+    let intersection = dml::intersect(a, b);
 
     a.remove_set(&intersection);
     b.remove_set(&intersection);

@@ -1,5 +1,5 @@
-use data_types::{NamespaceId, PartitionKey, SequenceNumber, TableId};
-use dml::{DmlMeta, DmlOperation, DmlWrite};
+use data_types::{NamespaceId, PartitionKey, TableId};
+use dml::{DmlMeta, DmlOperation, DmlWrite, SequenceNumber};
 use generated_types::influxdata::iox::wal::v1::sequenced_wal_op::Op;
 use metric::U64Counter;
 use mutable_batch_pb::decode::decode_database_batch;

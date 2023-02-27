@@ -15,8 +15,8 @@ use async_trait::async_trait;
 use data_types::{
     Column, ColumnType, ColumnTypeCount, CompactionLevel, Namespace, NamespaceId, ParquetFile,
     ParquetFileId, ParquetFileParams, Partition, PartitionId, PartitionKey, ProcessedTombstone,
-    QueryPool, QueryPoolId, SequenceNumber, SkippedCompaction, Table, TableId, Timestamp,
-    Tombstone, TombstoneId, TopicId, TopicMetadata,
+    QueryPool, QueryPoolId, SkippedCompaction, Table, TableId, Timestamp, Tombstone, TombstoneId,
+    TopicId, TopicMetadata,
 };
 use iox_time::{SystemProvider, TimeProvider};
 use observability_deps::tracing::{debug, info, warn};
@@ -1124,7 +1124,7 @@ VALUES
     ( $1, $2, $3, '{}')
 ON CONFLICT ON CONSTRAINT partition_key_unique
 DO UPDATE SET partition_key = partition.partition_key
-RETURNING id, table_id, partition_key, sort_key, persisted_sequence_number, new_file_at;
+RETURNING id, table_id, partition_key, sort_key, new_file_at;
         "#,
         )
         .bind(key) // $1
@@ -1146,7 +1146,7 @@ RETURNING id, table_id, partition_key, sort_key, persisted_sequence_number, new_
     async fn get_by_id(&mut self, partition_id: PartitionId) -> Result<Option<Partition>> {
         let rec = sqlx::query_as::<_, Partition>(
             r#"
-SELECT id, table_id, partition_key, sort_key, persisted_sequence_number, new_file_at
+SELECT id, table_id, partition_key, sort_key, new_file_at
 FROM partition
 WHERE id = $1;
         "#,
@@ -1168,7 +1168,7 @@ WHERE id = $1;
         sqlx::query_as::<_, Partition>(
             r#"
 SELECT partition.id, partition.table_id, partition.partition_key, partition.sort_key,
-       partition.persisted_sequence_number, partition.new_file_at
+       partition.new_file_at
 FROM table_name
 INNER JOIN partition on partition.table_id = table_name.id
 WHERE table_name.namespace_id = $1;
@@ -1183,7 +1183,7 @@ WHERE table_name.namespace_id = $1;
     async fn list_by_table_id(&mut self, table_id: TableId) -> Result<Vec<Partition>> {
         sqlx::query_as::<_, Partition>(
             r#"
-SELECT id, table_id, partition_key, sort_key, persisted_sequence_number, new_file_at
+SELECT id, table_id, partition_key, sort_key, new_file_at
 FROM partition
 WHERE table_id = $1;
             "#,
@@ -1224,7 +1224,7 @@ WHERE table_id = $1;
 UPDATE partition
 SET sort_key = $1
 WHERE id = $2 AND sort_key = $3
-RETURNING id, table_id, partition_key, sort_key, persisted_sequence_number, new_file_at;
+RETURNING id, table_id, partition_key, sort_key, new_file_at;
         "#,
         )
         .bind(new_sort_key) // $1
@@ -1359,31 +1359,10 @@ RETURNING *
         .context(interface::CouldNotDeleteSkippedCompactionsSnafu)
     }
 
-    async fn update_persisted_sequence_number(
-        &mut self,
-        partition_id: PartitionId,
-        sequence_number: SequenceNumber,
-    ) -> Result<()> {
-        let _ = sqlx::query(
-            r#"
-UPDATE partition
-SET persisted_sequence_number = $1
-WHERE id = $2;
-                "#,
-        )
-        .bind(sequence_number.get()) // $1
-        .bind(partition_id) // $2
-        .execute(&mut self.inner)
-        .await
-        .map_err(|e| Error::SqlxError { source: e })?;
-
-        Ok(())
-    }
-
     async fn most_recent_n(&mut self, n: usize) -> Result<Vec<Partition>> {
         sqlx::query_as(
             r#"
-SELECT id, table_id, partition_key, sort_key, persisted_sequence_number, new_file_at
+SELECT id, table_id, partition_key, sort_key, new_file_at
 FROM partition
 ORDER BY id DESC
 LIMIT $1;
@@ -1426,7 +1405,6 @@ impl TombstoneRepo for PostgresTxn {
     async fn create_or_get(
         &mut self,
         table_id: TableId,
-        sequence_number: SequenceNumber,
         min_time: Timestamp,
         max_time: Timestamp,
         predicate: &str,
@@ -1444,7 +1422,7 @@ RETURNING id, table_id, sequence_number, min_time, max_time, serialized_predicat
         )
         .bind(table_id) // $1
         .bind(TRANSITION_SHARD_ID) // $2
-        .bind(sequence_number) // $3
+        .bind(0) // $3
         .bind(min_time) // $4
         .bind(max_time) // $5
         .bind(predicate) // $6
@@ -1568,33 +1546,6 @@ WHERE id = ANY($1);
 
         Ok(())
     }
-
-    async fn list_tombstones_for_time_range(
-        &mut self,
-        table_id: TableId,
-        sequence_number: SequenceNumber,
-        min_time: Timestamp,
-        max_time: Timestamp,
-    ) -> Result<Vec<Tombstone>> {
-        sqlx::query_as::<_, Tombstone>(
-            r#"
-SELECT id, table_id, sequence_number, min_time, max_time, serialized_predicate
-FROM tombstone
-WHERE table_id = $1
-  AND sequence_number > $2
-  AND ((min_time <= $3 AND max_time >= $3)
-        OR (min_time > $3 AND min_time <= $4))
-ORDER BY id;
-            "#,
-        )
-        .bind(table_id) // $1
-        .bind(sequence_number) // $2
-        .bind(min_time) // $3
-        .bind(max_time) // $4
-        .fetch_all(&mut self.inner)
-        .await
-        .map_err(|e| Error::SqlxError { source: e })
-    }
 }
 
 #[async_trait]
@@ -1605,7 +1556,6 @@ impl ParquetFileRepo for PostgresTxn {
             table_id,
             partition_id,
             object_store_id,
-            max_sequence_number,
             min_time,
             max_time,
             file_size_bytes,
@@ -1620,12 +1570,12 @@ impl ParquetFileRepo for PostgresTxn {
             r#"
 INSERT INTO parquet_file (
     shard_id, table_id, partition_id, object_store_id,
-    max_sequence_number, min_time, max_time, file_size_bytes,
+    min_time, max_time, file_size_bytes,
     row_count, compaction_level, created_at, namespace_id, column_set, max_l0_created_at )
-VALUES ( $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14 )
+VALUES ( $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13 )
 RETURNING
     id, table_id, partition_id, object_store_id,
-    max_sequence_number, min_time, max_time, to_delete, file_size_bytes,
+    min_time, max_time, to_delete, file_size_bytes,
     row_count, compaction_level, created_at, namespace_id, column_set, max_l0_created_at;
         "#,
         )
@@ -1633,16 +1583,15 @@ RETURNING
         .bind(table_id) // $2
         .bind(partition_id) // $3
         .bind(object_store_id) // $4
-        .bind(max_sequence_number) // $5
-        .bind(min_time) // $6
-        .bind(max_time) // $7
-        .bind(file_size_bytes) // $8
-        .bind(row_count) // $9
-        .bind(compaction_level) // $10
-        .bind(created_at) // $11
-        .bind(namespace_id) // $12
-        .bind(column_set) // $13
-        .bind(max_l0_created_at) // $14
+        .bind(min_time) // $5
+        .bind(max_time) // $6
+        .bind(file_size_bytes) // $7
+        .bind(row_count) // $8
+        .bind(compaction_level) // $9
+        .bind(created_at) // $10
+        .bind(namespace_id) // $11
+        .bind(column_set) // $12
+        .bind(max_l0_created_at) // $13
         .fetch_one(&mut self.inner)
         .await
         .map_err(|e| {
@@ -1703,7 +1652,7 @@ RETURNING
             r#"
 SELECT parquet_file.id, parquet_file.namespace_id,
        parquet_file.table_id, parquet_file.partition_id, parquet_file.object_store_id,
-       parquet_file.max_sequence_number, parquet_file.min_time,
+       parquet_file.min_time,
        parquet_file.max_time, parquet_file.to_delete, parquet_file.file_size_bytes,
        parquet_file.row_count, parquet_file.compaction_level, parquet_file.created_at,
        parquet_file.column_set, parquet_file.max_l0_created_at
@@ -1723,7 +1672,7 @@ WHERE table_name.namespace_id = $1
         sqlx::query_as::<_, ParquetFile>(
             r#"
 SELECT id, namespace_id, table_id, partition_id, object_store_id,
-       max_sequence_number, min_time, max_time, to_delete, file_size_bytes,
+       min_time, max_time, to_delete, file_size_bytes,
        row_count, compaction_level, created_at, column_set, max_l0_created_at
 FROM parquet_file
 WHERE table_id = $1 AND to_delete IS NULL;
@@ -1759,7 +1708,7 @@ WHERE table_id = $1;
 DELETE FROM parquet_file
 WHERE to_delete < $1
 RETURNING id, table_id, partition_id, object_store_id,
-    max_sequence_number, min_time, max_time, to_delete, file_size_bytes,
+    min_time, max_time, to_delete, file_size_bytes,
     row_count, compaction_level, created_at, namespace_id, column_set, max_l0_created_at;
              "#,
         )
@@ -1801,7 +1750,7 @@ RETURNING id;
         sqlx::query_as::<_, ParquetFile>(
             r#"
 SELECT id, namespace_id, table_id, partition_id, object_store_id,
-       max_sequence_number, min_time, max_time, to_delete, file_size_bytes,
+       min_time, max_time, to_delete, file_size_bytes,
        row_count, compaction_level, created_at, column_set, max_l0_created_at
 FROM parquet_file
 WHERE parquet_file.partition_id = $1
@@ -1869,7 +1818,7 @@ RETURNING id;
         let rec = sqlx::query_as::<_, ParquetFile>(
             r#"
 SELECT id, namespace_id, table_id, partition_id, object_store_id,
-       max_sequence_number, min_time, max_time, to_delete, file_size_bytes,
+       min_time, max_time, to_delete, file_size_bytes,
        row_count, compaction_level, created_at, column_set, max_l0_created_at
 FROM parquet_file
 WHERE object_store_id = $1;
@@ -2210,7 +2159,6 @@ mod tests {
             .expect("create table failed")
             .id;
 
-        let sequence_number = SequenceNumber::new(3);
         let min_timestamp = Timestamp::new(10);
         let max_timestamp = Timestamp::new(100);
         let predicate = "bananas";
@@ -2219,29 +2167,17 @@ mod tests {
             .repositories()
             .await
             .tombstones()
-            .create_or_get(
-                table_id,
-                sequence_number,
-                min_timestamp,
-                max_timestamp,
-                predicate,
-            )
+            .create_or_get(table_id, min_timestamp, max_timestamp, predicate)
             .await
             .expect("should create OK");
 
-        // Call create_or_get for the same (table_id, sequence_number) pair, setting the same
-        // metadata to ensure the write is idempotent.
+        // Call create_or_get for the same table_id, setting the same metadata to ensure the write
+        // is idempotent.
         let b = postgres
             .repositories()
             .await
             .tombstones()
-            .create_or_get(
-                table_id,
-                sequence_number,
-                min_timestamp,
-                max_timestamp,
-                predicate,
-            )
+            .create_or_get(table_id, min_timestamp, max_timestamp, predicate)
             .await
             .expect("idempotent write should succeed");
 
@@ -2279,7 +2215,6 @@ mod tests {
             .expect("create table failed")
             .id;
 
-        let sequence_number = SequenceNumber::new(3);
         let min_timestamp = Timestamp::new(10);
         let max_timestamp = Timestamp::new(100);
 
@@ -2287,17 +2222,11 @@ mod tests {
             .repositories()
             .await
             .tombstones()
-            .create_or_get(
-                table_id,
-                sequence_number,
-                min_timestamp,
-                max_timestamp,
-                "bananas",
-            )
+            .create_or_get(table_id, min_timestamp, max_timestamp, "bananas")
             .await
             .expect("should create OK");
 
-        // Call create_or_get for the same (table_id, sequence_number) pair with different metadata.
+        // Call create_or_get for the same table_id with different metadata.
         //
         // The caller should not falsely believe it has persisted the incorrect predicate.
         let b = postgres
@@ -2306,7 +2235,6 @@ mod tests {
             .tombstones()
             .create_or_get(
                 table_id,
-                sequence_number,
                 min_timestamp,
                 max_timestamp,
                 "some other serialized predicate which is different",
@@ -2680,7 +2608,6 @@ mod tests {
             table_id,
             partition_id,
             object_store_id: Uuid::new_v4(),
-            max_sequence_number: SequenceNumber::new(100),
             min_time: Timestamp::new(1),
             max_time: Timestamp::new(5),
             file_size_bytes: 1337,

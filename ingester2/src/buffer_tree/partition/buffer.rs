@@ -1,7 +1,7 @@
 use std::sync::Arc;
 
 use arrow::record_batch::RecordBatch;
-use data_types::SequenceNumber;
+use dml::SequenceNumber;
 use mutable_batch::MutableBatch;
 
 mod always_some;

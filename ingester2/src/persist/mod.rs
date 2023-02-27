@@ -15,7 +15,7 @@ mod tests {
     use std::{sync::Arc, time::Duration};
 
     use assert_matches::assert_matches;
-    use data_types::{CompactionLevel, ParquetFile, PartitionKey, SequenceNumber};
+    use data_types::{CompactionLevel, ParquetFile, PartitionKey};
     use dml::DmlOperation;
     use futures::TryStreamExt;
     use iox_catalog::{
@@ -253,7 +253,6 @@ mod tests {
                 table_id: got_table_id,
                 partition_id: got_partition_id,
                 object_store_id,
-                max_sequence_number,
                 row_count,
                 compaction_level,
                 file_size_bytes,
@@ -267,7 +266,6 @@ mod tests {
                 assert_eq!(got_namespace_id, namespace_id);
                 assert_eq!(got_table_id, table_id);
                 assert_eq!(got_partition_id, partition_id);
-                assert_eq!(max_sequence_number, SequenceNumber::new(0));
 
                 assert_eq!(row_count, 1);
                 assert_eq!(compaction_level, CompactionLevel::Initial);
@@ -403,7 +401,6 @@ mod tests {
                 table_id: got_table_id,
                 partition_id: got_partition_id,
                 object_store_id,
-                max_sequence_number,
                 row_count,
                 compaction_level,
                 file_size_bytes,
@@ -420,8 +417,6 @@ mod tests {
 
                 assert_eq!(row_count, 1);
                 assert_eq!(compaction_level, CompactionLevel::Initial);
-
-                assert_eq!(max_sequence_number.get(), 0); // Unused, dummy value
 
                 (object_store_id, file_size_bytes)
             }

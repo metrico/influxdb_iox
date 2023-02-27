@@ -175,7 +175,7 @@
 //! after a faulty range comparison, `{1}` to converge.
 //!
 //! [`BufferTree`]: crate::buffer_tree::BufferTree
-//! [`SequenceNumber`]: data_types::SequenceNumber
+//! [`SequenceNumber`]: dml::SequenceNumber
 //! [`PersistQueue`]: crate::persist::queue::PersistQueue
 //! [`PersistHandle`]: crate::persist::handle::PersistHandle
 //! [`IngestState`]: crate::ingest_state::IngestState

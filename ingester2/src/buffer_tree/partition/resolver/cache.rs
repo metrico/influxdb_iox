@@ -3,8 +3,9 @@ use std::{collections::HashMap, sync::Arc, time::Duration};
 use async_trait::async_trait;
 use backoff::BackoffConfig;
 use data_types::{
-    NamespaceId, Partition, PartitionId, PartitionKey, SequenceNumber, TableId,
+    NamespaceId, Partition, PartitionId, PartitionKey, TableId,
 };
+use dml::SequenceNumber;
 use iox_catalog::interface::Catalog;
 use observability_deps::tracing::debug;
 use parking_lot::Mutex;
@@ -292,7 +293,6 @@ mod tests {
             table_id: TABLE_ID,
             partition_key: stored_partition_key.clone(),
             sort_key: vec!["dos".to_string(), "bananas".to_string()],
-            persisted_sequence_number: Default::default(),
             new_file_at: Default::default(),
         };
 
@@ -354,7 +354,6 @@ mod tests {
             table_id: TABLE_ID,
             partition_key: PARTITION_KEY.into(),
             sort_key: Default::default(),
-            persisted_sequence_number: Default::default(),
             new_file_at: Default::default(),
         };
 
@@ -400,7 +399,6 @@ mod tests {
             table_id: TABLE_ID,
             partition_key: PARTITION_KEY.into(),
             sort_key: Default::default(),
-            persisted_sequence_number: Default::default(),
             new_file_at: Default::default(),
         };
 

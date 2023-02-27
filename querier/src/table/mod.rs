@@ -505,7 +505,6 @@ mod tests {
         );
         let builder = TestParquetFileBuilder::default()
             .with_line_protocol(&lp)
-            .with_max_seq(1)
             .with_min_time(outside_retention)
             .with_max_time(inside_retention);
         let file_partially_inside = partition.create_parquet_file(builder).await;
@@ -519,7 +518,6 @@ mod tests {
         );
         let builder = TestParquetFileBuilder::default()
             .with_line_protocol(&lp)
-            .with_max_seq(2)
             .with_min_time(inside_retention)
             .with_max_time(inside_retention);
         let file_fully_inside = partition.create_parquet_file(builder).await;
@@ -533,7 +531,6 @@ mod tests {
         );
         let builder = TestParquetFileBuilder::default()
             .with_line_protocol(&lp)
-            .with_max_seq(3)
             .with_min_time(outside_retention)
             .with_max_time(outside_retention);
         let _file_fully_outside = partition.create_parquet_file(builder).await;
@@ -584,63 +581,54 @@ mod tests {
 
         let builder = TestParquetFileBuilder::default()
             .with_line_protocol("table1 foo=1 11")
-            .with_max_seq(2)
             .with_min_time(11)
             .with_max_time(11);
         let file111 = partition11.create_parquet_file(builder).await;
 
         let builder = TestParquetFileBuilder::default()
             .with_line_protocol("table1 foo=2 22")
-            .with_max_seq(4)
             .with_min_time(22)
             .with_max_time(22);
         let file112 = partition11.create_parquet_file(builder).await;
 
         let builder = TestParquetFileBuilder::default()
             .with_line_protocol("table1 foo=3 33")
-            .with_max_seq(6)
             .with_min_time(33)
             .with_max_time(33);
         let file113 = partition11.create_parquet_file(builder).await;
 
         let builder = TestParquetFileBuilder::default()
             .with_line_protocol("table1 foo=4 44")
-            .with_max_seq(8)
             .with_min_time(44)
             .with_max_time(44);
         let file114 = partition11.create_parquet_file(builder).await;
 
         let builder = TestParquetFileBuilder::default()
             .with_line_protocol("table1 foo=5 55")
-            .with_max_seq(10)
             .with_min_time(55)
             .with_max_time(55);
         let file115 = partition11.create_parquet_file(builder).await;
 
         let builder = TestParquetFileBuilder::default()
             .with_line_protocol("table1 foo=5 55")
-            .with_max_seq(2)
             .with_min_time(55)
             .with_max_time(55);
         let file121 = partition12.create_parquet_file(builder).await;
 
         let builder = TestParquetFileBuilder::default()
             .with_line_protocol("table1 foo=10 100")
-            .with_max_seq(2)
             .with_min_time(99)
             .with_max_time(99);
         let file122 = partition12.create_parquet_file(builder).await;
 
         let builder = TestParquetFileBuilder::default()
             .with_line_protocol("table1 foo=10 100")
-            .with_max_seq(2)
             .with_min_time(100)
             .with_max_time(100);
         let _file123 = partition12.create_parquet_file(builder).await;
 
         let builder = TestParquetFileBuilder::default()
             .with_line_protocol("table2 foo=6 66")
-            .with_max_seq(2)
             .with_min_time(66)
             .with_max_time(66);
         let _file211 = partition21.create_parquet_file(builder).await;

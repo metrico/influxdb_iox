@@ -4,8 +4,8 @@ use async_trait::async_trait;
 use data_types::{
     Column, ColumnSchema, ColumnType, ColumnTypeCount, CompactionLevel, Namespace, NamespaceId,
     NamespaceSchema, ParquetFile, ParquetFileId, ParquetFileParams, Partition, PartitionId,
-    PartitionKey, ProcessedTombstone, QueryPool, QueryPoolId, SequenceNumber, SkippedCompaction,
-    Table, TableId, TableSchema, Timestamp, Tombstone, TombstoneId, TopicId, TopicMetadata,
+    PartitionKey, ProcessedTombstone, QueryPool, QueryPoolId, SkippedCompaction, Table, TableId,
+    TableSchema, Timestamp, Tombstone, TombstoneId, TopicId, TopicMetadata,
 };
 use iox_time::TimeProvider;
 use snafu::{OptionExt, Snafu};
@@ -521,16 +521,6 @@ pub trait PartitionRepo: Send + Sync {
         partition_id: PartitionId,
     ) -> Result<Option<SkippedCompaction>>;
 
-    /// Update the per-partition persistence watermark.
-    ///
-    /// The given `sequence_number` is the inclusive maximum [`SequenceNumber`]
-    /// of the most recently persisted data for this partition.
-    async fn update_persisted_sequence_number(
-        &mut self,
-        partition_id: PartitionId,
-        sequence_number: SequenceNumber,
-    ) -> Result<()>;
-
     /// Return the N most recently created partitions.
     async fn most_recent_n(&mut self, n: usize) -> Result<Vec<Partition>>;
 
@@ -551,7 +541,6 @@ pub trait TombstoneRepo: Send + Sync {
     async fn create_or_get(
         &mut self,
         table_id: TableId,
-        sequence_number: SequenceNumber,
         min_time: Timestamp,
         max_time: Timestamp,
         predicate: &str,
@@ -568,21 +557,6 @@ pub trait TombstoneRepo: Send + Sync {
 
     /// Remove given tombstones
     async fn remove(&mut self, tombstone_ids: &[TombstoneId]) -> Result<()>;
-
-    /// Return all tombstones that have:
-    ///
-    /// - the specified table ID
-    /// - a sequence number greater than the specified sequence number
-    /// - a time period that overlaps with the specified time period
-    ///
-    /// Used during compaction.
-    async fn list_tombstones_for_time_range(
-        &mut self,
-        table_id: TableId,
-        sequence_number: SequenceNumber,
-        min_time: Timestamp,
-        max_time: Timestamp,
-    ) -> Result<Vec<Tombstone>>;
 }
 
 /// Functions for working with parquet file pointers in the catalog
@@ -917,7 +891,6 @@ pub(crate) mod test_helpers {
         test_column(clean_state().await).await;
         test_partition(clean_state().await).await;
         test_tombstone(clean_state().await).await;
-        test_tombstones_by_parquet_file(clean_state().await).await;
         test_parquet_file(clean_state().await).await;
         test_parquet_file_delete_broken(clean_state().await).await;
         test_processed_tombstones(clean_state().await).await;
@@ -1906,32 +1879,6 @@ pub(crate) mod test_helpers {
             "Expected no skipped compactions, got: {skipped_compactions:?}"
         );
 
-        // Test setting and reading the per-partition persistence numbers
-        let partition = repos
-            .partitions()
-            .get_by_id(other_partition.id)
-            .await
-            .unwrap()
-            .unwrap();
-        assert_eq!(partition.persisted_sequence_number, None);
-        // Set
-        repos
-            .partitions()
-            .update_persisted_sequence_number(other_partition.id, SequenceNumber::new(42))
-            .await
-            .unwrap();
-        // Read
-        let partition = repos
-            .partitions()
-            .get_by_id(other_partition.id)
-            .await
-            .unwrap()
-            .unwrap();
-        assert_eq!(
-            partition.persisted_sequence_number,
-            Some(SequenceNumber::new(42))
-        );
-
         let recent = repos
             .partitions()
             .most_recent_n(10)
@@ -1989,40 +1936,21 @@ pub(crate) mod test_helpers {
         let max_time = Timestamp::new(10);
         let t1 = repos
             .tombstones()
-            .create_or_get(
-                table.id,
-                SequenceNumber::new(1),
-                min_time,
-                max_time,
-                "whatevs",
-            )
+            .create_or_get(table.id, min_time, max_time, "whatevs")
             .await
             .unwrap();
         assert!(t1.id > TombstoneId::new(0));
-        assert_eq!(t1.sequence_number, SequenceNumber::new(1));
         assert_eq!(t1.min_time, min_time);
         assert_eq!(t1.max_time, max_time);
         assert_eq!(t1.serialized_predicate, "whatevs");
         let t2 = repos
             .tombstones()
-            .create_or_get(
-                other_table.id,
-                SequenceNumber::new(2),
-                min_time.add(10),
-                max_time.add(10),
-                "bleh",
-            )
+            .create_or_get(other_table.id, min_time.add(10), max_time.add(10), "bleh")
             .await
             .unwrap();
         let t3 = repos
             .tombstones()
-            .create_or_get(
-                table.id,
-                SequenceNumber::new(3),
-                min_time.add(10),
-                max_time.add(10),
-                "sdf",
-            )
+            .create_or_get(table.id, min_time.add(10), max_time.add(10), "sdf")
             .await
             .unwrap();
 
@@ -2049,24 +1977,12 @@ pub(crate) mod test_helpers {
             .unwrap();
         let t4 = repos
             .tombstones()
-            .create_or_get(
-                table2.id,
-                SequenceNumber::new(1),
-                min_time.add(10),
-                max_time.add(10),
-                "whatevs",
-            )
+            .create_or_get(table2.id, min_time.add(10), max_time.add(10), "whatevs")
             .await
             .unwrap();
         let t5 = repos
             .tombstones()
-            .create_or_get(
-                table2.id,
-                SequenceNumber::new(2),
-                min_time.add(10),
-                max_time.add(10),
-                "foo",
-            )
+            .create_or_get(table2.id, min_time.add(10), max_time.add(10), "foo")
             .await
             .unwrap();
         let listed = repos
@@ -2121,189 +2037,6 @@ pub(crate) mod test_helpers {
             .expect("delete namespace should succeed");
     }
 
-    async fn test_tombstones_by_parquet_file(catalog: Arc<dyn Catalog>) {
-        let mut repos = catalog.repositories().await;
-        let topic = repos.topics().create_or_get("foo").await.unwrap();
-        let pool = repos.query_pools().create_or_get("foo").await.unwrap();
-        let namespace = repos
-            .namespaces()
-            .create(
-                "namespace_tombstones_by_parquet_file_test",
-                None,
-                topic.id,
-                pool.id,
-            )
-            .await
-            .unwrap();
-        let table = repos
-            .tables()
-            .create_or_get("test_table", namespace.id)
-            .await
-            .unwrap();
-        let other_table = repos
-            .tables()
-            .create_or_get("other", namespace.id)
-            .await
-            .unwrap();
-        let partition = repos
-            .partitions()
-            .create_or_get("one".into(), table.id)
-            .await
-            .unwrap();
-
-        let min_time = Timestamp::new(10);
-        let max_time = Timestamp::new(20);
-        let max_sequence_number = SequenceNumber::new(140);
-        let max_l0_created_at = Timestamp::new(0);
-
-        let parquet_file_params = ParquetFileParams {
-            namespace_id: namespace.id,
-            table_id: partition.table_id,
-            partition_id: partition.id,
-            object_store_id: Uuid::new_v4(),
-            max_sequence_number,
-            min_time,
-            max_time,
-            file_size_bytes: 1337,
-            row_count: 0,
-            compaction_level: CompactionLevel::Initial,
-            created_at: Timestamp::new(1),
-            column_set: ColumnSet::new([ColumnId::new(1), ColumnId::new(2)]),
-            max_l0_created_at,
-        };
-        let parquet_file = repos
-            .parquet_files()
-            .create(parquet_file_params.clone())
-            .await
-            .unwrap();
-
-        // Create a tombstone with a different table
-        repos
-            .tombstones()
-            .create_or_get(
-                other_table.id,
-                max_sequence_number + 101,
-                min_time,
-                max_time,
-                "whatevs",
-            )
-            .await
-            .unwrap();
-
-        // Create a tombstone with a sequence number before the parquet file's max
-        repos
-            .tombstones()
-            .create_or_get(
-                table.id,
-                max_sequence_number - 10,
-                min_time,
-                max_time,
-                "whatevs",
-            )
-            .await
-            .unwrap();
-
-        // Create a tombstone with a sequence number exactly equal to the parquet file's max
-        repos
-            .tombstones()
-            .create_or_get(table.id, max_sequence_number, min_time, max_time, "whatevs")
-            .await
-            .unwrap();
-
-        // Create a tombstone with a time range less than the parquet file's times
-        repos
-            .tombstones()
-            .create_or_get(
-                table.id,
-                max_sequence_number + 102,
-                min_time - 5,
-                min_time - 4,
-                "whatevs",
-            )
-            .await
-            .unwrap();
-
-        // Create a tombstone with a time range greater than the parquet file's times
-        repos
-            .tombstones()
-            .create_or_get(
-                table.id,
-                max_sequence_number + 103,
-                max_time + 1,
-                max_time + 2,
-                "whatevs",
-            )
-            .await
-            .unwrap();
-
-        // Create a tombstone that matches all criteria
-        let matching_tombstone1 = repos
-            .tombstones()
-            .create_or_get(
-                table.id,
-                max_sequence_number + 104,
-                min_time,
-                max_time,
-                "whatevs",
-            )
-            .await
-            .unwrap();
-
-        // Create a tombstone that overlaps the file's min
-        let matching_tombstone2 = repos
-            .tombstones()
-            .create_or_get(
-                table.id,
-                max_sequence_number + 105,
-                min_time - 1,
-                min_time + 1,
-                "whatevs",
-            )
-            .await
-            .unwrap();
-
-        // Create a tombstone that overlaps the file's max
-        let matching_tombstone3 = repos
-            .tombstones()
-            .create_or_get(
-                table.id,
-                max_sequence_number + 106,
-                max_time - 1,
-                max_time + 1,
-                "whatevs",
-            )
-            .await
-            .unwrap();
-
-        let tombstones = repos
-            .tombstones()
-            .list_tombstones_for_time_range(table.id, max_sequence_number, min_time, max_time)
-            .await
-            .unwrap();
-        let mut tombstones_ids: Vec<_> = tombstones.iter().map(|t| t.id).collect();
-        tombstones_ids.sort();
-        let expected = vec![
-            matching_tombstone1,
-            matching_tombstone2,
-            matching_tombstone3,
-        ];
-        let mut expected_ids: Vec<_> = expected.iter().map(|t| t.id).collect();
-        expected_ids.sort();
-
-        assert_eq!(
-            tombstones_ids, expected_ids,
-            "\ntombstones: {tombstones:#?}\
-             \nexpected: {expected:#?}\
-             \nparquet_file: {parquet_file:#?}"
-        );
-
-        repos
-            .namespaces()
-            .soft_delete("namespace_tombstones_by_parquet_file_test")
-            .await
-            .expect("delete namespace should succeed");
-    }
-
     async fn test_parquet_file(catalog: Arc<dyn Catalog>) {
         let mut repos = catalog.repositories().await;
         let topic = repos.topics().create_or_get("foo").await.unwrap();
@@ -2339,7 +2072,6 @@ pub(crate) mod test_helpers {
             table_id: partition.table_id,
             partition_id: partition.id,
             object_store_id: Uuid::new_v4(),
-            max_sequence_number: SequenceNumber::new(140),
             min_time: Timestamp::new(1),
             max_time: Timestamp::new(10),
             file_size_bytes: 1337,
@@ -2375,7 +2107,6 @@ pub(crate) mod test_helpers {
             table_id: other_partition.table_id,
             partition_id: other_partition.id,
             object_store_id: Uuid::new_v4(),
-            max_sequence_number: SequenceNumber::new(200),
             min_time: Timestamp::new(50),
             max_time: Timestamp::new(60),
             ..parquet_file_params.clone()
@@ -2512,7 +2243,6 @@ pub(crate) mod test_helpers {
             object_store_id: Uuid::new_v4(),
             min_time: Timestamp::new(1),
             max_time: Timestamp::new(10),
-            max_sequence_number: SequenceNumber::new(10),
             ..parquet_file_params
         };
         let f1 = repos
@@ -2525,7 +2255,6 @@ pub(crate) mod test_helpers {
             object_store_id: Uuid::new_v4(),
             min_time: Timestamp::new(50),
             max_time: Timestamp::new(60),
-            max_sequence_number: SequenceNumber::new(11),
             ..f1_params
         };
         let f2 = repos
@@ -2544,7 +2273,6 @@ pub(crate) mod test_helpers {
             object_store_id: Uuid::new_v4(),
             min_time: Timestamp::new(50),
             max_time: Timestamp::new(60),
-            max_sequence_number: SequenceNumber::new(12),
             ..f2_params
         };
         let f3 = repos
@@ -2713,7 +2441,6 @@ pub(crate) mod test_helpers {
             table_id: table_1.id,
             partition_id: partition_1.id,
             object_store_id: Uuid::new_v4(),
-            max_sequence_number: SequenceNumber::new(140),
             min_time: Timestamp::new(1),
             max_time: Timestamp::new(10),
             file_size_bytes: 1337,
@@ -2728,7 +2455,6 @@ pub(crate) mod test_helpers {
             table_id: table_2.id,
             partition_id: partition_2.id,
             object_store_id: Uuid::new_v4(),
-            max_sequence_number: SequenceNumber::new(140),
             min_time: Timestamp::new(1),
             max_time: Timestamp::new(10),
             file_size_bytes: 1337,
@@ -2796,7 +2522,6 @@ pub(crate) mod test_helpers {
             table_id: partition.table_id,
             partition_id: partition.id,
             object_store_id: Uuid::new_v4(),
-            max_sequence_number: SequenceNumber::new(140),
             min_time,
             max_time,
             file_size_bytes: 1337,
@@ -2903,7 +2628,6 @@ pub(crate) mod test_helpers {
             table_id: partition.table_id,
             partition_id: partition.id,
             object_store_id: Uuid::new_v4(),
-            max_sequence_number: SequenceNumber::new(1),
             min_time: Timestamp::new(100),
             max_time: Timestamp::new(250),
             file_size_bytes: 1337,
@@ -2920,7 +2644,6 @@ pub(crate) mod test_helpers {
             .unwrap();
         let parquet_file_params_2 = ParquetFileParams {
             object_store_id: Uuid::new_v4(),
-            max_sequence_number: SequenceNumber::new(3),
             min_time: Timestamp::new(200),
             max_time: Timestamp::new(300),
             ..parquet_file_params
@@ -2934,20 +2657,13 @@ pub(crate) mod test_helpers {
         // tombstones
         let t1 = repos
             .tombstones()
-            .create_or_get(
-                table.id,
-                SequenceNumber::new(10),
-                Timestamp::new(1),
-                Timestamp::new(10),
-                "whatevs",
-            )
+            .create_or_get(table.id, Timestamp::new(1), Timestamp::new(10), "whatevs")
             .await
             .unwrap();
         let t2 = repos
             .tombstones()
             .create_or_get(
                 table.id,
-                SequenceNumber::new(11),
                 Timestamp::new(100),
                 Timestamp::new(110),
                 "whatevs",
@@ -2958,7 +2674,6 @@ pub(crate) mod test_helpers {
             .tombstones()
             .create_or_get(
                 table.id,
-                SequenceNumber::new(12),
                 Timestamp::new(200),
                 Timestamp::new(210),
                 "whatevs",
@@ -3093,7 +2808,6 @@ pub(crate) mod test_helpers {
             table_id: partition_1.table_id,
             partition_id: partition_1.id,
             object_store_id: Uuid::new_v4(),
-            max_sequence_number: SequenceNumber::new(1),
             min_time: Timestamp::new(100),
             max_time: Timestamp::new(250),
             file_size_bytes: 1337,
@@ -3110,7 +2824,6 @@ pub(crate) mod test_helpers {
             .unwrap();
         let parquet_file_params_2 = ParquetFileParams {
             object_store_id: Uuid::new_v4(),
-            max_sequence_number: SequenceNumber::new(3),
             min_time: Timestamp::new(200),
             max_time: Timestamp::new(300),
             ..parquet_file_params
@@ -3124,20 +2837,13 @@ pub(crate) mod test_helpers {
         // tombstones
         let t1_n1 = repos
             .tombstones()
-            .create_or_get(
-                table_1.id,
-                SequenceNumber::new(10),
-                Timestamp::new(1),
-                Timestamp::new(10),
-                "whatevs",
-            )
+            .create_or_get(table_1.id, Timestamp::new(1), Timestamp::new(10), "whatevs")
             .await
             .unwrap();
         let t2_n1 = repos
             .tombstones()
             .create_or_get(
                 table_1.id,
-                SequenceNumber::new(11),
                 Timestamp::new(100),
                 Timestamp::new(110),
                 "whatevs",
@@ -3148,7 +2854,6 @@ pub(crate) mod test_helpers {
             .tombstones()
             .create_or_get(
                 table_1.id,
-                SequenceNumber::new(12),
                 Timestamp::new(200),
                 Timestamp::new(210),
                 "whatevs",
@@ -3220,7 +2925,6 @@ pub(crate) mod test_helpers {
             table_id: partition_2.table_id,
             partition_id: partition_2.id,
             object_store_id: Uuid::new_v4(),
-            max_sequence_number: SequenceNumber::new(1),
             min_time: Timestamp::new(100),
             max_time: Timestamp::new(250),
             file_size_bytes: 1337,
@@ -3237,7 +2941,6 @@ pub(crate) mod test_helpers {
             .unwrap();
         let parquet_file_params_2 = ParquetFileParams {
             object_store_id: Uuid::new_v4(),
-            max_sequence_number: SequenceNumber::new(3),
             min_time: Timestamp::new(200),
             max_time: Timestamp::new(300),
             ..parquet_file_params
@@ -3251,20 +2954,13 @@ pub(crate) mod test_helpers {
         // tombstones
         let t1_n2 = repos
             .tombstones()
-            .create_or_get(
-                table_2.id,
-                SequenceNumber::new(10),
-                Timestamp::new(1),
-                Timestamp::new(10),
-                "whatevs",
-            )
+            .create_or_get(table_2.id, Timestamp::new(1), Timestamp::new(10), "whatevs")
             .await
             .unwrap();
         let t2_n2 = repos
             .tombstones()
             .create_or_get(
                 table_2.id,
-                SequenceNumber::new(11),
                 Timestamp::new(100),
                 Timestamp::new(110),
                 "whatevs",
@@ -3275,7 +2971,6 @@ pub(crate) mod test_helpers {
             .tombstones()
             .create_or_get(
                 table_2.id,
-                SequenceNumber::new(12),
                 Timestamp::new(200),
                 Timestamp::new(210),
                 "whatevs",

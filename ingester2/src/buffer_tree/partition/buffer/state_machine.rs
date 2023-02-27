@@ -2,7 +2,7 @@
 use std::sync::Arc;
 
 use arrow::record_batch::RecordBatch;
-use data_types::{sequence_number_set::SequenceNumberSet, SequenceNumber};
+use dml::{SequenceNumberSet, SequenceNumber};
 use mutable_batch::MutableBatch;
 
 mod buffering;

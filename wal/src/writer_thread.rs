@@ -1,6 +1,6 @@
 use std::{sync::Arc, thread::JoinHandle};
 
-use data_types::{sequence_number_set::SequenceNumberSet, SequenceNumber};
+use dml::{SequenceNumber, SequenceNumberSet};
 use generated_types::influxdata::iox::wal::v1 as proto;
 use observability_deps::tracing::{debug, error};
 use parking_lot::Mutex;

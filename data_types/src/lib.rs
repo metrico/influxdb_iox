@@ -13,8 +13,6 @@
     clippy::dbg_macro
 )]
 
-pub mod sequence_number_set;
-
 mod namespace_name;
 pub use namespace_name::*;
 
@@ -266,37 +264,6 @@ impl TombstoneId {
 impl std::fmt::Display for TombstoneId {
     fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
         write!(f, "{}", self.0)
-    }
-}
-
-/// A sequence number from a `router::Shard` (kafka partition)
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, sqlx::Type)]
-#[sqlx(transparent)]
-pub struct SequenceNumber(i64);
-
-#[allow(missing_docs)]
-impl SequenceNumber {
-    pub fn new(v: i64) -> Self {
-        Self(v)
-    }
-    pub fn get(&self) -> i64 {
-        self.0
-    }
-}
-
-impl Add<i64> for SequenceNumber {
-    type Output = Self;
-
-    fn add(self, other: i64) -> Self {
-        Self(self.0 + other)
-    }
-}
-
-impl Sub<i64> for SequenceNumber {
-    type Output = Self;
-
-    fn sub(self, other: i64) -> Self {
-        Self(self.0 - other)
     }
 }
 
@@ -871,23 +838,6 @@ pub struct Partition {
     /// relative order of B and C have been reversed.
     pub sort_key: Vec<String>,
 
-    /// The inclusive maximum [`SequenceNumber`] of the most recently persisted
-    /// data for this partition.
-    ///
-    /// All writes with a [`SequenceNumber`] less than and equal to this
-    /// [`SequenceNumber`] have been persisted to the object store. The inverse
-    /// is not guaranteed to be true due to update ordering; some files for this
-    /// partition may exist in the `parquet_files` table that have a greater
-    /// [`SequenceNumber`] than is specified here - the system will converge so
-    /// long as the ingester progresses.
-    ///
-    /// It is a system invariant that this value monotonically increases over
-    /// time - wrote another way, it is an invariant that partitions are
-    /// persisted (or at least made visible) in sequence order.
-    ///
-    /// If [`None`] no data has been persisted for this partition.
-    pub persisted_sequence_number: Option<SequenceNumber>,
-
     /// The time at which the newest file of the partition is created
     pub new_file_at: Option<Timestamp>,
 }
@@ -901,17 +851,6 @@ impl Partition {
 
         Some(SortKey::from_columns(self.sort_key.iter().map(|s| &**s)))
     }
-}
-
-/// Data for a partition  chosen from its parquet files
-#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, sqlx::FromRow)]
-pub struct PartitionParam {
-    /// the partition
-    pub partition_id: PartitionId,
-    /// the partition's namespace
-    pub namespace_id: NamespaceId,
-    /// the partition's table
-    pub table_id: TableId,
 }
 
 /// Data recorded when compaction skips a partition.
@@ -942,8 +881,6 @@ pub struct Tombstone {
     pub id: TombstoneId,
     /// the table the tombstone is associated with
     pub table_id: TableId,
-    /// the sequence number assigned to the tombstone from the `router::Shard`
-    pub sequence_number: SequenceNumber,
     /// the min time (inclusive) that the delete applies to
     pub min_time: Timestamp,
     /// the max time (exclusive) that the delete applies to
@@ -1036,8 +973,6 @@ pub struct ParquetFile {
     pub partition_id: PartitionId,
     /// the uuid used in the object store path for this file
     pub object_store_id: Uuid,
-    /// the maximum sequence number from a record in this file
-    pub max_sequence_number: SequenceNumber,
     /// the min timestamp of data in this file
     pub min_time: Timestamp,
     /// the max timestamp of data in this file
@@ -1094,7 +1029,6 @@ impl ParquetFile {
             table_id: params.table_id,
             partition_id: params.partition_id,
             object_store_id: params.object_store_id,
-            max_sequence_number: params.max_sequence_number,
             min_time: params.min_time,
             max_time: params.max_time,
             to_delete: None,
@@ -1135,8 +1069,6 @@ pub struct ParquetFileParams {
     pub partition_id: PartitionId,
     /// the uuid used in the object store path for this file
     pub object_store_id: Uuid,
-    /// the maximum sequence number from a record in this file
-    pub max_sequence_number: SequenceNumber,
     /// the min timestamp of data in this file
     pub min_time: Timestamp,
     /// the max timestamp of data in this file
@@ -1162,7 +1094,6 @@ impl From<ParquetFile> for ParquetFileParams {
             table_id: value.table_id,
             partition_id: value.partition_id,
             object_store_id: value.object_store_id,
-            max_sequence_number: value.max_sequence_number,
             min_time: value.min_time,
             max_time: value.max_time,
             file_size_bytes: value.file_size_bytes,

@@ -1,8 +1,8 @@
 use std::sync::Arc;
 
 use criterion::{criterion_group, criterion_main, BenchmarkId, Criterion, Throughput};
-use data_types::{PartitionKey, SequenceNumber};
-use dml::{DmlMeta, DmlWrite};
+use data_types::PartitionKey;
+use dml::{DmlMeta, DmlWrite, SequenceNumber};
 use futures::{stream::FuturesUnordered, StreamExt};
 use generated_types::influxdata::{
     iox::ingester::v1::write_service_server::WriteService, pbdata::v1::DatabaseBatch,

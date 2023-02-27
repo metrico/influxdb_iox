@@ -143,7 +143,8 @@ mod tests {
 
     use assert_matches::assert_matches;
     use async_trait::async_trait;
-    use data_types::{NamespaceId, PartitionId, PartitionKey, SequenceNumber, TableId};
+    use data_types::{NamespaceId, PartitionId, PartitionKey, TableId};
+    use dml::SequenceNumber;
     use lazy_static::lazy_static;
     use mutable_batch_lp::test_helpers::lp_to_mutable_batch;
     use parking_lot::Mutex;

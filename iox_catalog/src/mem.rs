@@ -16,8 +16,8 @@ use async_trait::async_trait;
 use data_types::{
     Column, ColumnId, ColumnType, ColumnTypeCount, CompactionLevel, Namespace, NamespaceId,
     ParquetFile, ParquetFileId, ParquetFileParams, Partition, PartitionId, PartitionKey,
-    ProcessedTombstone, QueryPool, QueryPoolId, SequenceNumber, SkippedCompaction, Table, TableId,
-    Timestamp, Tombstone, TombstoneId, TopicId, TopicMetadata,
+    ProcessedTombstone, QueryPool, QueryPoolId, SkippedCompaction, Table, TableId, Timestamp,
+    Tombstone, TombstoneId, TopicId, TopicMetadata,
 };
 use iox_time::{SystemProvider, TimeProvider};
 use observability_deps::tracing::warn;
@@ -152,7 +152,6 @@ impl Catalog for MemCatalog {
             id: TRANSITION_SHARD_ID,
             topic_id: topic.id,
             shard_index: TRANSITION_SHARD_INDEX,
-            min_unpersisted_sequence_number: SequenceNumber::new(0),
         };
         stage.shards.push(shard);
         transaction.commit_inplace().await?;
@@ -743,7 +742,6 @@ impl PartitionRepo for MemTxn {
                     table_id,
                     partition_key: key,
                     sort_key: vec![],
-                    persisted_sequence_number: None,
                     new_file_at: None,
                 };
                 stage.partitions.push(p);
@@ -900,21 +898,6 @@ impl PartitionRepo for MemTxn {
         }
     }
 
-    async fn update_persisted_sequence_number(
-        &mut self,
-        partition_id: PartitionId,
-        sequence_number: SequenceNumber,
-    ) -> Result<()> {
-        let stage = self.stage();
-        match stage.partitions.iter_mut().find(|p| p.id == partition_id) {
-            Some(p) => {
-                p.persisted_sequence_number = Some(sequence_number);
-                Ok(())
-            }
-            None => Err(Error::PartitionNotFound { id: partition_id }),
-        }
-    }
-
     async fn most_recent_n(&mut self, n: usize) -> Result<Vec<Partition>> {
         let stage = self.stage();
         Ok(stage.partitions.iter().rev().take(n).cloned().collect())
@@ -948,24 +931,18 @@ impl TombstoneRepo for MemTxn {
     async fn create_or_get(
         &mut self,
         table_id: TableId,
-        sequence_number: SequenceNumber,
         min_time: Timestamp,
         max_time: Timestamp,
         predicate: &str,
     ) -> Result<Tombstone> {
         let stage = self.stage();
 
-        let tombstone = match stage
-            .tombstones
-            .iter()
-            .find(|t| t.table_id == table_id && t.sequence_number == sequence_number)
-        {
+        let tombstone = match stage.tombstones.iter().find(|t| t.table_id == table_id) {
             Some(t) => t,
             None => {
                 let t = Tombstone {
                     id: TombstoneId::new(stage.tombstones.len() as i64 + 1),
                     table_id,
-                    sequence_number,
                     min_time,
                     max_time,
                     serialized_predicate: predicate.to_string(),
@@ -1027,29 +1004,6 @@ impl TombstoneRepo for MemTxn {
             .retain(|ts| !tombstone_ids.iter().any(|id| *id == ts.id));
 
         Ok(())
-    }
-
-    async fn list_tombstones_for_time_range(
-        &mut self,
-        table_id: TableId,
-        sequence_number: SequenceNumber,
-        min_time: Timestamp,
-        max_time: Timestamp,
-    ) -> Result<Vec<Tombstone>> {
-        let stage = self.stage();
-
-        let tombstones: Vec<_> = stage
-            .tombstones
-            .iter()
-            .filter(|t| {
-                t.table_id == table_id
-                    && t.sequence_number > sequence_number
-                    && ((t.min_time <= min_time && t.max_time >= min_time)
-                        || (t.min_time > min_time && t.min_time <= max_time))
-            })
-            .cloned()
-            .collect();
-        Ok(tombstones)
     }
 }
 

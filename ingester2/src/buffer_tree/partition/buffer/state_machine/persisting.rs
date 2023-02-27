@@ -3,7 +3,7 @@
 use std::sync::Arc;
 
 use arrow::record_batch::RecordBatch;
-use data_types::sequence_number_set::SequenceNumberSet;
+use dml::SequenceNumberSet;
 
 use super::BufferState;
 use crate::buffer_tree::partition::buffer::traits::Queryable;

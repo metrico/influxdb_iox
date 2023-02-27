@@ -14,7 +14,7 @@
 use crate::blocking::{
     ClosedSegmentFileReader as RawClosedSegmentFileReader, OpenSegmentFileWriter,
 };
-use data_types::sequence_number_set::SequenceNumberSet;
+use dml::SequenceNumberSet;
 use generated_types::{
     google::{FieldViolation, OptionalField},
     influxdata::iox::wal::v1::{
@@ -576,8 +576,8 @@ impl ClosedSegment {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use data_types::{NamespaceId, SequenceNumber, TableId};
-    use dml::DmlWrite;
+    use data_types::{NamespaceId, TableId};
+    use dml::{DmlWrite, SequenceNumber};
     use generated_types::influxdata::{
         iox::{delete::v1::DeletePayload, wal::v1::PersistOp},
         pbdata::v1::DatabaseBatch,

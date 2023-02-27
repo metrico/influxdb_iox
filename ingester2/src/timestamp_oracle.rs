@@ -3,7 +3,7 @@
 use std::sync::atomic::{AtomicU64, Ordering};
 
 use crossbeam_utils::CachePadded;
-use data_types::SequenceNumber;
+use dml::SequenceNumber;
 
 /// A concurrency-safe provider of totally ordered [`SequenceNumber`] values.
 ///

@@ -5,8 +5,9 @@ pub(crate) mod name_resolver;
 use std::{fmt::Debug, sync::Arc};
 
 use async_trait::async_trait;
-use data_types::{NamespaceId, PartitionKey, SequenceNumber, TableId};
+use data_types::{NamespaceId, PartitionKey, TableId};
 use datafusion_util::MemoryStream;
+use dml::SequenceNumber;
 use mutable_batch::MutableBatch;
 use parking_lot::Mutex;
 use schema::Projection;
@@ -88,11 +89,6 @@ pub(crate) struct TableData<O> {
 
 impl<O> TableData<O> {
     /// Initialize new table buffer identified by [`TableId`] in the catalog.
-    ///
-    /// Optionally the given tombstone max [`SequenceNumber`] identifies the
-    /// inclusive upper bound of tombstones associated with this table. Any data
-    /// greater than this value is guaranteed to not (yet) have a delete
-    /// tombstone that must be resolved.
     ///
     /// The partition provider is used to instantiate a [`PartitionData`]
     /// instance when this [`TableData`] instance observes an op for a partition

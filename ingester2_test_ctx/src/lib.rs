@@ -17,10 +17,10 @@ use std::{collections::HashMap, sync::Arc, time::Duration};
 use arrow::record_batch::RecordBatch;
 use arrow_flight::{decode::FlightRecordBatchStream, flight_service_server::FlightService, Ticket};
 use data_types::{
-    Namespace, NamespaceId, NamespaceSchema, ParquetFile, PartitionKey, QueryPoolId,
-    SequenceNumber, TableId, TopicId,
+    Namespace, NamespaceId, NamespaceSchema, ParquetFile, PartitionKey, QueryPoolId, TableId,
+    TopicId,
 };
-use dml::{DmlMeta, DmlWrite};
+use dml::{DmlMeta, DmlWrite, SequenceNumber};
 use futures::{stream::FuturesUnordered, FutureExt, StreamExt, TryStreamExt};
 use generated_types::influxdata::iox::ingester::v1::{
     write_service_server::WriteService, WriteRequest,

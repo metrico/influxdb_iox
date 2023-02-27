@@ -10,7 +10,7 @@ async-trait = "0.1"
 bytes = "1.4"
 byteorder = "1.3.4"
 crc32fast = "1.2.0"
-data_types = { path = "../data_types" }
+dml = { path = "../dml" }
 futures = "0.3"
 generated_types = { path = "../generated_types" }
 observability_deps = { path = "../observability_deps" }
@@ -26,7 +26,7 @@ tokio-util = "0.7"
 workspace-hack = { version = "0.1", path = "../workspace-hack" }
 
 [dev-dependencies] # In alphabetical order
-dml = { path = "../dml" }
+data_types = { path = "../data_types" }
 mutable_batch_lp = { path = "../mutable_batch_lp" }
 mutable_batch_pb = { path = "../mutable_batch_pb" }
 test_helpers = { path = "../test_helpers" }

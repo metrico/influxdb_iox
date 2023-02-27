@@ -1,6 +1,9 @@
 use std::{fmt::Debug, sync::Arc};
 
-use data_types::{sequence_number_set::SequenceNumberSet, SequenceNumber};
+use dml::{
+    SequenceNumberSet,
+    SequenceNumber,
+};
 use futures::Future;
 use observability_deps::tracing::warn;
 use tokio::sync::{

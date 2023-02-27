@@ -1424,13 +1424,11 @@ dependencies = [
 name = "data_types"
 version = "0.1.0"
 dependencies = [
- "croaring",
  "influxdb-line-protocol",
  "iox_time",
  "observability_deps",
  "ordered-float 3.6.0",
  "percent-encoding",
- "proptest",
  "schema",
  "serde",
  "sqlx",
@@ -1708,10 +1706,12 @@ name = "dml"
 version = "0.1.0"
 dependencies = [
  "arrow_util",
+ "croaring",
  "data_types",
  "hashbrown 0.13.2",
  "iox_time",
  "mutable_batch",
+ "proptest",
  "schema",
  "trace",
  "workspace-hack",

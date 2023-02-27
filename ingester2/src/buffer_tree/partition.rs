@@ -3,9 +3,10 @@
 use std::{collections::VecDeque, sync::Arc};
 
 use data_types::{
-    sequence_number_set::SequenceNumberSet, NamespaceId, PartitionId, PartitionKey, SequenceNumber,
+    NamespaceId, PartitionId, PartitionKey,
     TableId,
 };
+use dml::{SequenceNumberSet, SequenceNumber};
 use mutable_batch::MutableBatch;
 use observability_deps::tracing::*;
 use schema::sort::SortKey;

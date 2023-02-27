@@ -5,8 +5,7 @@ use clap_blocks::object_store::{make_object_store, ObjectStoreType};
 use clap_blocks::{catalog_dsn::CatalogDsnConfig, object_store::ObjectStoreConfig};
 use data_types::{
     ColumnId, ColumnSet, ColumnType, NamespaceId, NamespaceSchema as CatalogNamespaceSchema,
-    ParquetFile as CatalogParquetFile, ParquetFileParams, PartitionId, SequenceNumber, TableId,
-    Timestamp,
+    ParquetFile as CatalogParquetFile, ParquetFileParams, PartitionId, TableId, Timestamp,
 };
 use futures::future::join_all;
 use influxdb_iox_client::{
@@ -340,7 +339,6 @@ async fn load_parquet_files(
                     table_id: partition_mapping.table_id,
                     partition_id: partition_mapping.partition_id,
                     object_store_id: uuid,
-                    max_sequence_number: SequenceNumber::new(p.max_sequence_number),
                     min_time: Timestamp::new(p.min_time),
                     max_time: Timestamp::new(p.max_time),
                     file_size_bytes: p.file_size_bytes,
@@ -531,7 +529,6 @@ mod tests {
         };
 
         let object_store_id = uuid::Uuid::new_v4();
-        let max_sequence_number = SequenceNumber::new(23);
         let min_time = Timestamp::new(123);
         let max_time = Timestamp::new(456);
         let file_size_bytes = 10;
@@ -548,7 +545,6 @@ mod tests {
                 table_id: 100,
                 partition_id: 100,
                 object_store_id: object_store_id.to_string(),
-                max_sequence_number: max_sequence_number.get(),
                 min_time: min_time.get(),
                 max_time: max_time.get(),
                 to_delete: 0,
@@ -572,7 +568,6 @@ mod tests {
             table_id: table.id,
             partition_id: partition.id,
             object_store_id,
-            max_sequence_number,
             min_time,
             max_time,
             to_delete: None,

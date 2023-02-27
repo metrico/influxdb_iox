@@ -1,5 +1,5 @@
-use data_types::{NamespaceId, SequenceNumber, TableId};
-use dml::DmlWrite;
+use data_types::{NamespaceId, TableId};
+use dml::{DmlWrite, SequenceNumber};
 use generated_types::influxdata::{
     iox::wal::v1::sequenced_wal_op::Op as WalOp,
     pbdata::v1::{DatabaseBatch, TableBatch},

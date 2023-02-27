@@ -1,7 +1,8 @@
 use std::{fmt::Debug, sync::Arc};
 
 use async_trait::async_trait;
-use data_types::{sequence_number_set::SequenceNumberSet, NamespaceId, PartitionId, TableId};
+use data_types::{NamespaceId, PartitionId, TableId};
+use dml::SequenceNumberSet;
 
 /// An abstract observer of persistence completion events.
 ///
@@ -138,7 +139,7 @@ pub(crate) mod mock {
 
 #[cfg(test)]
 mod tests {
-    use data_types::SequenceNumber;
+    use dml::SequenceNumber;
 
     use super::*;
 

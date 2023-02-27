@@ -1,7 +1,7 @@
 use std::collections::BTreeMap;
 
-use data_types::{NamespaceId, PartitionKey, SequenceNumber, TableId};
-use dml::{DmlMeta, DmlWrite};
+use data_types::{NamespaceId, PartitionKey, TableId};
+use dml::{DmlMeta, DmlWrite, SequenceNumber};
 use iox_catalog::interface::Catalog;
 use mutable_batch_lp::lines_to_batches;
 use schema::Projection;
