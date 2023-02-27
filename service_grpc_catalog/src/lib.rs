@@ -282,7 +282,6 @@ mod tests {
         let table_id;
         let partition1;
         let partition2;
-        let partition3;
         let catalog = {
             let metrics = Arc::new(metric::Registry::default());
             let catalog = Arc::new(MemCatalog::new(metrics));
@@ -313,11 +312,6 @@ mod tests {
                 .create_or_get("bar".into(), table.id)
                 .await
                 .unwrap();
-            partition3 = repos
-                .partitions()
-                .create_or_get("foo".into(), table.id)
-                .await
-                .unwrap();
 
             table_id = table.id;
             Arc::clone(&catalog)
@@ -333,7 +327,7 @@ mod tests {
             .await
             .expect("rpc request should succeed");
         let response = tonic_response.into_inner();
-        let expect: Vec<_> = [partition1, partition2, partition3]
+        let expect: Vec<_> = [partition1, partition2]
             .into_iter()
             .map(to_partition)
             .collect();
