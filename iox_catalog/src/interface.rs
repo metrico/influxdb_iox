@@ -4,8 +4,8 @@ use async_trait::async_trait;
 use data_types::{
     Column, ColumnSchema, ColumnType, ColumnTypeCount, CompactionLevel, Namespace, NamespaceId,
     NamespaceSchema, ParquetFile, ParquetFileId, ParquetFileParams, Partition, PartitionId,
-    PartitionKey, ProcessedTombstone, QueryPool, QueryPoolId, SkippedCompaction, Table, TableId,
-    TableSchema, Timestamp, Tombstone, TombstoneId, TopicId, TopicMetadata,
+    PartitionKey, QueryPool, QueryPoolId, SkippedCompaction, Table, TableId, TableSchema,
+    Timestamp, TopicId, TopicMetadata,
 };
 use iox_time::TimeProvider;
 use snafu::{OptionExt, Snafu};
@@ -93,9 +93,6 @@ pub enum Error {
     #[snafu(display("parquet file with id {} does not exist. Foreign key violation", id))]
     FileNotFound { id: i64 },
 
-    #[snafu(display("tombstone with id {} does not exist. Foreign key violation", id))]
-    TombstoneNotFound { id: i64 },
-
     #[snafu(display("parquet_file record {} not found", id))]
     ParquetRecordNotFound { id: ParquetFileId },
 
@@ -110,16 +107,6 @@ pub enum Error {
 
     #[snafu(display("no transaction provided"))]
     NoTransaction,
-
-    #[snafu(display(
-        "the tombstone {} already processed for parquet file {}",
-        tombstone_id,
-        parquet_file_id
-    ))]
-    ProcessTombstoneExists {
-        tombstone_id: i64,
-        parquet_file_id: i64,
-    },
 
     #[snafu(display("error while converting usize {} to i64", value))]
     InvalidValue { value: usize },
@@ -285,7 +272,7 @@ impl<T> Transaction for T where T: Send + Sync + Debug + sealed::TransactionFina
 ///
 /// # Repositories
 ///
-/// The methods (e.g. `create_*` or `get_by_*`) for handling entities (namespaces, tombstones,
+/// The methods (e.g. `create_*` or `get_by_*`) for handling entities (namespaces, partitions,
 /// etc.) are grouped into *repositories* with one repository per entity. A repository can be
 /// thought of a collection of a single kind of entity. Getting repositories from the transaction
 /// is cheap.
@@ -313,14 +300,8 @@ pub trait RepoCollection: Send + Sync + Debug {
     /// Repository for [partitions](data_types::Partition).
     fn partitions(&mut self) -> &mut dyn PartitionRepo;
 
-    /// Repository for [tombstones](data_types::Tombstone).
-    fn tombstones(&mut self) -> &mut dyn TombstoneRepo;
-
     /// Repository for [Parquet files](data_types::ParquetFile).
     fn parquet_files(&mut self) -> &mut dyn ParquetFileRepo;
-
-    /// Repository for [processed tombstones](data_types::ProcessedTombstone).
-    fn processed_tombstones(&mut self) -> &mut dyn ProcessedTombstoneRepo;
 }
 
 /// Functions for working with topics in the catalog.
@@ -534,31 +515,6 @@ pub trait PartitionRepo: Send + Sync {
     ) -> Result<Vec<PartitionId>>;
 }
 
-/// Functions for working with tombstones in the catalog
-#[async_trait]
-pub trait TombstoneRepo: Send + Sync {
-    /// create or get a tombstone
-    async fn create_or_get(
-        &mut self,
-        table_id: TableId,
-        min_time: Timestamp,
-        max_time: Timestamp,
-        predicate: &str,
-    ) -> Result<Tombstone>;
-
-    /// list all tombstones for a given namespace
-    async fn list_by_namespace(&mut self, namespace_id: NamespaceId) -> Result<Vec<Tombstone>>;
-
-    /// list all tombstones for a given table
-    async fn list_by_table(&mut self, table_id: TableId) -> Result<Vec<Tombstone>>;
-
-    /// get tombstones of the given id
-    async fn get_by_id(&mut self, tombstone_id: TombstoneId) -> Result<Option<Tombstone>>;
-
-    /// Remove given tombstones
-    async fn remove(&mut self, tombstone_ids: &[TombstoneId]) -> Result<()>;
-}
-
 /// Functions for working with parquet file pointers in the catalog
 #[async_trait]
 pub trait ParquetFileRepo: Send + Sync {
@@ -625,30 +581,6 @@ pub trait ParquetFileRepo: Send + Sync {
         &mut self,
         object_store_id: Uuid,
     ) -> Result<Option<ParquetFile>>;
-}
-
-/// Functions for working with processed tombstone pointers in the catalog
-#[async_trait]
-pub trait ProcessedTombstoneRepo: Send + Sync {
-    /// create a processed tombstone
-    async fn create(
-        &mut self,
-        parquet_file_id: ParquetFileId,
-        tombstone_id: TombstoneId,
-    ) -> Result<ProcessedTombstone>;
-
-    /// Verify if a processed tombstone exists in the catalog
-    async fn exist(
-        &mut self,
-        parquet_file_id: ParquetFileId,
-        tombstone_id: TombstoneId,
-    ) -> Result<bool>;
-
-    /// Return count
-    async fn count(&mut self) -> Result<i64>;
-
-    /// Return count for a given tombstone id
-    async fn count_by_tombstone_id(&mut self, tombstone_id: TombstoneId) -> Result<i64>;
 }
 
 /// Gets the namespace schema including all tables and columns.
@@ -873,12 +805,7 @@ pub(crate) mod test_helpers {
     use data_types::{ColumnId, ColumnSet, CompactionLevel};
     use futures::Future;
     use metric::{Attributes, DurationHistogram, Metric};
-    use std::{
-        collections::BTreeSet,
-        ops::{Add, DerefMut},
-        sync::Arc,
-        time::Duration,
-    };
+    use std::{collections::BTreeSet, ops::DerefMut, sync::Arc, time::Duration};
 
     pub(crate) async fn test_catalog<R, F>(clean_state: R)
     where
@@ -890,10 +817,8 @@ pub(crate) mod test_helpers {
         test_query_pool(clean_state().await).await;
         test_column(clean_state().await).await;
         test_partition(clean_state().await).await;
-        test_tombstone(clean_state().await).await;
         test_parquet_file(clean_state().await).await;
         test_parquet_file_delete_broken(clean_state().await).await;
-        test_processed_tombstones(clean_state().await).await;
         test_list_by_partiton_not_to_delete(clean_state().await).await;
         test_txn_isolation(clean_state().await).await;
         test_txn_drop(clean_state().await).await;
@@ -920,10 +845,6 @@ pub(crate) mod test_helpers {
         let catalog = clean_state().await;
         test_partition(Arc::clone(&catalog)).await;
         assert_metric_hit(&catalog.metrics(), "partition_create_or_get");
-
-        let catalog = clean_state().await;
-        test_tombstone(Arc::clone(&catalog)).await;
-        assert_metric_hit(&catalog.metrics(), "tombstone_create_or_get");
 
         let catalog = clean_state().await;
         test_parquet_file(Arc::clone(&catalog)).await;
@@ -1912,131 +1833,6 @@ pub(crate) mod test_helpers {
             .expect("delete namespace should succeed");
     }
 
-    async fn test_tombstone(catalog: Arc<dyn Catalog>) {
-        let mut repos = catalog.repositories().await;
-        let topic = repos.topics().create_or_get("foo").await.unwrap();
-        let pool = repos.query_pools().create_or_get("foo").await.unwrap();
-        let namespace = repos
-            .namespaces()
-            .create("namespace_tombstone_test", None, topic.id, pool.id)
-            .await
-            .unwrap();
-        let table = repos
-            .tables()
-            .create_or_get("test_table", namespace.id)
-            .await
-            .unwrap();
-        let other_table = repos
-            .tables()
-            .create_or_get("other", namespace.id)
-            .await
-            .unwrap();
-
-        let min_time = Timestamp::new(1);
-        let max_time = Timestamp::new(10);
-        let t1 = repos
-            .tombstones()
-            .create_or_get(table.id, min_time, max_time, "whatevs")
-            .await
-            .unwrap();
-        assert!(t1.id > TombstoneId::new(0));
-        assert_eq!(t1.min_time, min_time);
-        assert_eq!(t1.max_time, max_time);
-        assert_eq!(t1.serialized_predicate, "whatevs");
-        let t2 = repos
-            .tombstones()
-            .create_or_get(other_table.id, min_time.add(10), max_time.add(10), "bleh")
-            .await
-            .unwrap();
-        let t3 = repos
-            .tombstones()
-            .create_or_get(table.id, min_time.add(10), max_time.add(10), "sdf")
-            .await
-            .unwrap();
-
-        // test list_by_table
-        let listed = repos.tombstones().list_by_table(table.id).await.unwrap();
-        assert_eq!(vec![t1.clone(), t3.clone()], listed);
-        let listed = repos
-            .tombstones()
-            .list_by_table(other_table.id)
-            .await
-            .unwrap();
-        assert_eq!(vec![t2.clone()], listed);
-
-        // test list_by_namespace
-        let namespace2 = repos
-            .namespaces()
-            .create("namespace_tombstone_test2", None, topic.id, pool.id)
-            .await
-            .unwrap();
-        let table2 = repos
-            .tables()
-            .create_or_get("test_table2", namespace2.id)
-            .await
-            .unwrap();
-        let t4 = repos
-            .tombstones()
-            .create_or_get(table2.id, min_time.add(10), max_time.add(10), "whatevs")
-            .await
-            .unwrap();
-        let t5 = repos
-            .tombstones()
-            .create_or_get(table2.id, min_time.add(10), max_time.add(10), "foo")
-            .await
-            .unwrap();
-        let listed = repos
-            .tombstones()
-            .list_by_namespace(namespace2.id)
-            .await
-            .unwrap();
-        assert_eq!(vec![t4.clone(), t5.clone()], listed);
-        let listed = repos
-            .tombstones()
-            .list_by_namespace(NamespaceId::new(i64::MAX))
-            .await
-            .unwrap();
-        assert!(listed.is_empty());
-
-        // test get_by_id
-        let ts = repos.tombstones().get_by_id(t1.id).await.unwrap().unwrap();
-        assert_eq!(ts, t1.clone());
-        let ts = repos.tombstones().get_by_id(t2.id).await.unwrap().unwrap();
-        assert_eq!(ts, t2.clone());
-        let ts = repos
-            .tombstones()
-            .get_by_id(TombstoneId::new(
-                t1.id.get() + t2.id.get() + t3.id.get() + t4.id.get() + t5.id.get(),
-            )) // not exist id
-            .await
-            .unwrap();
-        assert!(ts.is_none());
-
-        // test remove
-        repos.tombstones().remove(&[t1.id, t3.id]).await.unwrap();
-        let ts = repos.tombstones().get_by_id(t1.id).await.unwrap();
-        assert!(ts.is_none()); // no longer there
-        let ts = repos.tombstones().get_by_id(t3.id).await.unwrap();
-        assert!(ts.is_none()); // no longer there
-        let ts = repos.tombstones().get_by_id(t2.id).await.unwrap().unwrap();
-        assert_eq!(ts, t2.clone()); // still there
-        let ts = repos.tombstones().get_by_id(t4.id).await.unwrap().unwrap();
-        assert_eq!(ts, t4.clone()); // still there
-        let ts = repos.tombstones().get_by_id(t5.id).await.unwrap().unwrap();
-        assert_eq!(ts, t5.clone()); // still there
-
-        repos
-            .namespaces()
-            .soft_delete("namespace_tombstone_test2")
-            .await
-            .expect("delete namespace should succeed");
-        repos
-            .namespaces()
-            .soft_delete("namespace_tombstone_test")
-            .await
-            .expect("delete namespace should succeed");
-    }
-
     async fn test_parquet_file(catalog: Arc<dyn Catalog>) {
         let mut repos = catalog.repositories().await;
         let topic = repos.topics().create_or_get("foo").await.unwrap();
@@ -2597,173 +2393,6 @@ pub(crate) mod test_helpers {
             .expect("delete namespace should succeed");
     }
 
-    async fn test_processed_tombstones(catalog: Arc<dyn Catalog>) {
-        let mut repos = catalog.repositories().await;
-        let topic = repos.topics().create_or_get("foo").await.unwrap();
-        let pool = repos.query_pools().create_or_get("foo").await.unwrap();
-        let namespace = repos
-            .namespaces()
-            .create(
-                "namespace_processed_tombstone_test",
-                None,
-                topic.id,
-                pool.id,
-            )
-            .await
-            .unwrap();
-        let table = repos
-            .tables()
-            .create_or_get("test_table", namespace.id)
-            .await
-            .unwrap();
-        let partition = repos
-            .partitions()
-            .create_or_get("test_processed_tombstones_one".into(), table.id)
-            .await
-            .unwrap();
-
-        // parquet files
-        let parquet_file_params = ParquetFileParams {
-            namespace_id: namespace.id,
-            table_id: partition.table_id,
-            partition_id: partition.id,
-            object_store_id: Uuid::new_v4(),
-            min_time: Timestamp::new(100),
-            max_time: Timestamp::new(250),
-            file_size_bytes: 1337,
-            row_count: 0,
-            compaction_level: CompactionLevel::Initial,
-            created_at: Timestamp::new(1),
-            column_set: ColumnSet::new([ColumnId::new(1), ColumnId::new(2)]),
-            max_l0_created_at: Timestamp::new(1),
-        };
-        let p1 = repos
-            .parquet_files()
-            .create(parquet_file_params.clone())
-            .await
-            .unwrap();
-        let parquet_file_params_2 = ParquetFileParams {
-            object_store_id: Uuid::new_v4(),
-            min_time: Timestamp::new(200),
-            max_time: Timestamp::new(300),
-            ..parquet_file_params
-        };
-        let p2 = repos
-            .parquet_files()
-            .create(parquet_file_params_2.clone())
-            .await
-            .unwrap();
-
-        // tombstones
-        let t1 = repos
-            .tombstones()
-            .create_or_get(table.id, Timestamp::new(1), Timestamp::new(10), "whatevs")
-            .await
-            .unwrap();
-        let t2 = repos
-            .tombstones()
-            .create_or_get(
-                table.id,
-                Timestamp::new(100),
-                Timestamp::new(110),
-                "whatevs",
-            )
-            .await
-            .unwrap();
-        let t3 = repos
-            .tombstones()
-            .create_or_get(
-                table.id,
-                Timestamp::new(200),
-                Timestamp::new(210),
-                "whatevs",
-            )
-            .await
-            .unwrap();
-
-        // processed tombstones
-        // p1, t2
-        let _pt1 = repos
-            .processed_tombstones()
-            .create(p1.id, t2.id)
-            .await
-            .unwrap();
-        // p1, t3
-        let _pt2 = repos
-            .processed_tombstones()
-            .create(p1.id, t3.id)
-            .await
-            .unwrap();
-        // p2, t3
-        let _pt3 = repos
-            .processed_tombstones()
-            .create(p2.id, t3.id)
-            .await
-            .unwrap();
-
-        // test exist
-        let exist = repos
-            .processed_tombstones()
-            .exist(p1.id, t1.id)
-            .await
-            .unwrap();
-        assert!(!exist);
-        let exist = repos
-            .processed_tombstones()
-            .exist(p1.id, t2.id)
-            .await
-            .unwrap();
-        assert!(exist);
-
-        // test count
-        let count = repos.processed_tombstones().count().await.unwrap();
-        assert_eq!(count, 3);
-
-        // test count_by_tombstone_id
-        let count = repos
-            .processed_tombstones()
-            .count_by_tombstone_id(t1.id)
-            .await
-            .unwrap();
-        assert_eq!(count, 0);
-        let count = repos
-            .processed_tombstones()
-            .count_by_tombstone_id(t2.id)
-            .await
-            .unwrap();
-        assert_eq!(count, 1);
-        let count = repos
-            .processed_tombstones()
-            .count_by_tombstone_id(t3.id)
-            .await
-            .unwrap();
-        assert_eq!(count, 2);
-
-        // test remove
-        repos.tombstones().remove(&[t3.id]).await.unwrap();
-        // should still be 1 because t2 was not deleted
-        let count = repos
-            .processed_tombstones()
-            .count_by_tombstone_id(t2.id)
-            .await
-            .unwrap();
-        assert_eq!(count, 1);
-        // should be 0 because t3 was deleted
-        let count = repos
-            .processed_tombstones()
-            .count_by_tombstone_id(t3.id)
-            .await
-            .unwrap();
-        assert_eq!(count, 0);
-
-        // remove namespace to avoid it from affecting later tests
-        repos
-            .namespaces()
-            .soft_delete("namespace_processed_tombstone_test")
-            .await
-            .expect("delete namespace should succeed");
-    }
-
     /// Assert that a namespace deletion does NOT cascade to the tables/schema
     /// items/parquet files/etc.
     ///
@@ -2834,70 +2463,8 @@ pub(crate) mod test_helpers {
             .await
             .unwrap();
 
-        // tombstones
-        let t1_n1 = repos
-            .tombstones()
-            .create_or_get(table_1.id, Timestamp::new(1), Timestamp::new(10), "whatevs")
-            .await
-            .unwrap();
-        let t2_n1 = repos
-            .tombstones()
-            .create_or_get(
-                table_1.id,
-                Timestamp::new(100),
-                Timestamp::new(110),
-                "whatevs",
-            )
-            .await
-            .unwrap();
-        let t3_n1 = repos
-            .tombstones()
-            .create_or_get(
-                table_1.id,
-                Timestamp::new(200),
-                Timestamp::new(210),
-                "whatevs",
-            )
-            .await
-            .unwrap();
-
-        // processed tombstones
-        // p1, t2
-        let _pt1 = repos
-            .processed_tombstones()
-            .create(p1_n1.id, t2_n1.id)
-            .await
-            .unwrap();
-        // p1, t3
-        let _pt2 = repos
-            .processed_tombstones()
-            .create(p1_n1.id, t3_n1.id)
-            .await
-            .unwrap();
-        // p2, t3
-        let _pt3 = repos
-            .processed_tombstones()
-            .create(p2_n1.id, t3_n1.id)
-            .await
-            .unwrap();
-
-        // test exist
-        let exist = repos
-            .processed_tombstones()
-            .exist(p1_n1.id, t1_n1.id)
-            .await
-            .unwrap();
-        assert!(!exist);
-        let exist = repos
-            .processed_tombstones()
-            .exist(p1_n1.id, t2_n1.id)
-            .await
-            .unwrap();
-        assert!(exist);
-
-        // we've now created a namespace with a table, parquet files, tombstones and processed
-        // tombstones. before we test deleting it let's create another so we can ensure that
-        // doesn't get deleted.
+        // we've now created a namespace with a table and parquet files. before we test deleting
+        // it, let's create another so we can ensure that doesn't get deleted.
         let namespace_2 = repos
             .namespaces()
             .create("namespace_test_delete_namespace_2", None, topic.id, pool.id)
@@ -2951,67 +2518,6 @@ pub(crate) mod test_helpers {
             .await
             .unwrap();
 
-        // tombstones
-        let t1_n2 = repos
-            .tombstones()
-            .create_or_get(table_2.id, Timestamp::new(1), Timestamp::new(10), "whatevs")
-            .await
-            .unwrap();
-        let t2_n2 = repos
-            .tombstones()
-            .create_or_get(
-                table_2.id,
-                Timestamp::new(100),
-                Timestamp::new(110),
-                "whatevs",
-            )
-            .await
-            .unwrap();
-        let t3_n2 = repos
-            .tombstones()
-            .create_or_get(
-                table_2.id,
-                Timestamp::new(200),
-                Timestamp::new(210),
-                "whatevs",
-            )
-            .await
-            .unwrap();
-
-        // processed tombstones
-        // p1, t2
-        let _pt1 = repos
-            .processed_tombstones()
-            .create(p1_n2.id, t2_n2.id)
-            .await
-            .unwrap();
-        // p1, t3
-        let _pt2 = repos
-            .processed_tombstones()
-            .create(p1_n2.id, t3_n2.id)
-            .await
-            .unwrap();
-        // p2, t3
-        let _pt3 = repos
-            .processed_tombstones()
-            .create(p2_n2.id, t3_n2.id)
-            .await
-            .unwrap();
-
-        // test exist
-        let exist = repos
-            .processed_tombstones()
-            .exist(p1_n2.id, t1_n2.id)
-            .await
-            .unwrap();
-        assert!(!exist);
-        let exist = repos
-            .processed_tombstones()
-            .exist(p1_n2.id, t2_n2.id)
-            .await
-            .unwrap();
-        assert!(exist);
-
         // now delete namespace_1 and assert it's all gone and none of
         // namespace_2 is gone
         repos
@@ -3019,9 +2525,8 @@ pub(crate) mod test_helpers {
             .soft_delete("namespace_test_delete_namespace_1")
             .await
             .expect("delete namespace should succeed");
-        // assert that namespace is soft-deleted, but the table, column,
-        // tombstones, parquet files and processed tombstones are all still
-        // there.
+        // assert that namespace is soft-deleted, but the table, column, and parquet files are all
+        // still there.
         assert!(repos
             .namespaces()
             .get_by_id(namespace_1.id, SoftDeletedRows::ExcludeDeleted)
@@ -3071,24 +2576,6 @@ pub(crate) mod test_helpers {
                 .len(),
             1
         );
-        assert_eq!(
-            repos
-                .tombstones()
-                .list_by_namespace(namespace_1.id)
-                .await
-                .expect("listing tombstones should succeed")
-                .len(),
-            3
-        );
-        assert_eq!(
-            repos
-                .tombstones()
-                .list_by_table(table_1.id)
-                .await
-                .expect("listing tombstones should succeed")
-                .len(),
-            3
-        );
         assert!(repos
             .partitions()
             .get_by_id(partition_1.id)
@@ -3105,24 +2592,9 @@ pub(crate) mod test_helpers {
             .exist(p2_n1.id)
             .await
             .expect("parquet file exists check should succeed"));
-        assert!(repos
-            .processed_tombstones()
-            .exist(p1_n1.id, t2_n1.id)
-            .await
-            .expect("processed tombstone exists check should succeed"));
-        assert!(repos
-            .processed_tombstones()
-            .exist(p1_n1.id, t3_n1.id)
-            .await
-            .expect("processed tombstone exists check should succeed"));
-        assert!(repos
-            .processed_tombstones()
-            .exist(p2_n1.id, t3_n1.id)
-            .await
-            .expect("processed tombstone exists check should succeed"));
 
-        // assert that the namespace, table, column, tombstone, parquet files
-        // and processed tombstones for namespace_2 are still there
+        // assert that the namespace, table, column, and parquet files for namespace_2 are still
+        // there
         assert!(repos
             .namespaces()
             .get_by_id(namespace_2.id, SoftDeletedRows::ExcludeDeleted)
@@ -3153,24 +2625,6 @@ pub(crate) mod test_helpers {
                 .len(),
             1
         );
-        assert_eq!(
-            repos
-                .tombstones()
-                .list_by_namespace(namespace_2.id)
-                .await
-                .expect("listing tombstones should succeed")
-                .len(),
-            3
-        );
-        assert_eq!(
-            repos
-                .tombstones()
-                .list_by_table(table_2.id)
-                .await
-                .expect("listing tombstones should succeed")
-                .len(),
-            3
-        );
         assert!(repos
             .partitions()
             .get_by_id(partition_2.id)
@@ -3187,21 +2641,6 @@ pub(crate) mod test_helpers {
             .exist(p2_n2.id)
             .await
             .expect("parquet file exists check should succeed"));
-        assert!(repos
-            .processed_tombstones()
-            .exist(p1_n2.id, t2_n2.id)
-            .await
-            .expect("processed tombstone exists check should succeed"));
-        assert!(repos
-            .processed_tombstones()
-            .exist(p1_n2.id, t3_n2.id)
-            .await
-            .expect("processed tombstone exists check should succeed"));
-        assert!(repos
-            .processed_tombstones()
-            .exist(p2_n2.id, t3_n2.id)
-            .await
-            .expect("processed tombstone exists check should succeed"));
     }
 
     async fn test_txn_isolation(catalog: Arc<dyn Catalog>) {

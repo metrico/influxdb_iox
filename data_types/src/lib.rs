@@ -246,27 +246,6 @@ impl TablePartition {
     }
 }
 
-/// Unique ID for a `Tombstone`
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, sqlx::Type)]
-#[sqlx(transparent)]
-pub struct TombstoneId(i64);
-
-#[allow(missing_docs)]
-impl TombstoneId {
-    pub fn new(v: i64) -> Self {
-        Self(v)
-    }
-    pub fn get(&self) -> i64 {
-        self.0
-    }
-}
-
-impl std::fmt::Display for TombstoneId {
-    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
-        write!(f, "{}", self.0)
-    }
-}
-
 /// A time in nanoseconds from epoch.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, sqlx::Type)]
 #[sqlx(transparent)]
@@ -874,27 +853,6 @@ pub struct SkippedCompaction {
     pub limit_num_files_first_in_partition: i64,
 }
 
-/// Data object for a tombstone.
-#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, sqlx::FromRow)]
-pub struct Tombstone {
-    /// the id of the tombstone
-    pub id: TombstoneId,
-    /// the table the tombstone is associated with
-    pub table_id: TableId,
-    /// the min time (inclusive) that the delete applies to
-    pub min_time: Timestamp,
-    /// the max time (exclusive) that the delete applies to
-    pub max_time: Timestamp,
-    /// the full delete predicate
-    pub serialized_predicate: String,
-}
-
-impl Tombstone {
-    /// Estimate the memory consumption of this object and its contents
-    pub fn size(&self) -> usize {
-        std::mem::size_of_val(self) + self.serialized_predicate.capacity()
-    }
-}
 /// Map of a column type to its count
 #[derive(Debug, Copy, Clone, PartialEq, Eq, sqlx::FromRow)]
 pub struct ColumnTypeCount {
@@ -1104,15 +1062,6 @@ impl From<ParquetFile> for ParquetFileParams {
             max_l0_created_at: value.max_l0_created_at,
         }
     }
-}
-
-/// Data for a processed tombstone reference in the catalog.
-#[derive(Debug, Copy, Clone, PartialEq, Eq, sqlx::FromRow)]
-pub struct ProcessedTombstone {
-    /// the id of the tombstone applied to the parquet file
-    pub tombstone_id: TombstoneId,
-    /// the id of the parquet file the tombstone was applied
-    pub parquet_file_id: ParquetFileId,
 }
 
 /// ID of a chunk.

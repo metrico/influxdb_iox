@@ -2,15 +2,14 @@
 
 use crate::interface::{
     sealed::TransactionFinalize, CasFailure, ColumnRepo, NamespaceRepo, ParquetFileRepo,
-    PartitionRepo, ProcessedTombstoneRepo, QueryPoolRepo, RepoCollection, Result, SoftDeletedRows,
-    TableRepo, TombstoneRepo, TopicMetadataRepo,
+    PartitionRepo, QueryPoolRepo, RepoCollection, Result, SoftDeletedRows, TableRepo,
+    TopicMetadataRepo,
 };
 use async_trait::async_trait;
 use data_types::{
     Column, ColumnType, ColumnTypeCount, CompactionLevel, Namespace, NamespaceId, ParquetFile,
-    ParquetFileId, ParquetFileParams, Partition, PartitionId, PartitionKey, ProcessedTombstone,
-    QueryPool, QueryPoolId, SkippedCompaction, Table, TableId, Timestamp, Tombstone, TombstoneId,
-    TopicId, TopicMetadata,
+    ParquetFileId, ParquetFileParams, Partition, PartitionId, PartitionKey, QueryPool, QueryPoolId,
+    SkippedCompaction, Table, TableId, Timestamp, TopicId, TopicMetadata,
 };
 use iox_time::{SystemProvider, TimeProvider};
 use metric::{DurationHistogram, Metric};
@@ -49,8 +48,6 @@ where
         + TableRepo
         + ColumnRepo
         + PartitionRepo
-        + TombstoneRepo
-        + ProcessedTombstoneRepo
         + ParquetFileRepo
         + Debug,
     P: TimeProvider,
@@ -79,15 +76,7 @@ where
         self
     }
 
-    fn tombstones(&mut self) -> &mut dyn TombstoneRepo {
-        self
-    }
-
     fn parquet_files(&mut self) -> &mut dyn ParquetFileRepo {
-        self
-    }
-
-    fn processed_tombstones(&mut self) -> &mut dyn ProcessedTombstoneRepo {
         self
     }
 }
@@ -240,17 +229,6 @@ decorate!(
 );
 
 decorate!(
-    impl_trait = TombstoneRepo,
-    methods = [
-        "tombstone_create_or_get" = create_or_get( &mut self, table_id: TableId, min_time: Timestamp, max_time: Timestamp, predicate: &str) -> Result<Tombstone>;
-        "tombstone_list_by_namespace" = list_by_namespace(&mut self, namespace_id: NamespaceId) -> Result<Vec<Tombstone>>;
-        "tombstone_list_by_table" = list_by_table(&mut self, table_id: TableId) -> Result<Vec<Tombstone>>;
-        "tombstone_get_by_id" = get_by_id(&mut self, id: TombstoneId) -> Result<Option<Tombstone>>;
-        "tombstone_remove" =  remove(&mut self, tombstone_ids: &[TombstoneId]) -> Result<()>;
-    ]
-);
-
-decorate!(
     impl_trait = ParquetFileRepo,
     methods = [
         "parquet_create" = create( &mut self, parquet_file_params: ParquetFileParams) -> Result<ParquetFile>;
@@ -266,15 +244,5 @@ decorate!(
         "parquet_exist" = exist(&mut self, id: ParquetFileId) -> Result<bool>;
         "parquet_count" = count(&mut self) -> Result<i64>;
         "parquet_get_by_object_store_id" = get_by_object_store_id(&mut self, object_store_id: Uuid) -> Result<Option<ParquetFile>>;
-    ]
-);
-
-decorate!(
-    impl_trait = ProcessedTombstoneRepo,
-    methods = [
-        "processed_tombstone_create" = create(&mut self, parquet_file_id: ParquetFileId, tombstone_id: TombstoneId) -> Result<ProcessedTombstone>;
-        "processed_tombstone_exist" = exist(&mut self, parquet_file_id: ParquetFileId, tombstone_id: TombstoneId) -> Result<bool>;
-        "processed_tombstone_count" = count(&mut self) -> Result<i64>;
-        "processed_tombstone_count_by_tombstone_id" = count_by_tombstone_id(&mut self, tombstone_id: TombstoneId) -> Result<i64>;
     ]
 );
