@@ -162,9 +162,7 @@ impl NamespaceStats {
 mod tests {
     use std::collections::BTreeMap;
 
-    use data_types::{
-        ColumnId, ColumnSchema, ColumnType, NamespaceId, QueryPoolId, TableId, TableSchema, TopicId,
-    };
+    use data_types::{ColumnId, ColumnSchema, ColumnType, NamespaceId, TableId, TableSchema};
     use metric::{Attributes, MetricObserver, Observation};
 
     use super::*;
@@ -202,8 +200,6 @@ mod tests {
 
         NamespaceSchema {
             id: NamespaceId::new(42),
-            topic_id: TopicId::new(24),
-            query_pool_id: QueryPoolId::new(1234),
             tables,
             max_columns_per_table: 100,
             max_tables: 42,

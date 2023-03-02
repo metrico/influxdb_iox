@@ -225,27 +225,15 @@ pub async fn command(connection: Connection, config: Config) -> Result<(), Error
     }
 }
 
-const TOPIC_NAME: &str = "iox-shared";
-const QUERY_POOL: &str = "iox-shared";
-
 // loads the protobuf namespace schema returned from a remote IOx server into the passed in
-// catalog. It does this based on namespace, table, and column names, not IDs. It also inserts
-// a topic and query pool for the namespace to use, which aren't for real use, but just
-// to make the loaded schema work.
+// catalog. It does this based on namespace, table, and column names, not IDs.
 async fn load_schema(
     catalog: &Arc<dyn Catalog>,
     namespace: &str,
     schema: &NamespaceSchema,
 ) -> Result<CatalogNamespaceSchema, Error> {
     let mut repos = catalog.repositories().await;
-    let topic = repos.topics().create_or_get(TOPIC_NAME).await?;
-    let query_pool = repos.query_pools().create_or_get(QUERY_POOL).await?;
-
-    let namespace = match repos
-        .namespaces()
-        .create(namespace, None, topic.id, query_pool.id)
-        .await
-    {
+    let namespace = match repos.namespaces().create(namespace, None).await {
         Ok(n) => n,
         Err(iox_catalog::interface::Error::NameExists { .. }) => repos
             .namespaces()
@@ -384,8 +372,6 @@ mod tests {
 
         let schema = NamespaceSchema {
             id: 1,
-            topic_id: 1,
-            query_pool_id: 1,
             tables: HashMap::from([(
                 "table1".to_string(),
                 TableSchema {
@@ -417,8 +403,6 @@ mod tests {
 
         let schema = NamespaceSchema {
             id: 1,
-            topic_id: 1,
-            query_pool_id: 1,
             tables: HashMap::from([(
                 "table1".to_string(),
                 TableSchema {
@@ -437,8 +421,6 @@ mod tests {
 
         let schema = NamespaceSchema {
             id: 1,
-            topic_id: 1,
-            query_pool_id: 1,
             tables: HashMap::from([
                 (
                     "newtable".to_string(),
@@ -503,11 +485,9 @@ mod tests {
 
         {
             let mut repos = catalog.repositories().await;
-            let topic = repos.topics().create_or_get(TOPIC_NAME).await.unwrap();
-            let query_pool = repos.query_pools().create_or_get(QUERY_POOL).await.unwrap();
             namespace = repos
                 .namespaces()
-                .create("load_parquet_files", None, topic.id, query_pool.id)
+                .create("load_parquet_files", None)
                 .await
                 .unwrap();
             table = repos

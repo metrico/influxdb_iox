@@ -51,7 +51,7 @@ impl NamespaceCache for Arc<MemoryNamespaceCache> {
 #[cfg(test)]
 mod tests {
     use assert_matches::assert_matches;
-    use data_types::{NamespaceId, QueryPoolId, TopicId};
+    use data_types::NamespaceId;
 
     use super::*;
 
@@ -69,8 +69,6 @@ mod tests {
 
         let schema1 = NamespaceSchema {
             id: NamespaceId::new(42),
-            topic_id: TopicId::new(24),
-            query_pool_id: QueryPoolId::new(1234),
             tables: Default::default(),
             max_columns_per_table: 50,
             max_tables: 24,
@@ -84,8 +82,6 @@ mod tests {
 
         let schema2 = NamespaceSchema {
             id: NamespaceId::new(2),
-            topic_id: TopicId::new(2),
-            query_pool_id: QueryPoolId::new(2),
             tables: Default::default(),
             max_columns_per_table: 10,
             max_tables: 42,

@@ -63,9 +63,6 @@ pub const DEFAULT_INGESTER_GRPC_BIND_ADDR: &str = "127.0.0.1:8083";
 /// The default bind address for the Compactor gRPC
 pub const DEFAULT_COMPACTOR_GRPC_BIND_ADDR: &str = "127.0.0.1:8084";
 
-// If you want this level of control, should be instantiating the services individually
-const QUERY_POOL_NAME: &str = "iox-shared";
-
 #[derive(Debug, Error)]
 pub enum Error {
     #[error("Run: {0}")]
@@ -459,13 +456,11 @@ impl Config {
         };
 
         let router_config = Router2Config {
-            query_pool_name: QUERY_POOL_NAME.to_string(),
             http_request_limit: 1_000,
             ingester_addresses: ingester_addresses.clone(),
             new_namespace_retention_hours: None, // infinite retention
             namespace_autocreation_enabled: true,
             partition_key_pattern: "%Y-%m-%d".to_string(),
-            topic: QUERY_POOL_NAME.to_string(),
             rpc_write_timeout_seconds: Duration::new(3, 0),
             rpc_write_replicas: None,
             single_tenant_deployment: false,
@@ -574,14 +569,6 @@ pub async fn command(config: Config) -> Result<()> {
     // all in one mode to ensure the database is ready.
     info!("running db migrations");
     catalog.setup().await?;
-
-    // Create a topic
-    catalog
-        .repositories()
-        .await
-        .topics()
-        .create_or_get(QUERY_POOL_NAME)
-        .await?;
 
     let object_store: Arc<DynObjectStore> =
         make_object_store(router_run_config.object_store_config())
