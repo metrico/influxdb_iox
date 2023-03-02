@@ -190,7 +190,7 @@ impl std::fmt::Display for PartitionId {
     }
 }
 
-/// Combination of Shard ID, Table ID, and Partition ID useful for identifying groups of
+/// Combination of Table ID and Partition ID useful for identifying groups of
 /// Parquet files to be compacted together.
 #[derive(Debug, Clone, Copy, PartialEq, PartialOrd, Eq, Ord)]
 pub struct TablePartition {
@@ -713,8 +713,8 @@ impl sqlx::Decode<'_, sqlx::Sqlite> for PartitionKey {
     }
 }
 
-/// Data object for a partition. The combination of shard, table and key are unique (i.e. only
-/// one record can exist for each combo)
+/// Data object for a partition. The combination of table and key are unique (i.e. only one record
+/// can exist for each combo)
 #[derive(Debug, Clone, PartialEq, Eq, sqlx::FromRow)]
 pub struct Partition {
     /// the id of the partition
@@ -1881,10 +1881,9 @@ pub const MIN_NANO_TIME: i64 = i64::MIN + 2;
 ///
 /// 2262-04-11 23:47:16.854775806 +0000 UTC
 ///
-/// The highest time represented by a nanosecond needs to be used for an
-/// exclusive range in the shard group, so the maximum time needs to be one
-/// less than the possible maximum number of nanoseconds representable by an
-/// int64 so that we don't lose a point at that one time.
+/// The highest time represented by a nanosecond needs to be used for an exclusive range, so the
+/// maximum time needs to be one less than the possible maximum number of nanoseconds representable
+/// by an int64 so that we don't lose a point at that one time.
 /// Source: [influxdb](https://github.com/influxdata/influxdb/blob/540bb66e1381a48a6d1ede4fc3e49c75a7d9f4af/models/time.go#L12-L34)
 pub const MAX_NANO_TIME: i64 = i64::MAX - 1;
 

@@ -2613,7 +2613,6 @@ dependencies = [
  "schema",
  "serde",
  "serde_json",
- "sharder",
  "snafu",
  "tempfile",
  "test_helpers",
@@ -2990,7 +2989,6 @@ dependencies = [
  "parquet_file",
  "predicate",
  "schema",
- "sharder",
  "uuid",
  "workspace-hack",
 ]
@@ -4457,7 +4455,6 @@ dependencies = [
  "service_grpc_catalog",
  "service_grpc_object_store",
  "service_grpc_schema",
- "sharder",
  "snafu",
  "test_helpers",
  "thiserror",

@@ -28,7 +28,6 @@ fn main() -> Result<()> {
 /// - `influxdata.iox.predicate.v1.rs`
 /// - `influxdata.iox.querier.v1.rs`
 /// - `influxdata.iox.schema.v1.rs`
-/// - `influxdata.iox.sharder.v1.rs`
 /// - `influxdata.iox.wal.v1.rs`
 /// - `influxdata.iox.write.v1.rs`
 /// - `influxdata.platform.storage.rs`
@@ -43,7 +42,6 @@ fn generate_grpc_types(root: &Path) -> Result<()> {
     let predicate_path = root.join("influxdata/iox/predicate/v1");
     let querier_path = root.join("influxdata/iox/querier/v1");
     let schema_path = root.join("influxdata/iox/schema/v1");
-    let sharder_path = root.join("influxdata/iox/sharder/v1");
     let wal_path = root.join("influxdata/iox/wal/v1");
     let storage_path = root.join("influxdata/platform/storage");
     let storage_errors_path = root.join("influxdata/platform/errors");
@@ -69,7 +67,6 @@ fn generate_grpc_types(root: &Path) -> Result<()> {
         root.join("grpc/health/v1/service.proto"),
         root.join("influxdata/pbdata/v1/influxdb_pb_data_protocol.proto"),
         schema_path.join("service.proto"),
-        sharder_path.join("sharder.proto"),
         wal_path.join("wal.proto"),
         storage_path.join("predicate.proto"),
         storage_path.join("service.proto"),

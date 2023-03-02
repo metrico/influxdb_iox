@@ -406,11 +406,11 @@ pub trait ColumnRepo: Send + Sync {
     ) -> Result<Vec<ColumnTypeCount>>;
 }
 
-/// Functions for working with IOx partitions in the catalog. Note that these are how IOx splits up
-/// data within a namespace, which is different than Kafka partitions.
+/// Functions for working with IOx partitions in the catalog. These are how IOx splits up
+/// data within a namespace.
 #[async_trait]
 pub trait PartitionRepo: Send + Sync {
-    /// create or get a partition record for the given partition key, shard and table
+    /// create or get a partition record for the given partition key and table
     async fn create_or_get(&mut self, key: PartitionKey, table_id: TableId) -> Result<Partition>;
 
     /// get partition by ID
