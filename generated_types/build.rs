@@ -31,7 +31,6 @@ fn main() -> Result<()> {
 /// - `influxdata.iox.sharder.v1.rs`
 /// - `influxdata.iox.wal.v1.rs`
 /// - `influxdata.iox.write.v1.rs`
-/// - `influxdata.iox.write_buffer.v1.rs`
 /// - `influxdata.platform.storage.rs`
 fn generate_grpc_types(root: &Path) -> Result<()> {
     let authz_path = root.join("influxdata/iox/authz/v1");
@@ -46,7 +45,6 @@ fn generate_grpc_types(root: &Path) -> Result<()> {
     let schema_path = root.join("influxdata/iox/schema/v1");
     let sharder_path = root.join("influxdata/iox/sharder/v1");
     let wal_path = root.join("influxdata/iox/wal/v1");
-    let write_buffer_path = root.join("influxdata/iox/write_buffer/v1");
     let storage_path = root.join("influxdata/platform/storage");
     let storage_errors_path = root.join("influxdata/platform/errors");
 
@@ -73,7 +71,6 @@ fn generate_grpc_types(root: &Path) -> Result<()> {
         schema_path.join("service.proto"),
         sharder_path.join("sharder.proto"),
         wal_path.join("wal.proto"),
-        write_buffer_path.join("write_buffer.proto"),
         storage_path.join("predicate.proto"),
         storage_path.join("service.proto"),
         storage_path.join("source.proto"),
