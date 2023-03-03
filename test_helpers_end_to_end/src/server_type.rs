@@ -96,7 +96,6 @@ fn addr_envs(server_type: ServerType, addrs: &BindAddresses) -> Vec<(&'static st
                 "INFLUXDB_IOX_GRPC_BIND_ADDR",
                 addrs.querier_grpc_api().bind_addr().to_string(),
             ),
-            ("INFLUXDB_IOX_RPC_MODE", "2".to_string()),
         ],
         ServerType::Compactor2 => vec![
             (

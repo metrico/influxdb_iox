@@ -133,7 +133,6 @@ impl TestConfig {
             ingester_config.catalog_schema_name(),
         )
         .with_existing_object_store(ingester_config)
-        .with_env("INFLUXDB_IOX_RPC_MODE", "2")
         // Hard code query threads so query plans do not vary based on environment
         .with_env("INFLUXDB_IOX_NUM_QUERY_THREADS", "4")
     }
