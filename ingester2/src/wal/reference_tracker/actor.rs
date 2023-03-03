@@ -1,3 +1,5 @@
+#![allow(dead_code)] // Until this is used.
+
 use std::sync::Arc;
 
 use dml::{

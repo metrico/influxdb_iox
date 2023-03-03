@@ -43,31 +43,6 @@ impl PoisonCabinet {
             })),
         }
     }
-
-    #[allow(dead_code)]
-    pub fn add(&self, pill: PoisonPill) {
-        let mut inner = self.inner.write();
-        inner.pills.push(pill);
-
-        for waker in inner.wait_list.drain(..) {
-            waker.wake()
-        }
-    }
-
-    #[allow(dead_code)]
-    pub fn contains(&self, pill: &PoisonPill) -> bool {
-        let inner = self.inner.read();
-
-        inner.pills.contains(pill)
-    }
-
-    #[allow(dead_code)]
-    pub fn wait_for(&self, pill: PoisonPill) -> PoisonWait {
-        PoisonWait {
-            pill,
-            inner: Arc::clone(&self.inner),
-        }
-    }
 }
 
 #[pin_project]

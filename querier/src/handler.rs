@@ -4,7 +4,7 @@ use async_trait::async_trait;
 use futures::{
     future::{BoxFuture, Shared},
     stream::FuturesUnordered,
-    FutureExt, StreamExt, TryFutureExt,
+    StreamExt,
 };
 use influxdb_iox_client::{
     catalog::generated_types::catalog_service_server::CatalogServiceServer,
@@ -19,7 +19,7 @@ use service_grpc_object_store::ObjectStoreService;
 use service_grpc_schema::SchemaService;
 use std::sync::Arc;
 use thiserror::Error;
-use tokio::task::{JoinError, JoinHandle};
+use tokio::task::JoinError;
 use tokio_util::sync::CancellationToken;
 
 use crate::{database::QuerierDatabase, poison::PoisonCabinet};
@@ -50,13 +50,9 @@ pub trait QuerierHandler: Send + Sync {
 }
 
 /// A [`JoinHandle`] that can be cloned
+///
+/// [`JoinHandle`]: tokio::task::JoinHandle
 type SharedJoinHandle = Shared<BoxFuture<'static, Result<(), Arc<JoinError>>>>;
-
-/// Convert a [`JoinHandle`] into a [`SharedJoinHandle`].
-#[allow(dead_code)]
-fn shared_handle(handle: JoinHandle<()>) -> SharedJoinHandle {
-    handle.map_err(Arc::new).boxed().shared()
-}
 
 /// Implementation of the `QuerierHandler` trait (that currently does nothing)
 #[derive(Debug)]

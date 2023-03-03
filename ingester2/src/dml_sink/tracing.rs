@@ -57,7 +57,7 @@ mod tests {
     use std::{sync::Arc, time::Duration};
 
     use assert_matches::assert_matches;
-    use data_types::{NamespaceId, PartitionId, PartitionKey, TableId};
+    use data_types::{NamespaceId, PartitionKey, TableId};
     use dml::DmlMeta;
     use iox_query::exec::Executor;
     use lazy_static::lazy_static;
@@ -72,7 +72,6 @@ mod tests {
 
     use super::*;
 
-    const PARTITION_ID: PartitionId = PartitionId::new(42);
     const NAMESPACE_ID: NamespaceId = NamespaceId::new(24);
     const TABLE_ID: TableId = TableId::new(2442);
     const TABLE_NAME: &str = "banana-report";

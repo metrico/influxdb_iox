@@ -128,6 +128,7 @@ use crate::{
 pub(crate) struct PersistHandle {
     /// Task handles for the worker tasks, aborted on drop of all
     /// [`PersistHandle`] instances.
+    #[allow(dead_code)]
     worker_tasks: Vec<AbortOnDrop<()>>,
 
     /// While the persistence system exposes the concept of a "persistence

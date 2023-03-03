@@ -185,7 +185,6 @@
 //! [`IngestStateError::PersistSaturated`]:
 //!     crate::ingest_state::IngestStateError
 
-#![allow(dead_code)] // Until ingester2 is used.
 #![deny(rustdoc::broken_intra_doc_links, rust_2018_idioms)]
 #![warn(
     clippy::clone_on_ref_ptr,

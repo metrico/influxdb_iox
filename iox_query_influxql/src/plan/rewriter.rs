@@ -1,24 +1,30 @@
-#![allow(dead_code)]
-
-use crate::plan::expr_type_evaluator::evaluate_type;
-use crate::plan::field::field_name;
-use crate::plan::field_mapper::{field_and_dimensions, FieldTypeMap, TagSet};
-use crate::plan::planner::is_scalar_math_function;
-use crate::plan::{util, SchemaProvider};
+use crate::plan::{
+    expr_type_evaluator::evaluate_type,
+    field::field_name,
+    field_mapper::{field_and_dimensions, FieldTypeMap, TagSet},
+    planner::is_scalar_math_function,
+    util, SchemaProvider,
+};
 use datafusion::common::{DataFusionError, Result};
-use influxdb_influxql_parser::common::{MeasurementName, QualifiedMeasurementName};
-use influxdb_influxql_parser::expression::walk::{walk_expr, walk_expr_mut};
-use influxdb_influxql_parser::expression::{Call, Expr, VarRef, VarRefDataType, WildcardType};
-use influxdb_influxql_parser::identifier::Identifier;
-use influxdb_influxql_parser::literal::Literal;
-use influxdb_influxql_parser::select::{
-    Dimension, Field, FieldList, FromMeasurementClause, GroupByClause, MeasurementSelection,
-    SelectStatement,
+use influxdb_influxql_parser::{
+    common::{MeasurementName, QualifiedMeasurementName},
+    expression::{
+        walk::{walk_expr, walk_expr_mut},
+        Call, Expr, VarRef, VarRefDataType, WildcardType,
+    },
+    identifier::Identifier,
+    literal::Literal,
+    select::{
+        Dimension, Field, FieldList, FromMeasurementClause, GroupByClause, MeasurementSelection,
+        SelectStatement,
+    },
 };
 use itertools::Itertools;
-use std::borrow::Borrow;
-use std::collections::{HashMap, HashSet};
-use std::ops::{ControlFlow, Deref};
+use std::{
+    borrow::Borrow,
+    collections::{HashMap, HashSet},
+    ops::{ControlFlow, Deref},
+};
 
 /// Recursively expand the `from` clause of `stmt` and any subqueries.
 fn rewrite_from(s: &dyn SchemaProvider, stmt: &mut SelectStatement) -> Result<()> {

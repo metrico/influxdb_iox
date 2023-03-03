@@ -5,7 +5,6 @@ use observability_deps::tracing::warn;
 ///
 /// See <https://docs.influxdata.com/influxdb/v2.1/api/#operation/PostWrite>.
 #[derive(Debug, PartialEq, Eq, Clone, Copy)]
-#[allow(dead_code)]
 pub enum HttpApiErrorCode {
     InternalError,
     NotFound,

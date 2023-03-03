@@ -25,7 +25,6 @@ use futures::{ready, Stream, StreamExt};
 use super::{algo::GapFiller, params::GapFillParams, GapFillExec};
 
 /// An implementation of a gap-filling operator that uses the [Stream] trait.
-#[allow(dead_code)]
 pub(super) struct GapFillStream {
     /// The schema of the input and output.
     schema: SchemaRef,

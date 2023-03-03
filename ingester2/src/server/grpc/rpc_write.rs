@@ -225,7 +225,6 @@ mod tests {
 
     const NAMESPACE_ID: NamespaceId = NamespaceId::new(42);
     const PARTITION_KEY: &str = "bananas";
-    const PERSIST_QUEUE_DEPTH: usize = 42;
 
     macro_rules! test_rpc_write {
         (

@@ -44,7 +44,6 @@ pub async fn check_response(
     }
 }
 
-#[allow(dead_code)]
 pub async fn check_json_response<T: DeserializeOwned + Eq + Debug>(
     client: &reqwest::Client,
     url: &str,

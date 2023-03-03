@@ -87,6 +87,7 @@ impl BufferState<Buffering> {
 
 impl<T> BufferState<T> {
     /// Return the set of sequence numbers wrote to this [`BufferState`].
+    #[cfg(test)]
     pub(crate) fn sequence_number_set(&self) -> &SequenceNumberSet {
         &self.sequence_numbers
     }

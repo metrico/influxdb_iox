@@ -383,7 +383,6 @@ struct RunningQuery<V> {
     recv: SharedReceiver<V>,
 
     /// A sender that enables setting entries while the query is running.
-    #[allow(dead_code)]
     set: Sender<V>,
 
     /// A handle for the task that is currently executing the query.

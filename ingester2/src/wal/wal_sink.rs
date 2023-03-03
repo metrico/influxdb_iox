@@ -112,7 +112,6 @@ mod tests {
 
     const TABLE_ID: TableId = TableId::new(44);
     const TABLE_NAME: &str = "bananas";
-    const NAMESPACE_NAME: &str = "platanos";
     const NAMESPACE_ID: NamespaceId = NamespaceId::new(42);
 
     #[tokio::test]

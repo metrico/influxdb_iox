@@ -1,8 +1,6 @@
 //! A map key-value map where values are always wrapped in an [`Arc`], with
 //! helper methods for exactly-once initialisation.
 
-#![allow(dead_code)]
-
 use std::{
     borrow::Borrow,
     hash::{BuildHasher, Hash, Hasher},
@@ -112,6 +110,7 @@ where
 
     /// A convenience method over [`Self::get_or_insert_with()`] that
     /// initialises `V` to the default value when `key` has no entry.
+    #[cfg(test)]
     pub(crate) fn get_or_default<Q>(&self, key: &Q) -> Arc<V>
     where
         K: Borrow<Q>,
@@ -147,6 +146,7 @@ where
     /// # Panics
     ///
     /// This method panics if a value already exists for `key`.
+    #[cfg(test)]
     pub(crate) fn insert(&self, key: K, value: Arc<V>) {
         let hash = self.compute_hash(key.borrow());
 

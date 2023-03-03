@@ -136,7 +136,6 @@ impl ObjectStoreCache {
     }
 
     /// Get object store.
-    #[allow(dead_code)]
     pub fn object_store(&self) -> &Arc<dyn ObjectStore> {
         &self.object_store
     }

@@ -128,21 +128,6 @@ impl<O> TableData<O> {
     pub(crate) fn partitions(&self) -> Vec<Arc<Mutex<PartitionData>>> {
         self.partition_data.values()
     }
-
-    /// Returns the table ID for this partition.
-    pub(crate) fn table_id(&self) -> TableId {
-        self.table_id
-    }
-
-    /// Returns the name of this table.
-    pub(crate) fn table_name(&self) -> &Arc<DeferredLoad<TableName>> {
-        &self.table_name
-    }
-
-    /// Return the [`NamespaceId`] this table is a part of.
-    pub(crate) fn namespace_id(&self) -> NamespaceId {
-        self.namespace_id
-    }
 }
 
 impl<O> TableData<O>

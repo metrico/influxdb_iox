@@ -24,6 +24,7 @@ pub(crate) trait PersistCompletionObserver: Send + Sync + Debug {
 
 /// A set of details describing the persisted data.
 #[derive(Debug)]
+#[allow(dead_code)]
 pub struct CompletedPersist {
     /// The catalog identifiers for the persisted partition.
     namespace_id: NamespaceId,

@@ -112,12 +112,8 @@ impl<O> NamespaceData<O> {
         self.tables.get(&table_id)
     }
 
-    /// Return the [`NamespaceId`] this [`NamespaceData`] belongs to.
-    pub(crate) fn namespace_id(&self) -> NamespaceId {
-        self.namespace_id
-    }
-
     /// Returns the [`NamespaceName`] for this namespace.
+    #[cfg(test)]
     pub(crate) fn namespace_name(&self) -> &DeferredLoad<NamespaceName> {
         &self.namespace_name
     }

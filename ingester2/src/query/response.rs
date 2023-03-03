@@ -2,9 +2,11 @@
 //!
 //! [`QueryExec::query_exec()`]: super::QueryExec::query_exec()
 
-use std::{future, pin::Pin};
+use std::pin::Pin;
 
+#[cfg(test)]
 use arrow::record_batch::RecordBatch;
+#[cfg(test)]
 use datafusion::error::DataFusionError;
 use futures::{Stream, StreamExt};
 
@@ -50,11 +52,12 @@ impl QueryResponse {
     }
 
     /// Reduce the [`QueryResponse`] to a stream of [`RecordBatch`].
+    #[cfg(test)]
     pub(crate) fn into_record_batches(
         self,
     ) -> impl Stream<Item = Result<RecordBatch, DataFusionError>> {
         self.into_partition_stream()
-            .filter_map(|partition| future::ready(partition.into_record_batch_stream()))
+            .filter_map(|partition| std::future::ready(partition.into_record_batch_stream()))
             .flatten()
     }
 }
