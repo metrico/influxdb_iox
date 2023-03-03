@@ -2033,7 +2033,6 @@ name = "garbage_collector"
 version = "0.1.0"
 dependencies = [
  "chrono",
- "chrono-english",
  "clap 4.2.1",
  "clap_blocks",
  "data_types",
@@ -2459,8 +2458,6 @@ dependencies = [
  "client_util",
  "data_types",
  "futures",
- "generated_types",
- "influxdb_iox_client",
  "iox_catalog",
  "metric",
  "object_store",
@@ -2471,7 +2468,6 @@ dependencies = [
  "thiserror",
  "tokio",
  "tokio-stream",
- "tonic",
  "workspace-hack",
 ]
 
@@ -4882,7 +4878,6 @@ dependencies = [
  "arrow",
  "hashbrown 0.13.2",
  "indexmap",
- "itertools",
  "observability_deps",
  "snafu",
  "workspace-hack",
