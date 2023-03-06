@@ -1,6 +1,6 @@
 use std::fmt::Display;
 
-use data_types::ParquetFile;
+use data_types::{CompactionLevel, ParquetFile};
 
 use crate::RoundInfo;
 
@@ -28,14 +28,15 @@ impl DivideInitial for MultipleBranchesDivideInitial {
                 start_level,
                 max_num_files_to_group,
             } => {
-                // Sort start_level files on max_l0_created_at
-                let mut start_level_files = files
+                // Sort start_level on max_l0_created_at if start_level is 0 or min_time otherwise
+                // to have the right split of groups of files to compact
+                let start_level_files = files
                     .into_iter()
                     .filter(|f| f.compaction_level == *start_level)
                     .collect::<Vec<_>>();
-                start_level_files.sort_by(|a, b| a.max_l0_created_at.cmp(&b.max_l0_created_at));
+                let start_level_files = order_files(start_level_files, start_level);
 
-                // Split L0s into many small groups, each has max_num_files_to_group
+                // Split files into many small groups, each has at max_num_files_to_group that do
                 let branches = start_level_files
                     .chunks(*max_num_files_to_group)
                     .map(|c| c.to_vec())
@@ -46,6 +47,23 @@ impl DivideInitial for MultipleBranchesDivideInitial {
             RoundInfo::TargetLevel { .. } => vec![files],
         }
     }
+}
+
+// Return a sorted files of the given ones.
+// The order is used to split the files and form the right groups of files to compact
+// and deduplcate correctly to fewer and larger but same level files
+//
+// All given files are in the same given start_level.
+// They will be sorted on their `max_l0_created_at` if the start_level is 0,
+// otherwise on their `min_time`
+fn order_files(files: Vec<ParquetFile>, start_level: &CompactionLevel) -> Vec<ParquetFile> {
+    let mut files = files;
+    if *start_level == CompactionLevel::Initial {
+        files.sort_by(|a, b| a.max_l0_created_at.cmp(&b.max_l0_created_at));
+    } else {
+        files.sort_by(|a, b| a.min_time.cmp(&b.min_time));
+    }
+    files
 }
 
 #[cfg(test)]
