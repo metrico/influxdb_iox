@@ -206,7 +206,9 @@ async fn try_compact_partition(
                     .file_classifier
                     .classify(&partition_info, &round_info, branch);
 
-            if !components
+            // Only skip partition if it has neither files to upgrade nor files to compactor_split
+            if !file_classification.has_upgrade_files() &&  !components
+                // todo: rename partition_resource_limit_filter to partition_skip_filter
                 .partition_resource_limit_filter
                 .apply(
                     &partition_info,
