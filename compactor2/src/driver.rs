@@ -207,14 +207,15 @@ async fn try_compact_partition(
                     .classify(&partition_info, &round_info, branch);
 
             // Only skip partition if it has neither files to upgrade nor files to compactor_split
-            if !file_classification.has_upgrade_files() &&  !components
-                // todo: rename partition_resource_limit_filter to partition_skip_filter
-                .partition_resource_limit_filter
-                .apply(
-                    &partition_info,
-                    &file_classification.files_to_compact_or_split.files(),
-                )
-                .await?
+            if !file_classification.has_upgrade_files()
+                && !components
+                    // todo: rename partition_resource_limit_filter to partition_skip_filter
+                    .partition_resource_limit_filter
+                    .apply(
+                        &partition_info,
+                        &file_classification.files_to_compact_or_split.files(),
+                    )
+                    .await?
             {
                 return Ok(());
             }

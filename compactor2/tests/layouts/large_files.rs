@@ -9,7 +9,6 @@ use crate::layouts::{layout_setup_builder, parquet_builder, run_layout_scenario,
 const MAX_COMPACT_SIZE: usize = 300 * ONE_MB as usize;
 const MAX_DESIRED_FILE_SIZE: u64 = 100 * ONE_MB;
 
-// This file should be upgraded after https://github.com/influxdata/idpe/issues/17246
 // One l1 file that is larger than max desired file size
 #[tokio::test]
 async fn one_larger_max_file_size() {
@@ -41,10 +40,11 @@ async fn one_larger_max_file_size() {
     - "**** Input Files "
     - "L1, all files 100mb                                                                                 "
     - "L1.1[1,1000]        |-------------------------------------L1.1-------------------------------------|"
-    - "SKIPPED COMPACTION for PartitionId(1): partition 1 has overlapped files that exceed max compact size limit 314572800. The may happen if a large amount of data has the same timestamp"
+    - "Committing partition 1:"
+    - "  Upgrading 1 files level to CompactionLevel::L2: L1.1"
     - "**** Final Output Files "
-    - "L1, all files 100mb                                                                                 "
-    - "L1.1[1,1000]        |-------------------------------------L1.1-------------------------------------|"
+    - "L2, all files 100mb                                                                                 "
+    - "L2.1[1,1000]        |-------------------------------------L2.1-------------------------------------|"
     "###
     );
 }
@@ -80,15 +80,17 @@ async fn one_l0_larger_max_file_size() {
     - "**** Input Files "
     - "L0, all files 100mb                                                                                 "
     - "L0.1[1,1000]        |-------------------------------------L0.1-------------------------------------|"
-    - "SKIPPED COMPACTION for PartitionId(1): partition 1 has overlapped files that exceed max compact size limit 314572800. The may happen if a large amount of data has the same timestamp"
+    - "Committing partition 1:"
+    - "  Upgrading 1 files level to CompactionLevel::L1: L0.1"
+    - "Committing partition 1:"
+    - "  Upgrading 1 files level to CompactionLevel::L2: L1.1"
     - "**** Final Output Files "
-    - "L0, all files 100mb                                                                                 "
-    - "L0.1[1,1000]        |-------------------------------------L0.1-------------------------------------|"
+    - "L2, all files 100mb                                                                                 "
+    - "L2.1[1,1000]        |-------------------------------------L2.1-------------------------------------|"
     "###
     );
 }
 
-// This file should be upgraded after https://github.com/influxdata/idpe/issues/17246
 // One l1 file that is larger than max compact size
 #[tokio::test]
 async fn one_larger_max_compact_size() {
@@ -121,16 +123,16 @@ async fn one_larger_max_compact_size() {
     - "L1, all files 300mb                                                                                 "
     - "L1.1[1,1000]        |-------------------------------------L1.1-------------------------------------|"
     - "WARNING: file L1.1[1,1000] 300mb exceeds soft limit 100mb by more than 50%"
-    - "SKIPPED COMPACTION for PartitionId(1): partition 1 has overlapped files that exceed max compact size limit 314572800. The may happen if a large amount of data has the same timestamp"
+    - "Committing partition 1:"
+    - "  Upgrading 1 files level to CompactionLevel::L2: L1.1"
     - "**** Final Output Files "
-    - "L1, all files 300mb                                                                                 "
-    - "L1.1[1,1000]        |-------------------------------------L1.1-------------------------------------|"
-    - "WARNING: file L1.1[1,1000] 300mb exceeds soft limit 100mb by more than 50%"
+    - "L2, all files 300mb                                                                                 "
+    - "L2.1[1,1000]        |-------------------------------------L2.1-------------------------------------|"
+    - "WARNING: file L2.1[1,1000] 300mb exceeds soft limit 100mb by more than 50%"
     "###
     );
 }
 
-// This file should be upgraded after https://github.com/influxdata/idpe/issues/17246
 // One l0 file that is larger than max compact size
 #[tokio::test]
 async fn one_l0_larger_max_compact_size() {
@@ -163,16 +165,18 @@ async fn one_l0_larger_max_compact_size() {
     - "L0, all files 300mb                                                                                 "
     - "L0.1[1,1000]        |-------------------------------------L0.1-------------------------------------|"
     - "WARNING: file L0.1[1,1000] 300mb exceeds soft limit 100mb by more than 50%"
-    - "SKIPPED COMPACTION for PartitionId(1): partition 1 has overlapped files that exceed max compact size limit 314572800. The may happen if a large amount of data has the same timestamp"
+    - "Committing partition 1:"
+    - "  Upgrading 1 files level to CompactionLevel::L1: L0.1"
+    - "Committing partition 1:"
+    - "  Upgrading 1 files level to CompactionLevel::L2: L1.1"
     - "**** Final Output Files "
-    - "L0, all files 300mb                                                                                 "
-    - "L0.1[1,1000]        |-------------------------------------L0.1-------------------------------------|"
-    - "WARNING: file L0.1[1,1000] 300mb exceeds soft limit 100mb by more than 50%"
+    - "L2, all files 300mb                                                                                 "
+    - "L2.1[1,1000]        |-------------------------------------L2.1-------------------------------------|"
+    - "WARNING: file L2.1[1,1000] 300mb exceeds soft limit 100mb by more than 50%"
     "###
     );
 }
 
-// This is working as expected and should stay after https://github.com/influxdata/idpe/issues/17246
 // Two files that are under max compact size
 #[tokio::test]
 async fn two_large_files_total_under_max_compact_size() {
