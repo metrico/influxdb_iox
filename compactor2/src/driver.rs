@@ -293,6 +293,10 @@ async fn run_plans(
             )
             .await
         }
+        FilesToCompactOrSplit::FilesWithTinyTimeRange(_files) => {
+            // TODO: implement this
+            Ok(vec![])
+        }
     }
 }
 

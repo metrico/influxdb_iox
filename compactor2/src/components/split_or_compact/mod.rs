@@ -5,7 +5,7 @@ use data_types::{CompactionLevel, ParquetFile};
 use crate::{file_classification::FilesToCompactOrSplit, PartitionInfo};
 
 pub mod files_to_compact;
-pub mod files_to_split;
+pub mod start_level_files_to_split;
 pub mod logging;
 pub mod metrics;
 pub mod split_compact;

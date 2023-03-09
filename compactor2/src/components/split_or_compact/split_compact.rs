@@ -5,7 +5,7 @@ use data_types::{CompactionLevel, ParquetFile};
 use crate::{file_classification::FilesToCompactOrSplit, partition_info::PartitionInfo};
 
 use super::{
-    files_to_compact::limit_files_to_compact, files_to_split::identify_files_to_split,
+    files_to_compact::limit_files_to_compact, start_level_files_to_split::identify_files_to_split,
     SplitOrCompact,
 };
 
@@ -29,9 +29,10 @@ impl Display for SplitCompact {
 impl SplitOrCompact for SplitCompact {
     /// Return (`[files_to_split_or_compact]`, `[files_to_keep]`) of given files
     ///
-    /// Verify if the the give files are over the max_compact_size limit
+    /// Verify if the the given files are over the max_compact_size limit
     /// If so, find start-level files that can be split to reduce the number of overlapped files that must be compact in one run.
     /// If split is not needed, pick files to compact that under max_compact_size limit
+    /// If the minimum number of files to compact is still over max_compact_size, this minimum set of files should be further split
     fn apply(
         &self,
         _partition_info: &PartitionInfo,
@@ -44,7 +45,7 @@ impl SplitOrCompact for SplitCompact {
             return (FilesToCompactOrSplit::FilesToCompact(files), vec![]);
         }
 
-        // See if split is needed
+        // See if split is needed for start-level files
         let (files_to_split, files_not_to_split) = identify_files_to_split(files, target_level);
 
         if !files_to_split.is_empty() {
@@ -54,14 +55,27 @@ impl SplitOrCompact for SplitCompact {
                 files_not_to_split,
             )
         } else {
-            // No split is needed, need to limit number of files to compact to stay under total size limit
-            let (files_to_compact, files_to_keep) =
+            // No start-level-file split is needed, need to limit number of files to compact to stay under total size limit
+            let limited_files_to_compact  =
                 limit_files_to_compact(self.max_compact_size, files_not_to_split, target_level);
 
-            (
-                FilesToCompactOrSplit::FilesToCompact(files_to_compact),
-                files_to_keep,
-            )
+            let files_to_compact = limited_files_to_compact.files_to_compact();
+            let files_to_keep = limited_files_to_compact.files_to_keep();
+
+            if files_to_compact.is_empty() {
+                // No files to compact, need to split them further
+                let files_to_further_split = limited_files_to_compact.files_to_further_split();
+                // todo: ......
+                return (
+                    FilesToCompactOrSplit::FilesToCompact(files_to_further_split),
+                    files_to_keep,
+                );
+            } else {
+                (
+                    FilesToCompactOrSplit::FilesToCompact(files_to_compact),
+                    files_to_keep,
+                )
+            }
         }
     }
 }
@@ -116,10 +130,27 @@ mod tests {
         let split_compact = SplitCompact::new(MAX_SIZE);
         let (files_to_compact_or_split, files_to_keep) =
             split_compact.apply(&p_info, files, CompactionLevel::Final);
-        // nothing to compact or split
-        // after https://github.com/influxdata/idpe/issues/17246, this list won't be empty
-        assert!(files_to_compact_or_split.is_empty());
-        assert_eq!(files_to_keep.len(), 4);
+        // todo: files_to_compact_len should be 0 and files_to_split_len should be 2
+        assert_eq!(files_to_compact_or_split.files_to_compact_len(), 2);
+        assert_eq!(files_to_compact_or_split.files_to_split_len(), 0);
+        assert_eq!(files_to_keep.len(), 2);
+
+        // See layout of 2 set of files
+        insta::assert_yaml_snapshot!(
+            format_files_split("files to compact", &files_to_compact_or_split.files_to_compact() , "files to keep:", &files_to_keep),
+            @r###"
+        ---
+        - files to compact
+        - "L1, all files 100b                                                                                  "
+        - "L1.11[250,350]                                |-----------------------L1.11-----------------------| "
+        - "L2, all files 100b                                                                                  "
+        - "L2.22[200,300]      |-----------------------L2.22-----------------------|                           "
+        - "files to keep:"
+        - "L1, all files 100b                                                                                  "
+        - "L1.12[400,500]      |---------L1.12----------|                                                      "
+        - "L1.13[600,700]                                                           |---------L1.13----------| "
+        "###
+        );
     }
 
     #[test]

@@ -27,17 +27,15 @@ pub struct FileClassification {
 
 impl FileClassification {
     pub fn files_to_compact_len(&self) -> usize {
-        match &self.files_to_compact_or_split {
-            FilesToCompactOrSplit::FilesToCompact(files) => files.len(),
-            FilesToCompactOrSplit::FilesToSplit(_) => 0,
-        }
+        self.files_to_compact_or_split.files_to_compact_len()
     }
 
     pub fn files_to_split_len(&self) -> usize {
-        match &self.files_to_compact_or_split {
-            FilesToCompactOrSplit::FilesToCompact(_files) => 0,
-            FilesToCompactOrSplit::FilesToSplit(files) => files.len(),
-        }
+        self.files_to_compact_or_split.files_to_split_len()
+    }
+
+    pub fn files_with_tiny_time_range_len(&self) -> usize {
+        self.files_to_compact_or_split.files_with_tiny_time_range_len()
     }
 
     pub fn has_upgrade_files(&self) -> bool {
@@ -54,6 +52,8 @@ pub enum FilesToCompactOrSplit {
     FilesToCompact(Vec<ParquetFile>),
     /// The input files should be split into multiple output files, at the specified times
     FilesToSplit(Vec<FileToSplit>),
+    /// These files are large ad should be split but their time ranges are too small to be split
+    FilesWithTinyTimeRange(Vec<ParquetFile>),
 }
 
 impl FilesToCompactOrSplit {
@@ -62,6 +62,7 @@ impl FilesToCompactOrSplit {
         match self {
             Self::FilesToCompact(files) => files.is_empty(),
             Self::FilesToSplit(files) => files.is_empty(),
+            Self::FilesWithTinyTimeRange(files) => files.is_empty(),
         }
     }
 
@@ -70,6 +71,7 @@ impl FilesToCompactOrSplit {
         match self {
             Self::FilesToCompact(files) => files.len(),
             Self::FilesToSplit(_) => 0,
+            Self::FilesWithTinyTimeRange(_) => 0,
         }
     }
 
@@ -78,6 +80,16 @@ impl FilesToCompactOrSplit {
         match self {
             Self::FilesToCompact(_) => 0,
             Self::FilesToSplit(files) => files.len(),
+            Self::FilesWithTinyTimeRange(_) => 0,
+        }
+    }
+
+    /// Return lentgh of files with tiny time range
+    pub fn files_with_tiny_time_range_len(&self) -> usize {
+        match self {
+            Self::FilesToCompact(_) => 0,
+            Self::FilesToSplit(_) => 0,
+            Self::FilesWithTinyTimeRange(files) => files.len(),
         }
     }
 
@@ -86,6 +98,7 @@ impl FilesToCompactOrSplit {
         match self {
             Self::FilesToCompact(files) => files.clone(),
             Self::FilesToSplit(_) => vec![],
+            Self::FilesWithTinyTimeRange(_) => vec![],
         }
     }
 
@@ -96,7 +109,17 @@ impl FilesToCompactOrSplit {
             Self::FilesToSplit(files) => {
                 let files: Vec<ParquetFile> = files.iter().map(|f| f.file.clone()).collect();
                 files
-            }
+            },
+            Self::FilesWithTinyTimeRange(_) => vec![],
+        }
+    }
+
+    /// Return files with tiny time range
+    pub fn files_with_tiny_time_range(&self) -> Vec<ParquetFile> {
+        match self {
+            Self::FilesToCompact(_) => vec![],
+            Self::FilesToSplit(_) => vec![],
+            Self::FilesWithTinyTimeRange(files) => files.clone(),
         }
     }
 
@@ -105,6 +128,7 @@ impl FilesToCompactOrSplit {
         match self {
             Self::FilesToCompact(files) => files.clone(),
             Self::FilesToSplit(files) => files.iter().map(|f| f.file.clone()).collect(),
+            Self::FilesWithTinyTimeRange(files) => files.clone(),
         }
     }
 
@@ -114,6 +138,7 @@ impl FilesToCompactOrSplit {
         match self {
             Self::FilesToCompact(_) => target_level,
             Self::FilesToSplit(files) => files[0].file.compaction_level,
+            Self::FilesWithTinyTimeRange(_) => target_level,
         }
     }
 }

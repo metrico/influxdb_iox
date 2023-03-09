@@ -83,6 +83,10 @@ where
                     self.compact_decision_count.inc(1);
                 }
             }
+            FilesToCompactOrSplit::FilesWithTinyTimeRange(_inner_files_with_tiny_time_range) => {
+                // todo: verify this
+                // neither split nor compact
+            }
         }
 
         (files_to_compact_or_split, files_not_to_split)
