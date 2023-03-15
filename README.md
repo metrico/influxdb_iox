@@ -313,7 +313,7 @@ grpc.health.v1.Health
 influxdata.iox.management.v1.ManagementService
 influxdata.platform.storage.IOxTesting
 influxdata.platform.storage.Storage
-$ ./scripts/grpcurl -plaintext 127.0.0.1:8082 influxdata.iox.management.v1.ManagementService.ListDatabases
+$ ./scripts/grpcurl -plaintext 127.0.0.1:8082 list influxdata.iox.management.v1.ManagementService.ListDatabases
 {
   "names": [
     "foobar_weather"
