@@ -2,7 +2,7 @@ use self::generated_types::{shard_service_client::ShardServiceClient, *};
 use crate::{AggregateTSMMeasurement, AggregateTSMSchema};
 use chrono::{format::StrftimeItems, offset::FixedOffset, DateTime, Duration};
 use data_types::{
-    org_and_bucket_to_namespace, ColumnType, Namespace, NamespaceSchema, OrgBucketMappingError,
+    org_and_bucket_to_namespace, ColumnType, Namespace, NamespaceMappingError, NamespaceSchema,
     Partition, PartitionKey, QueryPoolId, ShardId, TableSchema, TopicId,
 };
 use influxdb_iox_client::connection::{Connection, GrpcConnection};
@@ -29,7 +29,7 @@ pub enum UpdateCatalogError {
     SortKeyCasError,
 
     #[error("Couldn't construct namespace from org and bucket: {0}")]
-    InvalidOrgBucket(#[from] OrgBucketMappingError),
+    InvalidOrgBucket(#[from] NamespaceMappingError),
 
     #[error("No topic named '{topic_name}' found in the catalog")]
     TopicCatalogLookup { topic_name: String },

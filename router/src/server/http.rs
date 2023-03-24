@@ -4,7 +4,10 @@ mod delete_predicate;
 
 use authz::{Action, Authorizer, Permission, Resource};
 use bytes::{Bytes, BytesMut};
-use data_types::{org_and_bucket_to_namespace, OrgBucketMappingError};
+use data_types::{
+    org_and_bucket_to_namespace, rp_and_database_to_namespace, NamespaceMappingError,
+    NamespaceName, Tenancy,
+};
 use futures::StreamExt;
 use hashbrown::HashMap;
 use hyper::{header::CONTENT_ENCODING, Body, Method, Request, Response, StatusCode};
@@ -42,6 +45,10 @@ pub enum Error {
     /// An error with the org/bucket in the request.
     #[error(transparent)]
     InvalidOrgBucket(#[from] OrgBucketError),
+
+    /// An error with the db/rp in the request.
+    #[error(transparent)]
+    InvalidDatabaseRp(#[from] DatabaseRpError),
 
     /// The request body content is not valid utf8.
     #[error("body content is not valid utf8: {0}")]
@@ -115,6 +122,7 @@ impl Error {
         match self {
             Error::NoHandler => StatusCode::NOT_FOUND,
             Error::InvalidOrgBucket(_) => StatusCode::BAD_REQUEST,
+            Error::InvalidDatabaseRp(_) => StatusCode::BAD_REQUEST,
             Error::ClientHangup(_) => StatusCode::BAD_REQUEST,
             Error::InvalidGzip(_) => StatusCode::BAD_REQUEST,
             Error::NonUtf8ContentHeader(_) => StatusCode::BAD_REQUEST,
@@ -190,7 +198,7 @@ impl From<&DmlError> for StatusCode {
     }
 }
 
-/// Errors returned when decoding the organisation / bucket information from a
+/// v1 DmlErrors returned when decoding the organisation / bucket information from a
 /// HTTP request and deriving the namespace name from it.
 #[derive(Debug, Error)]
 pub enum OrgBucketError {
@@ -204,10 +212,45 @@ pub enum OrgBucketError {
 
     /// The provided org/bucket could not be converted into a namespace name.
     #[error(transparent)]
-    MappingFail(#[from] OrgBucketMappingError),
+    MappingFail(#[from] NamespaceMappingError),
+}
+
+/// v2 DmlErrors returned when decoding the database / rp information from a
+/// HTTP request and deriving the namespace name from it.
+#[derive(Debug, Error)]
+pub enum DatabaseRpError {
+    /// The request contains no org/bucket destination information.
+    #[error("no db destination provided")]
+    NotSpecified,
+
+    /// The request contains invalid parameters.
+    #[error("failed to deserialize db/rp/precision in request: {0}")]
+    DecodeFail(#[from] serde::de::value::Error),
+
+    /// The provided db (and optional rp) could not be converted into a namespace name.
+    #[error(transparent)]
+    MappingFail(#[from] NamespaceMappingError),
 }
 
 #[derive(Debug, Deserialize)]
+enum Consistency {
+    #[serde(rename = "any")]
+    Any,
+    #[serde(rename = "one")]
+    One,
+    #[serde(rename = "quorum")]
+    Quorum,
+    #[serde(rename = "all")]
+    All,
+}
+
+impl Default for Consistency {
+    fn default() -> Self {
+        Self::One
+    }
+}
+
+#[derive(Clone, Debug, Deserialize)]
 enum Precision {
     #[serde(rename = "s")]
     Seconds,
@@ -237,9 +280,46 @@ impl Precision {
     }
 }
 
+/// May be empty string, explicit rp name, or `autogen`.
+type RetentionPolicyName = Option<String>;
+
 #[derive(Debug, Deserialize)]
-/// Org & bucket identifiers for a DML operation.
-pub struct WriteInfo {
+/// Query Parameters for v1 DML operation.
+pub struct WriteParamsV1 {
+    db: String,
+
+    #[allow(dead_code)]
+    u: Option<String>,
+    #[allow(dead_code)]
+    p: Option<String>,
+
+    #[allow(dead_code)]
+    #[serde(default)]
+    consistency: Consistency,
+    #[serde(default)]
+    precision: Precision,
+    rp: RetentionPolicyName,
+}
+
+impl<T> TryFrom<&Request<T>> for WriteParamsV1 {
+    type Error = DatabaseRpError;
+
+    fn try_from(req: &Request<T>) -> Result<Self, Self::Error> {
+        let query = req.uri().query().ok_or(DatabaseRpError::NotSpecified)?;
+        let got: WriteParamsV1 = serde_urlencoded::from_str(query)?;
+
+        // An empty database name is not acceptable.
+        if got.db.is_empty() {
+            return Err(DatabaseRpError::NotSpecified);
+        }
+
+        Ok(got)
+    }
+}
+
+#[derive(Debug, Deserialize)]
+/// Query Parameters for v2 DML operation.
+pub struct WriteParamsV2 {
     org: String,
     bucket: String,
 
@@ -247,12 +327,12 @@ pub struct WriteInfo {
     precision: Precision,
 }
 
-impl<T> TryFrom<&Request<T>> for WriteInfo {
+impl<T> TryFrom<&Request<T>> for WriteParamsV2 {
     type Error = OrgBucketError;
 
     fn try_from(req: &Request<T>) -> Result<Self, Self::Error> {
         let query = req.uri().query().ok_or(OrgBucketError::NotSpecified)?;
-        let got: WriteInfo = serde_urlencoded::from_str(query)?;
+        let got: WriteParamsV2 = serde_urlencoded::from_str(query)?;
 
         // An empty org or bucket is not acceptable.
         if got.org.is_empty() || got.bucket.is_empty() {
@@ -260,6 +340,66 @@ impl<T> TryFrom<&Request<T>> for WriteInfo {
         }
 
         Ok(got)
+    }
+}
+
+#[derive(Debug)]
+enum ContentEncoding {
+    #[allow(dead_code)]
+    Gzip,
+    Identity,
+}
+
+// TODO: what is the default here?
+impl Default for ContentEncoding {
+    fn default() -> Self {
+        Self::Identity
+    }
+}
+
+#[derive(Debug)]
+/// Standardized DML operation parameters
+pub struct WriteInfo<'a> {
+    namespace: NamespaceName<'a>,
+    precision: Precision,
+    #[allow(dead_code)]
+    skip_database_creation: Option<bool>,
+    #[allow(dead_code)]
+    content_encoding: ContentEncoding,
+}
+
+impl<'a> TryFrom<&WriteParamsV1> for WriteInfo<'a> {
+    type Error = DatabaseRpError;
+
+    fn try_from(write_params: &WriteParamsV1) -> Result<Self, Self::Error> {
+        let namespace = rp_and_database_to_namespace(&write_params.rp, &write_params.db)?;
+        let skip_database_creation = Some(false); // ignored in initial implementation, per spec
+        let content_encoding = ContentEncoding::default();
+
+        Ok(Self {
+            namespace,
+            precision: write_params.precision.clone(),
+            skip_database_creation,
+            content_encoding,
+        })
+    }
+}
+
+impl<'a> TryFrom<&WriteParamsV2> for WriteInfo<'a> {
+    type Error = OrgBucketError;
+
+    fn try_from(write_params: &WriteParamsV2) -> Result<Self, Self::Error> {
+        let namespace = org_and_bucket_to_namespace(&write_params.org, &write_params.bucket)
+            .map_err(OrgBucketError::MappingFail)?;
+        let skip_database_creation = None;
+        let content_encoding = ContentEncoding::default();
+
+        Ok(Self {
+            namespace,
+            precision: write_params.precision.clone(),
+            skip_database_creation,
+            content_encoding,
+        })
     }
 }
 
@@ -398,6 +538,7 @@ where
 
         // Route the request to a handler.
         match (req.method(), req.uri().path()) {
+            (&Method::POST, "/write") => self.write_handler(req).await,
             (&Method::POST, "/api/v2/write") => self.write_handler(req).await,
             (&Method::POST, "/api/v2/delete") => self.delete_handler(req).await,
             _ => return Err(Error::NoHandler),
@@ -414,9 +555,11 @@ where
     async fn write_handler(&self, req: Request<Body>) -> Result<WriteSummary, Error> {
         let span_ctx: Option<SpanContext> = req.extensions().get().cloned();
 
-        let write_info = WriteInfo::try_from(&req)?;
-        let namespace = org_and_bucket_to_namespace(&write_info.org, &write_info.bucket)
-            .map_err(OrgBucketError::MappingFail)?;
+        let write_info = match (req.uri().path(), Tenancy::get()) {
+            ("/write", Tenancy::Single) => WriteInfo::try_from(&(WriteParamsV1::try_from(&req)?))?,
+            ("/api/v2/write", _) => WriteInfo::try_from(&(WriteParamsV2::try_from(&req)?))?,
+            _ => return Err(Error::NoHandler),
+        };
 
         let token = req
             .extensions()
@@ -434,15 +577,13 @@ where
                 }
             });
         let perms = [Permission::ResourceAction(
-            Resource::Namespace(namespace.to_string()),
+            Resource::Namespace(write_info.namespace.to_string()),
             Action::Write,
         )];
         self.authz.require_any_permission(token, &perms).await?;
 
         trace!(
-            org=%write_info.org,
-            bucket=%write_info.bucket,
-            %namespace,
+            namespace=%write_info.namespace,
             "processing write request"
         );
 
@@ -475,19 +616,20 @@ where
             num_tables,
             precision=?write_info.precision,
             body_size=body.len(),
-            %namespace,
-            org=%write_info.org,
-            bucket=%write_info.bucket,
+            namespace=%write_info.namespace,
             duration=?duration,
             "routing write",
         );
 
         // Retrieve the namespace ID for this namespace.
-        let namespace_id = self.namespace_resolver.get_namespace_id(&namespace).await?;
+        let namespace_id = self
+            .namespace_resolver
+            .get_namespace_id(&write_info.namespace)
+            .await?;
 
         let summary = self
             .dml_handler
-            .write(&namespace, namespace_id, batches, span_ctx)
+            .write(&write_info.namespace, namespace_id, batches, span_ctx)
             .await
             .map_err(Into::into)?;
 
@@ -502,11 +644,10 @@ where
     async fn delete_handler(&self, req: Request<Body>) -> Result<WriteSummary, Error> {
         let span_ctx: Option<SpanContext> = req.extensions().get().cloned();
 
-        let account = WriteInfo::try_from(&req)?;
-        let namespace = org_and_bucket_to_namespace(&account.org, &account.bucket)
-            .map_err(OrgBucketError::MappingFail)?;
+        let write_params = WriteParamsV2::try_from(&req)?;
+        let write_info = WriteInfo::try_from(&write_params)?;
 
-        trace!(org=%account.org, bucket=%account.bucket, %namespace, "processing delete request");
+        trace!(namespace=%write_info.namespace, "processing delete request");
 
         // Read the HTTP body and convert it to a str.
         let body = self.read_body(req).await?;
@@ -526,17 +667,18 @@ where
             start=%parsed_delete.start_time,
             stop=%parsed_delete.stop_time,
             body_size=body.len(),
-            %namespace,
-            org=%account.org,
-            bucket=%account.bucket,
+            namespace=%write_info.namespace,
             "routing delete"
         );
 
-        let namespace_id = self.namespace_resolver.get_namespace_id(&namespace).await?;
+        let namespace_id = self
+            .namespace_resolver
+            .get_namespace_id(&write_info.namespace)
+            .await?;
 
         self.dml_handler
             .delete(
-                &namespace,
+                &write_info.namespace,
                 namespace_id,
                 parsed_delete.table_name.as_str(),
                 &predicate,

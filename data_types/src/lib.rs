@@ -1607,7 +1607,7 @@ impl std::fmt::Display for Scalar {
 
 #[derive(Debug, Snafu)]
 #[allow(missing_docs)]
-pub enum OrgBucketMappingError {
+pub enum NamespaceMappingError {
     #[snafu(display("Invalid namespace name: {}", source))]
     InvalidNamespaceName { source: NamespaceNameError },
 
@@ -1615,28 +1615,112 @@ pub enum OrgBucketMappingError {
     NotSpecified,
 }
 
+#[derive(Debug, Copy, Clone)]
+#[allow(missing_docs)]
+pub enum Tenancy {
+    Single,
+    Multiple,
+}
+
+impl From<&str> for Tenancy {
+    fn from(s: &str) -> Self {
+        match s {
+            "CST" => Tenancy::Single,
+            _ => Tenancy::Multiple,
+        }
+    }
+}
+
+impl Tenancy {
+    /// Returns the current tenancy status (e.g. CST vs MT).
+    pub fn get() -> Self {
+        match std::env::var("INFLUXDB_IOX_TENANCY") {
+            Ok(t) => Tenancy::from(t.as_str()),
+            _ => Self::Multiple,
+        }
+    }
+}
+
 /// Map an InfluxDB 2.X org & bucket into an IOx NamespaceName.
 ///
 /// This function ensures the mapping is unambiguous by requiring both `org` and
 /// `bucket` to not contain the `_` character in addition to the
 /// [`NamespaceName`] validation.
+///
+/// There is a difference in namespace generation based upon tenancy.
 pub fn org_and_bucket_to_namespace<'a, O: AsRef<str>, B: AsRef<str>>(
     org: O,
     bucket: B,
-) -> Result<NamespaceName<'a>, OrgBucketMappingError> {
+) -> Result<NamespaceName<'a>, NamespaceMappingError> {
     const SEPARATOR: char = '_';
 
-    let org: Cow<'_, str> = utf8_percent_encode(org.as_ref(), NON_ALPHANUMERIC).into();
-    let bucket: Cow<'_, str> = utf8_percent_encode(bucket.as_ref(), NON_ALPHANUMERIC).into();
+    match Tenancy::get() {
+        Tenancy::Single => string_to_namespace(bucket),
+        Tenancy::Multiple => {
+            let org: Cow<'_, str> = utf8_percent_encode(org.as_ref(), NON_ALPHANUMERIC).into();
+            let bucket: Cow<'_, str> =
+                utf8_percent_encode(bucket.as_ref(), NON_ALPHANUMERIC).into();
 
-    // An empty org or bucket is not acceptable.
-    if org.is_empty() || bucket.is_empty() {
-        return Err(OrgBucketMappingError::NotSpecified);
+            if org.is_empty() || bucket.is_empty() {
+                return Err(NamespaceMappingError::NotSpecified);
+            }
+            let db_name = format!("{}{}{}", org.as_ref(), SEPARATOR, bucket.as_ref());
+            NamespaceName::new(db_name).context(InvalidNamespaceNameSnafu)
+        }
     }
+}
 
-    let db_name = format!("{}{}{}", org.as_ref(), SEPARATOR, bucket.as_ref());
+/// Map an InfluxDB 1.X rp & database into an IOx NamespaceName.
+///
+/// This function ensures the mapping is unambiguous by requiring both `rp` and
+/// `org` to not contain the `-` character in addition to the
+/// [`NamespaceName`] validation.
+///
+/// Rp is not required to be defined. Is only consumed if present. If the write dml parameters
+/// does not include rp, yet rp is used in the previously created namespace, then namespace
+/// lookup will fail.
+///
+/// FIXME: what about namespace auto-creation? Will it possibly create a new namespace due to a missing rp?
+pub fn rp_and_database_to_namespace<'a, D: AsRef<str>>(
+    rp: &Option<String>,
+    database: D,
+) -> Result<NamespaceName<'a>, NamespaceMappingError> {
+    const SEPARATOR: char = '/';
 
-    NamespaceName::new(db_name).context(InvalidNamespaceNameSnafu)
+    match rp {
+        None => string_to_namespace(database),
+        Some(retention_policy) => match retention_policy.to_ascii_lowercase().as_str() {
+            "" => string_to_namespace(database),
+            "''" => string_to_namespace(database),
+            "autogen" => string_to_namespace(database),
+            _ => {
+                let database: Cow<'_, str> =
+                    utf8_percent_encode(database.as_ref(), NON_ALPHANUMERIC).into();
+                let rp: Cow<'_, str> =
+                    utf8_percent_encode(retention_policy.as_ref(), NON_ALPHANUMERIC).into();
+
+                if database.is_empty() {
+                    return Err(NamespaceMappingError::NotSpecified);
+                }
+                let db_name = format!("{}{}{}", database.as_ref(), SEPARATOR, rp);
+                NamespaceName::new(db_name).context(InvalidNamespaceNameSnafu)
+            }
+        },
+    }
+}
+
+/// Map a string to a Namespace.
+///
+/// This function ensures the mapping is unambiguous by requiring the string not contain the `_` character
+/// in addition to the [`NamespaceName`] validation.
+pub fn string_to_namespace<'a, S: AsRef<str>>(
+    input: S,
+) -> Result<NamespaceName<'a>, NamespaceMappingError> {
+    let name: Cow<'_, str> = utf8_percent_encode(input.as_ref(), NON_ALPHANUMERIC).into();
+    if name.is_empty() {
+        return Err(NamespaceMappingError::NotSpecified);
+    }
+    NamespaceName::new(name.into_owned()).context(InvalidNamespaceNameSnafu)
 }
 
 /// A string that cannot be empty
@@ -2741,7 +2825,7 @@ mod tests {
     fn test_empty_org_bucket() {
         let err = org_and_bucket_to_namespace("", "")
             .expect_err("should fail with empty org/bucket valuese");
-        assert!(matches!(err, OrgBucketMappingError::NotSpecified));
+        assert!(matches!(err, NamespaceMappingError::NotSpecified));
     }
 
     #[test]
