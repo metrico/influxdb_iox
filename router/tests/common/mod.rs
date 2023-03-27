@@ -1,4 +1,4 @@
-use data_types::{PartitionTemplate, QueryPoolId, TableId, TemplatePart, TopicId};
+use data_types::{PartitionTemplate, QueryPoolId, TableId, TemplatePart, Tenancy, TopicId};
 use generated_types::influxdata::iox::ingester::v1::WriteRequest;
 use hashbrown::HashMap;
 use hyper::{Body, Request, Response};
@@ -16,7 +16,10 @@ use router::{
     },
     namespace_cache::{MemoryNamespaceCache, ShardedCache},
     namespace_resolver::{MissingNamespaceAction, NamespaceAutocreation, NamespaceSchemaResolver},
-    server::{grpc::RpcWriteGrpcDelegate, http::HttpDelegate},
+    server::{
+        grpc::RpcWriteGrpcDelegate,
+        http::{HttpDelegate, WriteInfoExtractor, CST, MT},
+    },
 };
 use std::{iter, string::String, sync::Arc, time::Duration};
 
@@ -158,8 +161,20 @@ impl TestContext {
 
         let handler_stack = InstrumentationDecorator::new("request", &metrics, handler_stack);
 
-        let http_delegate =
-            HttpDelegate::new(1024, 100, namespace_resolver, handler_stack, None, &metrics);
+        let dml_info_extractor: &'static dyn WriteInfoExtractor = match Tenancy::get() {
+            Tenancy::Single => &CST,
+            Tenancy::Multiple => &MT,
+        };
+
+        let http_delegate = HttpDelegate::new(
+            1024,
+            100,
+            namespace_resolver,
+            handler_stack,
+            None,
+            &metrics,
+            dml_info_extractor,
+        );
 
         let grpc_delegate = RpcWriteGrpcDelegate::new(
             Arc::clone(&catalog),

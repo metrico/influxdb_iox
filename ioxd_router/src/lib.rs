@@ -38,7 +38,7 @@ use router::{
     },
     server::{
         grpc::{sharder::ShardService, GrpcDelegate, RpcWriteGrpcDelegate},
-        http::HttpDelegate,
+        http::{HttpDelegate, WriteInfoExtractor, CST, MT},
         RouterServer, RpcWriteRouterServer,
     },
     shard::Shard,
@@ -439,6 +439,11 @@ pub async fn create_router2_server_type(
     // 3. N/A: Shard mapping setup is only relevant to the write buffer router path
 
     // 4. START: Initialize the HTTP API delegate, this is the same in both router paths
+    let dml_info_extractor: &'static dyn WriteInfoExtractor =
+        match router_config.single_tenant_deployment {
+            true => &CST,
+            false => &MT,
+        };
     let http = HttpDelegate::new(
         common_state.run_config().max_http_request_size,
         router_config.http_request_limit,
@@ -446,6 +451,7 @@ pub async fn create_router2_server_type(
         handler_stack,
         authz,
         &metrics,
+        dml_info_extractor,
     );
     // 4. END
 
@@ -628,6 +634,11 @@ pub async fn create_router_server_type(
     // 3. END
 
     // 4. START: Initialize the HTTP API delegate, this is the same in both router paths
+    let dml_info_extractor: &'static dyn WriteInfoExtractor =
+        match router_config.single_tenant_deployment {
+            true => &CST,
+            false => &MT,
+        };
     let http = HttpDelegate::new(
         common_state.run_config().max_http_request_size,
         router_config.http_request_limit,
@@ -635,6 +646,7 @@ pub async fn create_router_server_type(
         handler_stack,
         authz,
         &metrics,
+        dml_info_extractor,
     );
     // 4. END
 

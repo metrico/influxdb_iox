@@ -1654,20 +1654,14 @@ pub fn org_and_bucket_to_namespace<'a, O: AsRef<str>, B: AsRef<str>>(
 ) -> Result<NamespaceName<'a>, NamespaceMappingError> {
     const SEPARATOR: char = '_';
 
-    match Tenancy::get() {
-        Tenancy::Single => string_to_namespace(bucket),
-        Tenancy::Multiple => {
-            let org: Cow<'_, str> = utf8_percent_encode(org.as_ref(), NON_ALPHANUMERIC).into();
-            let bucket: Cow<'_, str> =
-                utf8_percent_encode(bucket.as_ref(), NON_ALPHANUMERIC).into();
+    let org: Cow<'_, str> = utf8_percent_encode(org.as_ref(), NON_ALPHANUMERIC).into();
+    let bucket: Cow<'_, str> = utf8_percent_encode(bucket.as_ref(), NON_ALPHANUMERIC).into();
 
-            if org.is_empty() || bucket.is_empty() {
-                return Err(NamespaceMappingError::NotSpecified);
-            }
-            let db_name = format!("{}{}{}", org.as_ref(), SEPARATOR, bucket.as_ref());
-            NamespaceName::new(db_name).context(InvalidNamespaceNameSnafu)
-        }
+    if org.is_empty() || bucket.is_empty() {
+        return Err(NamespaceMappingError::NotSpecified);
     }
+    let db_name = format!("{}{}{}", org.as_ref(), SEPARATOR, bucket.as_ref());
+    NamespaceName::new(db_name).context(InvalidNamespaceNameSnafu)
 }
 
 /// Map an InfluxDB 1.X rp & database into an IOx NamespaceName.
@@ -1679,8 +1673,6 @@ pub fn org_and_bucket_to_namespace<'a, O: AsRef<str>, B: AsRef<str>>(
 /// Rp is not required to be defined. Is only consumed if present. If the write dml parameters
 /// does not include rp, yet rp is used in the previously created namespace, then namespace
 /// lookup will fail.
-///
-/// FIXME: what about namespace auto-creation? Will it possibly create a new namespace due to a missing rp?
 pub fn rp_and_database_to_namespace<'a, D: AsRef<str>>(
     rp: &Option<String>,
     database: D,
