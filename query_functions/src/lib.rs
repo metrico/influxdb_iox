@@ -36,6 +36,9 @@ pub mod gapfill;
 /// Function registry
 mod registry;
 
+/// MODE aggregate function
+pub mod mode;
+
 pub use crate::regex::clean_non_meta_escapes;
 pub use crate::regex::REGEX_MATCH_UDF_NAME;
 pub use crate::regex::REGEX_NOT_MATCH_UDF_NAME;
