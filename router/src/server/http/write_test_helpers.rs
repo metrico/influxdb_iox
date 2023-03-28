@@ -37,7 +37,7 @@ macro_rules! test_http_handler {
         $name:ident,
         uri = $uri:expr,                                // Request URI
         body = $body:expr,                              // Request body content
-        dml_info_handler = $dml_info_handler:ident,
+        dml_info_handler = $dml_info_handler:expr,
         dml_write_handler = $dml_write_handler:expr,    // DML write handler response (if called)
         dml_delete_handler = $dml_delete_handler:expr,  // DML delete handler response (if called)
         want_result = $want_result:pat,                 // Expected handler return value (as pattern)
@@ -74,7 +74,7 @@ macro_rules! test_http_handler {
         encoding = $encoding:tt,
         uri = $uri:expr,
         body = $body:expr,
-        dml_info_handler = $dml_info_handler:ident,
+        dml_info_handler = $dml_info_handler:expr,
         dml_write_handler = $dml_write_handler:expr,
         dml_delete_handler = $dml_delete_handler:expr,
         want_result = $want_result:pat,
@@ -90,7 +90,6 @@ macro_rules! test_http_handler {
                     },
                     namespace_resolver::{mock::MockNamespaceResolver},
                     server::http::{
-                        self,
                         HttpDelegate,
                         WriteInfoExtractor,
                         write_test_helpers::assert_metric_hit,
@@ -133,7 +132,7 @@ macro_rules! test_http_handler {
                         .with_delete_return($dml_delete_handler)
                     );
                     let metrics = Arc::new(metric::Registry::default());
-                    let dml_info_extractor: &'static dyn WriteInfoExtractor = &http::[<$dml_info_handler>];
+                    let dml_info_extractor: &'static dyn WriteInfoExtractor = $dml_info_handler;
 
                     let delegate = HttpDelegate::new(
                         MAX_BYTES,
@@ -193,7 +192,7 @@ macro_rules! test_write_handler {
         $name:ident,
         query_string = $query_string:expr,   // Request URI query string
         body = $body:expr,                   // Request body content
-        dml_info_handler = $dml_info_handler:ident,
+        dml_info_handler = $dml_info_handler:expr,
         dml_handler = $dml_handler:expr,     // DML write handler response (if called)
         want_result = $want_result:pat,
         want_dml_calls = $($want_dml_calls:tt )+
@@ -214,7 +213,7 @@ macro_rules! test_write_handler {
         route_string = $route_string:expr,   // v1 versus v2 routes
         query_string = $query_string:expr,   // Request URI query string
         body = $body:expr,                   // Request body content
-        dml_info_handler = $dml_info_handler:ident,
+        dml_info_handler = $dml_info_handler:expr,
         dml_handler = $dml_handler:expr,     // DML write handler response (if called)
         want_result = $want_result:pat,
         want_dml_calls = $($want_dml_calls:tt )+
@@ -241,7 +240,7 @@ macro_rules! test_delete_handler {
         $name:ident,
         query_string = $query_string:expr,   // Request URI query string
         body = $body:expr,                   // Request body content
-        dml_info_handler = $dml_info_handler:ident,
+        dml_info_handler = $dml_info_handler:expr,
         dml_handler = $dml_handler:expr,     // DML delete handler response (if called)
         want_result = $want_result:pat,
         want_dml_calls = $($want_dml_calls:tt )+

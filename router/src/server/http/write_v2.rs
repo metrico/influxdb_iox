@@ -1,11 +1,8 @@
-use data_types::{NamespaceMappingError, NamespaceName};
+use data_types::NamespaceMappingError;
 use hyper::Request;
 use serde::Deserialize;
 
-use crate::server::http::{
-    write_dml::{ContentEncoding, IntoWriteInfo, Precision, WriteInfo},
-    Error,
-};
+use crate::server::http::{write_dml::Precision, Error};
 
 /// v2 DmlErrors returned when decoding the organisation / bucket information from a
 /// HTTP request and deriving the namespace name from it.
@@ -31,7 +28,7 @@ pub(crate) struct WriteParamsV2 {
     pub(crate) bucket: String,
 
     #[serde(default)]
-    precision: Precision,
+    pub(crate) precision: Precision,
 }
 
 impl<T> TryFrom<&Request<T>> for WriteParamsV2 {
@@ -50,20 +47,6 @@ impl<T> TryFrom<&Request<T>> for WriteParamsV2 {
     }
 }
 
-impl IntoWriteInfo for WriteParamsV2 {
-    fn into_write_info(self, namespace: NamespaceName<'_>) -> Result<WriteInfo<'_>, Error> {
-        let skip_database_creation = None;
-        let content_encoding = ContentEncoding::default();
-
-        Ok(WriteInfo {
-            namespace,
-            precision: self.precision,
-            skip_database_creation,
-            content_encoding,
-        })
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -79,7 +62,7 @@ mod tests {
     use std::iter;
 
     macro_rules! run_v2_test_in_env {
-        ($test_scope:ident, $dml_info_handler:ident) => {
+        ($test_scope:ident, $dml_info_handler:expr) => {
             use $crate::{test_http_handler, test_write_handler, test_delete_handler};
 
             paste::paste! {
@@ -560,13 +543,15 @@ mod tests {
 
     mod mt {
         use super::*;
+        use crate::server::http::mt::MultiTenantRequestParser;
         static EXPECTED_NAMESPACE: &str = "bananas_test";
-        run_v2_test_in_env!(mt, MT);
+        run_v2_test_in_env!(mt, &MultiTenantRequestParser);
     }
 
     mod cst {
         use super::*;
+        use crate::server::http::cst::SingleTenantRequestParser;
         static EXPECTED_NAMESPACE: &str = "test";
-        run_v2_test_in_env!(cst, CST);
+        run_v2_test_in_env!(cst, &SingleTenantRequestParser);
     }
 }

@@ -38,7 +38,10 @@ use router::{
     },
     server::{
         grpc::{sharder::ShardService, GrpcDelegate, RpcWriteGrpcDelegate},
-        http::{HttpDelegate, WriteInfoExtractor, CST, MT},
+        http::{
+            cst::SingleTenantRequestParser, mt::MultiTenantRequestParser, HttpDelegate,
+            WriteInfoExtractor,
+        },
         RouterServer, RpcWriteRouterServer,
     },
     shard::Shard,
@@ -441,8 +444,8 @@ pub async fn create_router2_server_type(
     // 4. START: Initialize the HTTP API delegate, this is the same in both router paths
     let dml_info_extractor: &'static dyn WriteInfoExtractor =
         match router_config.single_tenant_deployment {
-            true => &CST,
-            false => &MT,
+            true => &SingleTenantRequestParser,
+            false => &MultiTenantRequestParser,
         };
     let http = HttpDelegate::new(
         common_state.run_config().max_http_request_size,
@@ -636,8 +639,8 @@ pub async fn create_router_server_type(
     // 4. START: Initialize the HTTP API delegate, this is the same in both router paths
     let dml_info_extractor: &'static dyn WriteInfoExtractor =
         match router_config.single_tenant_deployment {
-            true => &CST,
-            false => &MT,
+            true => &SingleTenantRequestParser,
+            false => &MultiTenantRequestParser,
         };
     let http = HttpDelegate::new(
         common_state.run_config().max_http_request_size,

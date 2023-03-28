@@ -18,7 +18,10 @@ use router::{
     namespace_resolver::{MissingNamespaceAction, NamespaceAutocreation, NamespaceSchemaResolver},
     server::{
         grpc::RpcWriteGrpcDelegate,
-        http::{HttpDelegate, WriteInfoExtractor, CST, MT},
+        http::{
+            cst::SingleTenantRequestParser, mt::MultiTenantRequestParser, HttpDelegate,
+            WriteInfoExtractor,
+        },
     },
 };
 use std::{iter, string::String, sync::Arc, time::Duration};
@@ -162,8 +165,8 @@ impl TestContext {
         let handler_stack = InstrumentationDecorator::new("request", &metrics, handler_stack);
 
         let dml_info_extractor: &'static dyn WriteInfoExtractor = match Tenancy::get() {
-            Tenancy::Single => &CST,
-            Tenancy::Multiple => &MT,
+            Tenancy::Single => &SingleTenantRequestParser,
+            Tenancy::Multiple => &MultiTenantRequestParser,
         };
 
         let http_delegate = HttpDelegate::new(

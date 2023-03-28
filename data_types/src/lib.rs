@@ -1673,46 +1673,20 @@ pub fn org_and_bucket_to_namespace<'a, O: AsRef<str>, B: AsRef<str>>(
 /// Rp is not required to be defined. Is only consumed if present. If the write dml parameters
 /// does not include rp, yet rp is used in the previously created namespace, then namespace
 /// lookup will fail.
-pub fn rp_and_database_to_namespace<'a, D: AsRef<str>>(
-    rp: &Option<String>,
-    database: D,
+pub fn rp_and_database_to_namespace<'a>(
+    rp: &String,
+    database: &String,
 ) -> Result<NamespaceName<'a>, NamespaceMappingError> {
     const SEPARATOR: char = '/';
 
-    match rp {
-        None => string_to_namespace(database),
-        Some(retention_policy) => match retention_policy.to_ascii_lowercase().as_str() {
-            "" => string_to_namespace(database),
-            "''" => string_to_namespace(database),
-            "autogen" => string_to_namespace(database),
-            _ => {
-                let database: Cow<'_, str> =
-                    utf8_percent_encode(database.as_ref(), NON_ALPHANUMERIC).into();
-                let rp: Cow<'_, str> =
-                    utf8_percent_encode(retention_policy.as_ref(), NON_ALPHANUMERIC).into();
+    let database: Cow<'_, str> = utf8_percent_encode(database.as_ref(), NON_ALPHANUMERIC).into();
+    let rp: Cow<'_, str> = utf8_percent_encode(rp.as_ref(), NON_ALPHANUMERIC).into();
 
-                if database.is_empty() {
-                    return Err(NamespaceMappingError::NotSpecified);
-                }
-                let db_name = format!("{}{}{}", database.as_ref(), SEPARATOR, rp);
-                NamespaceName::new(db_name).context(InvalidNamespaceNameSnafu)
-            }
-        },
-    }
-}
-
-/// Map a string to a Namespace.
-///
-/// This function ensures the mapping is unambiguous by requiring the string not contain the `_` character
-/// in addition to the [`NamespaceName`] validation.
-pub fn string_to_namespace<'a, S: AsRef<str>>(
-    input: S,
-) -> Result<NamespaceName<'a>, NamespaceMappingError> {
-    let name: Cow<'_, str> = utf8_percent_encode(input.as_ref(), NON_ALPHANUMERIC).into();
-    if name.is_empty() {
+    if database.is_empty() {
         return Err(NamespaceMappingError::NotSpecified);
     }
-    NamespaceName::new(name.into_owned()).context(InvalidNamespaceNameSnafu)
+    let db_name = format!("{}{}{}", database.as_ref(), SEPARATOR, rp);
+    NamespaceName::new(db_name).context(InvalidNamespaceNameSnafu)
 }
 
 /// A string that cannot be empty
@@ -1852,6 +1826,14 @@ impl<'a> std::convert::TryFrom<String> for NamespaceName<'a> {
 
     fn try_from(v: String) -> Result<Self, Self::Error> {
         Self::new(v)
+    }
+}
+
+impl<'a> std::convert::TryFrom<&String> for NamespaceName<'a> {
+    type Error = NamespaceMappingError;
+
+    fn try_from(v: &String) -> Result<Self, Self::Error> {
+        Self::new(v.to_owned()).context(InvalidNamespaceNameSnafu)
     }
 }
 

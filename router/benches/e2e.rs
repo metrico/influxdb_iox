@@ -11,7 +11,10 @@ use router::{
     },
     namespace_cache::{MemoryNamespaceCache, ShardedCache},
     namespace_resolver::mock::MockNamespaceResolver,
-    server::http::{HttpDelegate, WriteInfoExtractor, CST, MT},
+    server::http::{
+        cst::SingleTenantRequestParser, mt::MultiTenantRequestParser, HttpDelegate,
+        WriteInfoExtractor,
+    },
     shard::Shard,
 };
 use sharder::JumpHash;
@@ -80,8 +83,8 @@ fn e2e_benchmarks(c: &mut Criterion) {
             MockNamespaceResolver::default().with_mapping("bananas", NamespaceId::new(42));
 
         let dml_info_extractor: &'static dyn WriteInfoExtractor = match Tenancy::get() {
-            Tenancy::Single => &CST,
-            Tenancy::Multiple => &MT,
+            Tenancy::Single => &SingleTenantRequestParser,
+            Tenancy::Multiple => &MultiTenantRequestParser,
         };
 
         HttpDelegate::new(

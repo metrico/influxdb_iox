@@ -9,7 +9,7 @@ pub struct RouterConfig {
     /// At minimum, differs in supports of v1 endpoint. But also includes
     /// differences in namespace handling, etc.
     #[clap(
-        long = "deployment-tenancy",
+        long = "single-tenancy",
         env = "INFLUXDB_IOX_SINGLE_TENANCY",
         default_value = "false"
     )]

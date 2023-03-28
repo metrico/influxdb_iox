@@ -1,6 +1,8 @@
 //! HTTP service implementations for `router`.
 
+pub mod cst;
 mod delete_predicate;
+pub mod mt;
 mod write_dml;
 #[cfg(test)]
 mod write_test_helpers;
@@ -37,22 +39,6 @@ use crate::{
 };
 
 const WRITE_TOKEN_HTTP_HEADER: &str = "X-IOx-Write-Token";
-
-#[allow(missing_docs)]
-#[derive(Debug, Default)]
-pub struct CST;
-
-#[allow(missing_docs)]
-#[derive(Debug, Default)]
-pub struct MT;
-
-/// Extract dml info. Set different trait implementation per tenancy.
-pub trait WriteInfoExtractor: std::fmt::Debug + Send + Sync {
-    #[allow(missing_docs)]
-    fn extract_v1_dml_info<'a>(&self, req: &Request<Body>) -> Result<WriteInfo<'a>, Error>;
-    #[allow(missing_docs)]
-    fn extract_v2_dml_info<'a>(&self, req: &Request<Body>) -> Result<WriteInfo<'a>, Error>;
-}
 
 /// Errors returned by the `router` HTTP request handler.
 #[derive(Debug, Error)]
@@ -217,6 +203,14 @@ impl From<&DmlError> for StatusCode {
     }
 }
 
+/// Extract dml info. Set different trait implementation per tenancy.
+pub trait WriteInfoExtractor: std::fmt::Debug + Send + Sync {
+    #[allow(missing_docs)]
+    fn extract_v1_dml_info(&self, req: &Request<Body>) -> Result<WriteInfo, Error>;
+    #[allow(missing_docs)]
+    fn extract_v2_dml_info(&self, req: &Request<Body>) -> Result<WriteInfo, Error>;
+}
+
 /// This type is responsible for servicing requests to the `router` HTTP
 /// endpoint.
 ///
@@ -378,7 +372,7 @@ where
     async fn write_handler(
         &self,
         req: Request<Body>,
-        write_info: WriteInfo<'static>,
+        write_info: WriteInfo,
     ) -> Result<WriteSummary, Error> {
         let span_ctx: Option<SpanContext> = req.extensions().get().cloned();
 
@@ -580,7 +574,7 @@ mod tests {
             CachedServiceProtectionLimit,
         },
         namespace_resolver::{mock::MockNamespaceResolver, NamespaceCreationError},
-        server::http::MT,
+        server::http::mt::MultiTenantRequestParser,
     };
     use assert_matches::assert_matches;
     use async_trait::async_trait;
@@ -628,7 +622,7 @@ mod tests {
 
         let dml_handler = Arc::new(MockDmlHandler::default());
         let metrics = Arc::new(metric::Registry::default());
-        let dml_info_extractor = &MT;
+        let dml_info_extractor = &MultiTenantRequestParser;
         let delegate = Arc::new(HttpDelegate::new(
             MAX_BYTES,
             1,
@@ -777,7 +771,7 @@ mod tests {
         );
         let metrics = Arc::new(metric::Registry::default());
         let authz = Arc::new(MockAuthorizer {});
-        let dml_info_extractor = &MT;
+        let dml_info_extractor = &MultiTenantRequestParser;
         let delegate = HttpDelegate::new(
             MAX_BYTES,
             1,
