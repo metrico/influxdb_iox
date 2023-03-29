@@ -442,10 +442,10 @@ pub async fn create_router2_server_type(
     // 3. N/A: Shard mapping setup is only relevant to the write buffer router path
 
     // 4. START: Initialize the HTTP API delegate, this is the same in both router paths
-    let dml_info_extractor: &'static dyn WriteInfoExtractor =
+    let dml_info_extractor: Box<dyn WriteInfoExtractor> =
         match router_config.single_tenant_deployment {
-            true => &SingleTenantRequestParser,
-            false => &MultiTenantRequestParser,
+            true => Box::<SingleTenantRequestParser>::default(),
+            false => Box::<MultiTenantRequestParser>::default(),
         };
     let http = HttpDelegate::new(
         common_state.run_config().max_http_request_size,
@@ -474,7 +474,7 @@ pub async fn create_router2_server_type(
 // NOTE!!! This needs to be kept in sync with `create_router2_server_type` until the
 // switch to the RPC write path/ingester2 is complete! See the numbered sections that annotate
 // where these two functions line up and where they diverge.
-pub async fn create_router_server_type(
+pub async fn create_router_server_type<'a>(
     common_state: &CommonServerState,
     metrics: Arc<metric::Registry>,
     catalog: Arc<dyn Catalog>,
@@ -637,10 +637,10 @@ pub async fn create_router_server_type(
     // 3. END
 
     // 4. START: Initialize the HTTP API delegate, this is the same in both router paths
-    let dml_info_extractor: &'static dyn WriteInfoExtractor =
+    let dml_info_extractor: Box<dyn WriteInfoExtractor> =
         match router_config.single_tenant_deployment {
-            true => &SingleTenantRequestParser,
-            false => &MultiTenantRequestParser,
+            true => Box::<SingleTenantRequestParser>::default(),
+            false => Box::<MultiTenantRequestParser>::default(),
         };
     let http = HttpDelegate::new(
         common_state.run_config().max_http_request_size,

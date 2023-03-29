@@ -545,13 +545,13 @@ mod tests {
         use super::*;
         use crate::server::http::mt::MultiTenantRequestParser;
         static EXPECTED_NAMESPACE: &str = "bananas_test";
-        run_v2_test_in_env!(mt, &MultiTenantRequestParser);
+        run_v2_test_in_env!(mt, Box::<MultiTenantRequestParser>::default());
     }
 
     mod cst {
         use super::*;
         use crate::server::http::cst::SingleTenantRequestParser;
         static EXPECTED_NAMESPACE: &str = "test";
-        run_v2_test_in_env!(cst, &SingleTenantRequestParser);
+        run_v2_test_in_env!(cst, Box::<SingleTenantRequestParser>::default());
     }
 }

@@ -224,7 +224,7 @@ pub struct HttpDelegate<D, N, T = SystemProvider> {
     namespace_resolver: N,
     dml_handler: D,
     authz: Option<Arc<dyn Authorizer>>,
-    dml_info_extractor: &'static dyn WriteInfoExtractor,
+    dml_info_extractor: Box<dyn WriteInfoExtractor>,
 
     // A request limiter to restrict the number of simultaneous requests this
     // router services.
@@ -257,7 +257,7 @@ impl<D, N> HttpDelegate<D, N, SystemProvider> {
         dml_handler: D,
         authz: Option<Arc<dyn Authorizer>>,
         metrics: &metric::Registry,
-        dml_info_extractor: &'static dyn WriteInfoExtractor,
+        dml_info_extractor: Box<dyn WriteInfoExtractor>,
     ) -> Self {
         let write_metric_lines = metrics
             .register_metric::<U64Counter>(
@@ -622,7 +622,7 @@ mod tests {
 
         let dml_handler = Arc::new(MockDmlHandler::default());
         let metrics = Arc::new(metric::Registry::default());
-        let dml_info_extractor = &MultiTenantRequestParser;
+        let dml_info_extractor = Box::<MultiTenantRequestParser>::default();
         let delegate = Arc::new(HttpDelegate::new(
             MAX_BYTES,
             1,
@@ -771,7 +771,7 @@ mod tests {
         );
         let metrics = Arc::new(metric::Registry::default());
         let authz = Arc::new(MockAuthorizer {});
-        let dml_info_extractor = &MultiTenantRequestParser;
+        let dml_info_extractor = Box::<MultiTenantRequestParser>::default();
         let delegate = HttpDelegate::new(
             MAX_BYTES,
             1,

@@ -1,7 +1,7 @@
 use std::{collections::BTreeSet, iter, sync::Arc};
 
 use criterion::{criterion_group, criterion_main, Criterion, Throughput};
-use data_types::{NamespaceId, PartitionTemplate, TemplatePart, Tenancy};
+use data_types::{NamespaceId, PartitionTemplate, TemplatePart};
 use hyper::{Body, Request};
 use iox_catalog::{interface::Catalog, mem::MemCatalog};
 use router::{
@@ -11,10 +11,7 @@ use router::{
     },
     namespace_cache::{MemoryNamespaceCache, ShardedCache},
     namespace_resolver::mock::MockNamespaceResolver,
-    server::http::{
-        cst::SingleTenantRequestParser, mt::MultiTenantRequestParser, HttpDelegate,
-        WriteInfoExtractor,
-    },
+    server::http::{mt::MultiTenantRequestParser, HttpDelegate, WriteInfoExtractor},
     shard::Shard,
 };
 use sharder::JumpHash;
@@ -82,10 +79,8 @@ fn e2e_benchmarks(c: &mut Criterion) {
         let namespace_resolver =
             MockNamespaceResolver::default().with_mapping("bananas", NamespaceId::new(42));
 
-        let dml_info_extractor: &'static dyn WriteInfoExtractor = match Tenancy::get() {
-            Tenancy::Single => &SingleTenantRequestParser,
-            Tenancy::Multiple => &MultiTenantRequestParser,
-        };
+        let dml_info_extractor: Box<dyn WriteInfoExtractor> =
+            Box::<MultiTenantRequestParser>::default();
 
         HttpDelegate::new(
             1024,

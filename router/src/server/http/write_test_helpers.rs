@@ -126,13 +126,14 @@ macro_rules! test_http_handler {
                         .with_mapping("bananas_test", NAMESPACE_ID)
                         .with_mapping("test", NAMESPACE_ID)
                         .with_mapping("database", NAMESPACE_ID)
-                        .with_mapping("database/myrp", NAMESPACE_ID);
+                        .with_mapping("database/myrp", NAMESPACE_ID)
+                        .with_mapping("data%2Fbase/myrp", NAMESPACE_ID);
                     let dml_handler = Arc::new(MockDmlHandler::default()
                         .with_write_return($dml_write_handler)
                         .with_delete_return($dml_delete_handler)
                     );
                     let metrics = Arc::new(metric::Registry::default());
-                    let dml_info_extractor: &'static dyn WriteInfoExtractor = $dml_info_handler;
+                    let dml_info_extractor: Box<dyn WriteInfoExtractor> = $dml_info_handler;
 
                     let delegate = HttpDelegate::new(
                         MAX_BYTES,

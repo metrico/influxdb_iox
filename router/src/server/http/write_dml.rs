@@ -37,6 +37,4 @@ impl Precision {
 pub struct WriteInfo {
     pub(crate) namespace: NamespaceName<'static>,
     pub(crate) precision: Precision,
-    #[allow(dead_code)]
-    pub(crate) skip_database_creation: Option<bool>,
 }
