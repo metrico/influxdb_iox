@@ -4218,6 +4218,7 @@ dependencies = [
  "datafusion_util",
  "futures",
  "influxdb-line-protocol",
+ "influxdb_tsm",
  "mutable_batch",
  "mutable_batch_lp",
  "num_cpus",
