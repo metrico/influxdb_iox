@@ -87,6 +87,19 @@ pub enum Error {
     IO { source: std::io::Error },
 }
 
+/// Converts a tsm parquet file to an IOx schema and a stream of line protocol bytes
+///
+/// Each returned `Vec<u8>` is guarnteed to have complete line
+/// protocol (aka lines are not split across the buffers)
+pub async fn convert_tsm_file<P>(path: P) -> Result<BoxStream<'static, Result<Vec<u8>>>>
+where
+    P: AsRef<Path>,
+{
+    let path = path.as_ref();
+    todo!();
+}
+
+
 /// Converts a parquet file that was written by IOx from the local
 /// file system path specified a stream of line protocol bytes
 ///

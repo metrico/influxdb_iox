@@ -2,10 +2,13 @@ use futures::Future;
 use influxdb_iox_client::connection::Connection;
 use snafu::prelude::*;
 
+use self::parquet_to_lp::FileFormat;
+
 mod parquet_to_lp;
 mod print_cpu;
 mod schema;
 mod skipped_compactions;
+mod tsm_to_lp;
 
 #[derive(Debug, Snafu)]
 pub enum Error {
@@ -42,6 +45,9 @@ enum Command {
     /// Convert IOx Parquet files back into line protocol format
     ParquetToLp(parquet_to_lp::Config),
 
+    /// Convert TSM tile into line protocol format
+    TsmToLp(parquet_to_lp::Config),
+
     /// Interrogate skipped compactions
     SkippedCompactions(skipped_compactions::Config),
 }
@@ -57,7 +63,8 @@ where
             let connection = connection().await;
             schema::command(connection, config).await?
         }
-        Command::ParquetToLp(config) => parquet_to_lp::command(config).await?,
+        Command::ParquetToLp(config) => parquet_to_lp::command(FileFormat::Parquet, config).await?,
+        Command::TsmToLp(config) => parquet_to_lp::command(FileFormat::Tsm, config).await?,
         Command::SkippedCompactions(config) => {
             let connection = connection().await;
             skipped_compactions::command(connection, config).await?

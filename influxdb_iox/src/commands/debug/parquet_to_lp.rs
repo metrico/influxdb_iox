@@ -6,6 +6,12 @@ use snafu::{ResultExt, Snafu};
 use tokio::io::{AsyncWrite, AsyncWriteExt, BufWriter};
 use tokio_stream::StreamExt;
 
+#[derive(Debug, Clone, Copy)]
+pub enum FileFormat {
+    Parquet,
+    Tsm
+};
+
 #[derive(Debug, Snafu)]
 pub enum Error {
     #[snafu(display("Cannot {} output file '{:?}': {}", operation, path, source))]
@@ -39,9 +45,9 @@ pub struct Config {
     output: Option<PathBuf>,
 }
 
-pub async fn command(config: Config) -> Result<(), Error> {
+pub async fn command(file_format: FileFormat, config: Config) -> Result<(), Error> {
     let Config { input, output } = config;
-    info!(?input, ?output, "Exporting parquet as line protocol");
+    info!(?input, ?output, ?file_format, "Exporting as line protocol");
 
     if let Some(output) = output {
         let path = &output;
@@ -50,28 +56,39 @@ pub async fn command(config: Config) -> Result<(), Error> {
             path,
         })?;
 
-        let file = convert(input, file).await?;
+        let file = convert(file_format, input, file).await?;
 
         file.sync_all().await.context(FileSnafu {
             operation: "close",
             path,
         })?;
     } else {
-        convert(input, tokio::io::stdout()).await?;
+        convert(file_format, input, tokio::io::stdout()).await?;
     }
 
     Ok(())
 }
 
 /// Does the actual conversion, returning the writer when done
-async fn convert<W: AsyncWrite + Send + Unpin>(input: PathBuf, writer: W) -> Result<W, Error> {
+async fn convert<W: AsyncWrite + Send + Unpin>(file_format: FileFormat, input: PathBuf, writer: W) -> Result<W, Error> {
     let buf_writer = BufWriter::new(writer);
     let mut writer = Box::pin(buf_writer);
 
     // prepare the conversion
-    let mut input_stream = parquet_to_line_protocol::convert_file(input)
-        .await
-        .context(ConversionSnafu)?;
+    let mut input_stream = match file_format {
+        FileFormat::Parquet => {
+            parquet_to_line_protocol::convert_file(input)
+                .await
+                .context(ConversionSnafu)
+        },
+
+        FileFormat::Tsm => {
+            parquet_to_line_protocol::convert_tsm_file(input)
+                .await
+                .context(ConversionSnafu)
+        }
+    }?;
+
 
     // now read a batch and write it to the output as fast as we can
     while let Some(bytes) = input_stream.next().await {
