@@ -2,3 +2,8 @@
 
 pub struct TsmConverter {
 }
+
+// Basic flow will be:
+// find each measurement
+// figure out schema
+// bash out record batches

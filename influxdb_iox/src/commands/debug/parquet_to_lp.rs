@@ -9,8 +9,8 @@ use tokio_stream::StreamExt;
 #[derive(Debug, Clone, Copy)]
 pub enum FileFormat {
     Parquet,
-    Tsm
-};
+    Tsm,
+}
 
 #[derive(Debug, Snafu)]
 pub enum Error {
@@ -70,25 +70,24 @@ pub async fn command(file_format: FileFormat, config: Config) -> Result<(), Erro
 }
 
 /// Does the actual conversion, returning the writer when done
-async fn convert<W: AsyncWrite + Send + Unpin>(file_format: FileFormat, input: PathBuf, writer: W) -> Result<W, Error> {
+async fn convert<W: AsyncWrite + Send + Unpin>(
+    file_format: FileFormat,
+    input: PathBuf,
+    writer: W,
+) -> Result<W, Error> {
     let buf_writer = BufWriter::new(writer);
     let mut writer = Box::pin(buf_writer);
 
     // prepare the conversion
     let mut input_stream = match file_format {
-        FileFormat::Parquet => {
-            parquet_to_line_protocol::convert_file(input)
-                .await
-                .context(ConversionSnafu)
-        },
+        FileFormat::Parquet => parquet_to_line_protocol::convert_file(input)
+            .await
+            .context(ConversionSnafu),
 
-        FileFormat::Tsm => {
-            parquet_to_line_protocol::convert_tsm_file(input)
-                .await
-                .context(ConversionSnafu)
-        }
+        FileFormat::Tsm => parquet_to_line_protocol::convert_tsm_file(input)
+            .await
+            .context(ConversionSnafu),
     }?;
-
 
     // now read a batch and write it to the output as fast as we can
     while let Some(bytes) = input_stream.next().await {

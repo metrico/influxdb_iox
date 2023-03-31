@@ -99,7 +99,6 @@ where
     todo!();
 }
 
-
 /// Converts a parquet file that was written by IOx from the local
 /// file system path specified a stream of line protocol bytes
 ///

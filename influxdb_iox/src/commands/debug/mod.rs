@@ -8,7 +8,6 @@ mod parquet_to_lp;
 mod print_cpu;
 mod schema;
 mod skipped_compactions;
-mod tsm_to_lp;
 
 #[derive(Debug, Snafu)]
 pub enum Error {
