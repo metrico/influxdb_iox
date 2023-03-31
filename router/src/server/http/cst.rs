@@ -60,3 +60,57 @@ impl WriteInfoExtractor for SingleTenantRequestParser {
         })
     }
 }
+
+#[cfg(test)]
+#[macro_export]
+/// Wrapper over test_http_handler specifically for CST.
+macro_rules! test_cst_handler {
+    // Match based on named arg `dml_write_handler`.
+    (
+        $name:ident,
+        route_string = $route_string:expr,   // v1 versus v2 routes
+        query_string = $query_string:expr,   // Request URI query string
+        body = $body:expr,                   // Request body content
+        dml_write_handler = $dml_handler:expr,     // DML write handler response (if called)
+        want_result = $want_result:pat,
+        want_dml_calls = $($want_dml_calls:tt )+
+    ) => {
+        paste::paste! {
+            $crate::test_http_handler!(
+                [<cst_write_ $name>],
+                uri = format!("https://bananas.example{}{}", $route_string, $query_string),
+                body = $body,
+                auth_handler = None, // TODO: add auth handler for cst only.
+                dml_info_handler = Box::<$crate::server::http::cst::SingleTenantRequestParser>::default(),
+                dml_write_handler = $dml_handler,
+                dml_delete_handler = [],
+                want_result = $want_result,
+                want_dml_calls = $($want_dml_calls)+
+            );
+        }
+    };
+    // Match based on named arg `dml_delete_handler`.
+    (
+        $name:ident,
+        route_string = $route_string:expr,   // v1 versus v2 routes
+        query_string = $query_string:expr,   // Request URI query string
+        body = $body:expr,                   // Request body content
+        dml_delete_handler = $dml_handler:expr,     // DML write handler response (if called)
+        want_result = $want_result:pat,
+        want_dml_calls = $($want_dml_calls:tt )+
+    ) => {
+        paste::paste! {
+            $crate::test_http_handler!(
+                [<cst_delete_ $name>],
+                uri = format!("https://bananas.example{}{}", $route_string, $query_string),
+                body = $body,
+                auth_handler = None, // TODO: add auth handler for cst only.
+                dml_info_handler = Box::<$crate::server::http::cst::SingleTenantRequestParser>::default(),
+                dml_write_handler = [],
+                dml_delete_handler = $dml_handler,
+                want_result = $want_result,
+                want_dml_calls = $($want_dml_calls)+
+            );
+        }
+    };
+}

@@ -111,16 +111,41 @@ impl<T> TryFrom<&Request<T>> for WriteParamsV1 {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::{
-        dml_handlers::mock::MockDmlHandlerCall,
-        server::http::{
-            write_test_helpers::{summary, MAX_BYTES, NAMESPACE_ID},
-            Error,
-        },
-        test_cst_handler, test_mt_handler,
+#[macro_export]
+// v1 runs only in CST
+macro_rules! run_v1_write_test_in_env {
+    (
+        $name:ident,
+        query_string = $query_string:expr,   // Request URI query string
+        body = $body:expr,                   // Request body content
+        dml_handler = $dml_handler:expr,     // DML write handler response (if called)
+        want_result = $want_result:pat,
+        want_dml_calls = $($want_dml_calls:tt )+
+    ) => {
+        paste::paste! {
+            mod [<cst_write_ $name>] {
+                use super::*;
+                use $crate::test_cst_handler;
+                #[allow(unused)]
+                static EXPECTED_NAMESPACE: &str = "database";
+
+                test_cst_handler!(
+                    $name,
+                    route_string = "/write",
+                    query_string = $query_string,
+                    body = $body,
+                    dml_write_handler = $dml_handler,
+                    want_result = $want_result,
+                    want_dml_calls = $($want_dml_calls)+
+                );
+            }
+        }
     };
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::{server::http::Error, test_mt_handler};
 
     test_mt_handler!(
         v1_no_handler,
@@ -130,141 +155,5 @@ mod tests {
         dml_write_handler = [],
         want_result = Err(Error::NoHandler),
         want_dml_calls = []
-    );
-
-    static EXPECTED_NAMESPACE: &str = "database";
-
-    test_cst_handler!(
-        v1_ok,
-        route_string = "/write",
-        query_string = "?db=database",
-        body = "platanos,tag1=A,tag2=B val=42i 123456".as_bytes(),
-        dml_write_handler = [Ok(summary())],
-        want_result = Ok(_),
-        want_dml_calls = [MockDmlHandlerCall::Write{namespace, ..}] => {
-            assert_eq!(namespace, EXPECTED_NAMESPACE);
-        }
-    );
-
-    test_cst_handler!(
-        v1_no_query_params,
-        route_string = "/write",
-        query_string = "",
-        body = "platanos,tag1=A,tag2=B val=42i 123456".as_bytes(),
-        dml_write_handler = [Ok(summary())],
-        want_result = Err(Error::InvalidDatabaseRp(DatabaseRpError::NotSpecified)),
-        want_dml_calls = [] // None
-    );
-
-    test_cst_handler!(
-        v1_no_db,
-        route_string = "/write",
-        query_string = "?",
-        body = "platanos,tag1=A,tag2=B val=42i 123456".as_bytes(),
-        dml_write_handler = [Ok(summary())],
-        want_result = Err(Error::InvalidDatabaseRp(DatabaseRpError::DecodeFail(_))),
-        want_dml_calls = [] // None
-    );
-
-    test_cst_handler!(
-        v1_empty_db,
-        route_string = "/write",
-        query_string = "?db=",
-        body = "platanos,tag1=A,tag2=B val=42i 123456".as_bytes(),
-        dml_write_handler = [Ok(summary())],
-        want_result = Err(Error::InvalidDatabaseRp(DatabaseRpError::NotSpecified)),
-        want_dml_calls = [] // None
-    );
-
-    test_cst_handler!(
-        v1_invalid_db,
-        route_string = "/write",
-        query_string = format!("?db={}", "A".repeat(1000)),
-        body = "platanos,tag1=A,tag2=B val=42i 123456".as_bytes(),
-        dml_write_handler = [Ok(summary())],
-        want_result = Err(Error::InvalidDatabaseRp(DatabaseRpError::MappingFail(_))),
-        want_dml_calls = [] // None
-    );
-
-    test_cst_handler!(
-        v1_ok_with_consistency,
-        route_string = "/write",
-        query_string = "?db=database&consistency=any",
-        body = "platanos,tag1=A,tag2=B val=42i 123456".as_bytes(),
-        dml_write_handler = [Ok(summary())],
-        want_result = Ok(_),
-        want_dml_calls = [MockDmlHandlerCall::Write{namespace, ..}] => {
-            assert_eq!(namespace, EXPECTED_NAMESPACE);
-        }
-    );
-
-    test_cst_handler!(
-        v1_invalid_consistency,
-        route_string = "/write",
-        query_string = "?db=database&consistency=wrong",
-        body = "platanos,tag1=A,tag2=B val=42i 123456".as_bytes(),
-        dml_write_handler = [Ok(summary())],
-        want_result = Err(Error::InvalidDatabaseRp(DatabaseRpError::DecodeFail(_))),
-        want_dml_calls = [] // None
-    );
-
-    test_cst_handler!(
-        v1_rp_ok,
-        route_string = "/write",
-        query_string = "?db=database&rp=myrp",
-        body = "platanos,tag1=A,tag2=B val=42i 123456".as_bytes(),
-        dml_write_handler = [Ok(summary())],
-        want_result = Ok(_),
-        want_dml_calls = [MockDmlHandlerCall::Write{namespace, ..}] => {
-            assert_eq!(namespace, "database/myrp");
-        }
-    );
-
-    test_cst_handler!(
-        v1_handle_backslash_ok,
-        route_string = "/write",
-        query_string = "?db=data/base&rp=myrp",
-        body = "platanos,tag1=A,tag2=B val=42i 123456".as_bytes(),
-        dml_write_handler = [Ok(summary())],
-        want_result = Ok(_),
-        want_dml_calls = [MockDmlHandlerCall::Write{namespace, ..}] => {
-            assert_eq!(namespace, "data%2Fbase/myrp");
-        }
-    );
-
-    test_cst_handler!(
-        v1_rp_empty,
-        route_string = "/write",
-        query_string = "?db=database&rp=",
-        body = "platanos,tag1=A,tag2=B val=42i 123456".as_bytes(),
-        dml_write_handler = [Ok(summary())],
-        want_result = Ok(_),
-        want_dml_calls = [MockDmlHandlerCall::Write{namespace, ..}] => {
-            assert_eq!(namespace, EXPECTED_NAMESPACE);
-        }
-    );
-
-    test_cst_handler!(
-        v1_rp_empty_str,
-        route_string = "/write",
-        query_string = "?db=database&rp=''",
-        body = "platanos,tag1=A,tag2=B val=42i 123456".as_bytes(),
-        dml_write_handler = [Ok(summary())],
-        want_result = Ok(_),
-        want_dml_calls = [MockDmlHandlerCall::Write{namespace, ..}] => {
-            assert_eq!(namespace, EXPECTED_NAMESPACE);
-        }
-    );
-
-    test_cst_handler!(
-        v1_rp_ignore_autogen,
-        route_string = "/write",
-        query_string = "?db=database&rp=autogen",
-        body = "platanos,tag1=A,tag2=B val=42i 123456".as_bytes(),
-        dml_write_handler = [Ok(summary())],
-        want_result = Ok(_),
-        want_dml_calls = [MockDmlHandlerCall::Write{namespace, ..}] => {
-            assert_eq!(namespace, EXPECTED_NAMESPACE);
-        }
     );
 }

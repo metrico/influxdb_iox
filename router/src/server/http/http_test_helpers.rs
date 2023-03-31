@@ -86,6 +86,7 @@ macro_rules! test_http_handler {
     ) => {
         paste::paste! {
             mod [<test_mod_ test_http_handler_ $name _ $encoding>] {
+                #[allow(unused)]
                 use super::*;
                 use $crate::{
                     test_http_handler,
@@ -96,7 +97,7 @@ macro_rules! test_http_handler {
                     server::http::{
                         HttpDelegate,
                         WriteInfoExtractor,
-                        write_test_helpers::assert_metric_hit,
+                        http_test_helpers::{assert_metric_hit, MAX_BYTES, NAMESPACE_ID},
                     },
                 };
                 use assert_matches::assert_matches;
@@ -188,110 +189,4 @@ macro_rules! test_http_handler {
             .headers_mut()
             .insert(CONTENT_ENCODING, HeaderValue::from_static("gzip"));
     }};
-}
-
-#[macro_export]
-/// Wrapper over test_http_handler specifically for MT.
-macro_rules! test_mt_handler {
-    // Match based on named arg `dml_write_handler`.
-    (
-        $name:ident,
-        route_string = $route_string:expr,   // v1 versus v2 routes
-        query_string = $query_string:expr,   // Request URI query string
-        body = $body:expr,                   // Request body content
-        dml_write_handler = $dml_handler:expr,     // DML write handler response (if called)
-        want_result = $want_result:pat,
-        want_dml_calls = $($want_dml_calls:tt )+
-    ) => {
-        paste::paste! {
-            $crate::test_http_handler!(
-                [<mt_write_ $name>],
-                uri = format!("https://bananas.example{}{}", $route_string, $query_string),
-                body = $body,
-                auth_handler = None, // handled at gateway
-                dml_info_handler = Box::<$crate::server::http::mt::MultiTenantRequestParser>::default(),
-                dml_write_handler = $dml_handler,
-                dml_delete_handler = [],
-                want_result = $want_result,
-                want_dml_calls = $($want_dml_calls)+
-            );
-        }
-    };
-    // Match based on named arg `dml_delete_handler`.
-    (
-        $name:ident,
-        route_string = $route_string:expr,   // v1 versus v2 routes
-        query_string = $query_string:expr,   // Request URI query string
-        body = $body:expr,                   // Request body content
-        dml_delete_handler = $dml_handler:expr,     // DML write handler response (if called)
-        want_result = $want_result:pat,
-        want_dml_calls = $($want_dml_calls:tt )+
-    ) => {
-        paste::paste! {
-            $crate::test_http_handler!(
-                [<mt_delete_ $name>],
-                uri = format!("https://bananas.example{}{}", $route_string, $query_string),
-                body = $body,
-                auth_handler = None, // handled at gateway
-                dml_info_handler = Box::<$crate::server::http::mt::MultiTenantRequestParser>::default(),
-                dml_write_handler = [],
-                dml_delete_handler = $dml_handler,
-                want_result = $want_result,
-                want_dml_calls = $($want_dml_calls)+
-            );
-        }
-    };
-}
-
-#[macro_export]
-/// Wrapper over test_http_handler specifically for CST.
-macro_rules! test_cst_handler {
-    // Match based on named arg `dml_write_handler`.
-    (
-        $name:ident,
-        route_string = $route_string:expr,   // v1 versus v2 routes
-        query_string = $query_string:expr,   // Request URI query string
-        body = $body:expr,                   // Request body content
-        dml_write_handler = $dml_handler:expr,     // DML write handler response (if called)
-        want_result = $want_result:pat,
-        want_dml_calls = $($want_dml_calls:tt )+
-    ) => {
-        paste::paste! {
-            $crate::test_http_handler!(
-                [<cst_write_ $name>],
-                uri = format!("https://bananas.example{}{}", $route_string, $query_string),
-                body = $body,
-                auth_handler = None, // TODO: add auth handler for cst only.
-                dml_info_handler = Box::<$crate::server::http::cst::SingleTenantRequestParser>::default(),
-                dml_write_handler = $dml_handler,
-                dml_delete_handler = [],
-                want_result = $want_result,
-                want_dml_calls = $($want_dml_calls)+
-            );
-        }
-    };
-    // Match based on named arg `dml_delete_handler`.
-    (
-        $name:ident,
-        route_string = $route_string:expr,   // v1 versus v2 routes
-        query_string = $query_string:expr,   // Request URI query string
-        body = $body:expr,                   // Request body content
-        dml_delete_handler = $dml_handler:expr,     // DML write handler response (if called)
-        want_result = $want_result:pat,
-        want_dml_calls = $($want_dml_calls:tt )+
-    ) => {
-        paste::paste! {
-            $crate::test_http_handler!(
-                [<cst_delete_ $name>],
-                uri = format!("https://bananas.example{}{}", $route_string, $query_string),
-                body = $body,
-                auth_handler = None, // TODO: add auth handler for cst only.
-                dml_info_handler = Box::<$crate::server::http::cst::SingleTenantRequestParser>::default(),
-                dml_write_handler = [],
-                dml_delete_handler = $dml_handler,
-                want_result = $want_result,
-                want_dml_calls = $($want_dml_calls)+
-            );
-        }
-    };
 }
