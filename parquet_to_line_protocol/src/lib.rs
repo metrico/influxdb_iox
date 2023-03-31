@@ -20,6 +20,7 @@ use datafusion::{
 };
 use datafusion_util::config::{iox_session_config, register_iox_object_store};
 use futures::{stream::BoxStream, StreamExt};
+use influxdb_tsm::reader::TsmIndexReader;
 use object_store::{
     local::LocalFileSystem, path::Path as ObjectStorePath, ObjectMeta, ObjectStore,
 };
@@ -28,7 +29,7 @@ use schema::Schema;
 use snafu::{OptionExt, ResultExt, Snafu};
 use std::{
     path::{Path, PathBuf},
-    sync::Arc,
+    sync::Arc, fs::File,
 };
 mod batch;
 use batch::convert_to_lines;
@@ -95,7 +96,20 @@ pub async fn convert_tsm_file<P>(path: P) -> Result<BoxStream<'static, Result<Ve
 where
     P: AsRef<Path>,
 {
+    // TODO real errors
     let path = path.as_ref();
+    let file = File::open(path).unwrap();
+
+    let file_len = file.metadata().unwrap().len();
+
+    let tsm_reader = TsmIndexReader::try_new(file, file_len as usize).unwrap();
+
+    for index_entry in tsm_reader {
+        println!("reading index...");
+        println!("{index_entry:?}");
+    }
+
+
     todo!();
 }
 
@@ -250,5 +264,24 @@ impl ParquetFileReader {
         let task_ctx = Arc::new(TaskContext::from(&self.session_ctx));
 
         execute_stream(Arc::new(exec), task_ctx).context(ExecutingStreamSnafu)
+    }
+}
+
+
+#[cfg(test)]
+mod test {
+    use super::*;
+
+    // harness to test tsm reading...
+    #[tokio::test]
+    async fn test_tsm() {
+        let mut stream  = convert_tsm_file("/Users/alamb/Software/influxdb_iox/test_fixtures/000000000000462-000000002.tsm").await.unwrap();
+
+        while let Some(lines) = stream.next().await {
+            let lines = lines.unwrap();
+            println!("Got lines");
+            println!("-------------------");
+            println!("{}", String::from_utf8_lossy(&lines));
+        }
     }
 }
