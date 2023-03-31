@@ -1,5 +1,6 @@
 //! Code that can convert between parquet files and line protocol
 
+use data_types::org_and_bucket_to_namespace;
 use datafusion::{
     arrow::datatypes::SchemaRef as ArrowSchemaRef,
     datasource::{
@@ -20,7 +21,7 @@ use datafusion::{
 };
 use datafusion_util::config::{iox_session_config, register_iox_object_store};
 use futures::{stream::BoxStream, StreamExt};
-use influxdb_tsm::reader::TsmIndexReader;
+use influxdb_tsm::{reader::TsmIndexReader, ParsedTsmKey};
 use object_store::{
     local::LocalFileSystem, path::Path as ObjectStorePath, ObjectMeta, ObjectStore,
 };
@@ -29,10 +30,13 @@ use schema::Schema;
 use snafu::{OptionExt, ResultExt, Snafu};
 use std::{
     path::{Path, PathBuf},
-    sync::Arc, fs::File,
+    sync::Arc, fs::File, collections::HashMap,
 };
 mod batch;
+mod tsm;
 use batch::convert_to_lines;
+
+use crate::tsm::{TsmNamespace};
 pub type Result<T = (), E = Error> = std::result::Result<T, E>;
 
 #[derive(Debug, Snafu)]
@@ -104,14 +108,39 @@ where
 
     let tsm_reader = TsmIndexReader::try_new(file, file_len as usize).unwrap();
 
+    // run through the TSM index, and group
+    // Take one scan to find all measurements
+
+    let mut namespaces = HashMap::new();
+
     for index_entry in tsm_reader {
-        println!("reading index...");
-        println!("{index_entry:?}");
+        //println!("reading index...");
+        let index_entry = index_entry.unwrap();
+
+        let tsm_key = index_entry.parse_key().unwrap();
+        //println!("  tsm_key: {tsm_key:#?}");
+        let ParsedTsmKey { org_id, bucket_id, measurement, tagset, field_key } = tsm_key;
+
+        let namespace_name = org_and_bucket_to_namespace(
+            &org_id.to_string(), &bucket_id.to_string()
+        ).unwrap();
+
+
+        let measurement = namespaces.entry(namespace_name)
+            .or_insert_with(|| TsmNamespace::new())
+            .get_mut(&measurement);
+
+        measurement.insert(tagset, field_key, index_entry);
     }
 
+    for (name, namespace) in namespaces.into_iter() {
+        println!("Namespace Name: {name}");
+        namespace.dump();
+    }
 
     todo!();
 }
+
 
 /// Converts a parquet file that was written by IOx from the local
 /// file system path specified a stream of line protocol bytes

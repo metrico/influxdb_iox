@@ -4214,6 +4214,7 @@ dependencies = [
 name = "parquet_to_line_protocol"
 version = "0.1.0"
 dependencies = [
+ "data_types",
  "datafusion",
  "datafusion_util",
  "futures",
