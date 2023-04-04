@@ -83,13 +83,13 @@ impl SplitOrCompact for SplitCompact {
         }
 
         // (1) this function checks for a highly overlapped L0s
-        let (files_to_split, remaining_files) =
+        let (files_to_split, remaining_files, reason) =
             high_l0_overlap_split(self.max_compact_size, files, target_level);
 
         if !files_to_split.is_empty() {
             // These files must be split before further compaction
             return (
-                FilesToSplitOrCompact::Split(files_to_split, SplitReason::HighL0Overlap),
+                FilesToSplitOrCompact::Split(files_to_split, reason),
                 remaining_files,
             );
         }
