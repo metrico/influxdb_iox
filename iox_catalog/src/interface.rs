@@ -2,9 +2,9 @@
 
 use async_trait::async_trait;
 use data_types::{
-    Column, ColumnSchema, ColumnType, ColumnTypeCount, CompactionLevel, Namespace, NamespaceId,
-    NamespaceSchema, ParquetFile, ParquetFileId, ParquetFileParams, Partition, PartitionId,
-    PartitionKey, SkippedCompaction, Table, TableId, TableSchema, Timestamp,
+    Column, ColumnSchema, ColumnType, CompactionLevel, Namespace, NamespaceId, NamespaceSchema,
+    ParquetFile, ParquetFileId, ParquetFileParams, Partition, PartitionId, PartitionKey,
+    SkippedCompaction, Table, TableId, TableSchema, Timestamp,
 };
 use iox_time::TimeProvider;
 use snafu::{OptionExt, Snafu};
@@ -107,6 +107,9 @@ pub enum Error {
     #[snafu(display("no transaction provided"))]
     NoTransaction,
 
+    #[snafu(display("transaction failed to commit: {}", source))]
+    FailedToCommit { source: sqlx::Error },
+
     #[snafu(display("error while converting usize {} to i64", value))]
     InvalidValue { value: usize },
 
@@ -187,14 +190,6 @@ pub trait Catalog: Send + Sync + Debug + Display {
     /// Setup catalog for usage and apply possible migrations.
     async fn setup(&self) -> Result<(), Error>;
 
-    /// Creates a new [`Transaction`].
-    ///
-    /// Creating transactions is potentially expensive. Holding one consumes resources. The number
-    /// of parallel active transactions might be limited per catalog, so you MUST NOT rely on the
-    /// ability to create multiple transactions in parallel for correctness. Parallel transactions
-    /// must only be used for scaling.
-    async fn start_transaction(&self) -> Result<Box<dyn Transaction>, Error>;
-
     /// Accesses the repositories without a transaction scope.
     async fn repositories(&self) -> Box<dyn RepoCollection>;
 
@@ -204,68 +199,6 @@ pub trait Catalog: Send + Sync + Debug + Display {
     /// Gets the time provider associated with this catalog.
     fn time_provider(&self) -> Arc<dyn TimeProvider>;
 }
-
-/// Secret module for [sealed traits].
-///
-/// [sealed traits]: https://rust-lang.github.io/api-guidelines/future-proofing.html#sealed-traits-protect-against-downstream-implementations-c-sealed
-#[doc(hidden)]
-pub(crate) mod sealed {
-    use super::*;
-
-    /// Helper trait to implement commit and abort of an transaction.
-    ///
-    /// The problem is that both methods cannot take `self` directly, otherwise the [`Transaction`]
-    /// would not be object safe. Therefore we can only take a reference. To avoid that a user uses
-    /// a transaction after calling one of the finalizers, we use a tiny trick and take `Box<dyn
-    /// Transaction>` in our public interface and use a sealed trait for the actual implementation.
-    #[async_trait]
-    pub trait TransactionFinalize: Send + Sync + Debug {
-        async fn commit_inplace(&mut self) -> Result<(), Error>;
-        async fn abort_inplace(&mut self) -> Result<(), Error>;
-    }
-}
-
-/// Transaction in a [`Catalog`] (similar to a database transaction).
-///
-/// A transaction provides a consistent view on data and stages writes.
-/// To finalize a transaction, call [commit](Self::commit) or [abort](Self::abort).
-///
-/// Repositories can cheaply be borrowed from it.
-///
-/// Note that after any method in this transaction (including all repositories derived from it)
-/// returns an error, the transaction MIGHT be poisoned and will return errors for all operations,
-/// depending on the backend.
-///
-///
-/// # Drop
-///
-/// Dropping a transaction without calling [`commit`](Self::commit) or [`abort`](Self::abort) will
-/// abort the transaction. However resources might not be released immediately, so it is adviced to
-/// always call [`abort`](Self::abort) when you want to enforce that. Dropping w/o
-/// commiting/aborting will also log a warning.
-#[async_trait]
-pub trait Transaction: Send + Sync + Debug + sealed::TransactionFinalize + RepoCollection {
-    /// Commits a transaction.
-    ///
-    /// # Error Handling
-    ///
-    /// If successful, all changes will be visible to other transactions.
-    ///
-    /// If an error is returned, the transaction may or or not be committed. This might be due to
-    /// IO errors after the transaction was finished. However in either case, the transaction is
-    /// atomic and can only succeed or fail entirely.
-    async fn commit(mut self: Box<Self>) -> Result<(), Error> {
-        self.commit_inplace().await
-    }
-
-    /// Aborts the transaction, throwing away all changes.
-    async fn abort(mut self: Box<Self>) -> Result<(), Error> {
-        self.abort_inplace().await
-    }
-}
-
-impl<T> Transaction for T where T: Send + Sync + Debug + sealed::TransactionFinalize + RepoCollection
-{}
 
 /// Methods for working with the catalog's various repositories (collections of entities).
 ///
@@ -398,12 +331,6 @@ pub trait ColumnRepo: Send + Sync {
 
     /// List all columns.
     async fn list(&mut self) -> Result<Vec<Column>>;
-
-    /// List column types and their count for a table
-    async fn list_type_count_by_table_id(
-        &mut self,
-        table_id: TableId,
-    ) -> Result<Vec<ColumnTypeCount>>;
 }
 
 /// Functions for working with IOx partitions in the catalog. These are how IOx splits up
@@ -415,9 +342,6 @@ pub trait PartitionRepo: Send + Sync {
 
     /// get partition by ID
     async fn get_by_id(&mut self, partition_id: PartitionId) -> Result<Option<Partition>>;
-
-    /// return partitions for a given namespace
-    async fn list_by_namespace(&mut self, namespace_id: NamespaceId) -> Result<Vec<Partition>>;
 
     /// return the partitions by table id
     async fn list_by_table_id(&mut self, table_id: TableId) -> Result<Vec<Partition>>;
@@ -465,12 +389,6 @@ pub trait PartitionRepo: Send + Sync {
 
     /// List the records of compacting a partition being skipped. This is mostly useful for testing.
     async fn list_skipped_compactions(&mut self) -> Result<Vec<SkippedCompaction>>;
-
-    /// Delete the records of skipping a partition being compacted.
-    async fn delete_skipped_compactions(
-        &mut self,
-        partition_id: PartitionId,
-    ) -> Result<Option<SkippedCompaction>>;
 
     /// Return the N most recently created partitions.
     async fn most_recent_n(&mut self, n: usize) -> Result<Vec<Partition>>;
@@ -543,14 +461,21 @@ pub trait ParquetFileRepo: Send + Sync {
     /// Verify if the parquet file exists by selecting its id
     async fn exist(&mut self, id: ParquetFileId) -> Result<bool>;
 
-    /// Return count
-    async fn count(&mut self) -> Result<i64>;
-
     /// Return the parquet file with the given object store id
     async fn get_by_object_store_id(
         &mut self,
         object_store_id: Uuid,
     ) -> Result<Option<ParquetFile>>;
+
+    /// Commmit deletions, upgrades and creations in a single transaction.
+    async fn create_update_delete(
+        &mut self,
+        _partition_id: PartitionId,
+        delete: &[ParquetFile],
+        upgrade: &[ParquetFile],
+        create: &[ParquetFileParams],
+        target_level: CompactionLevel,
+    ) -> Result<Vec<ParquetFileId>>;
 }
 
 /// Gets the namespace schema including all tables and columns.
@@ -766,9 +691,9 @@ pub(crate) mod test_helpers {
     use crate::{validate_or_insert_schema, DEFAULT_MAX_COLUMNS_PER_TABLE, DEFAULT_MAX_TABLES};
 
     use super::*;
-    use ::test_helpers::{assert_contains, tracing::TracingCapture};
+    use ::test_helpers::tracing::TracingCapture;
     use assert_matches::assert_matches;
-    use data_types::{ColumnId, ColumnSet, CompactionLevel};
+    use data_types::{ColumnId, ColumnSet, ColumnTypeCount, CompactionLevel};
     use futures::Future;
     use metric::{Attributes, DurationHistogram, Metric};
     use std::{collections::BTreeSet, ops::DerefMut, sync::Arc, time::Duration};
@@ -785,8 +710,6 @@ pub(crate) mod test_helpers {
         test_parquet_file(clean_state().await).await;
         test_parquet_file_delete_broken(clean_state().await).await;
         test_list_by_partiton_not_to_delete(clean_state().await).await;
-        test_txn_isolation(clean_state().await).await;
-        test_txn_drop(clean_state().await).await;
         test_list_schemas(clean_state().await).await;
         test_list_schemas_soft_deleted_rows(clean_state().await).await;
         test_delete_namespace(clean_state().await).await;
@@ -1335,25 +1258,6 @@ pub(crate) mod test_helpers {
             .create_or_get("b", table2.id, ColumnType::Tag)
             .await
             .unwrap();
-        // Listing count of column types
-        let mut col_count = repos
-            .columns()
-            .list_type_count_by_table_id(table2.id)
-            .await
-            .unwrap();
-        let mut expect = vec![
-            ColumnTypeCount {
-                col_type: ColumnType::Tag,
-                count: 1,
-            },
-            ColumnTypeCount {
-                col_type: ColumnType::U64,
-                count: 1,
-            },
-        ];
-        expect.sort_by_key(|c| c.col_type);
-        col_count.sort_by_key(|c| c.col_type);
-        assert_eq!(expect, col_count);
 
         // Listing columns should return all columns in the catalog
         let list = repos.columns().list().await.unwrap();
@@ -1483,40 +1387,6 @@ pub(crate) mod test_helpers {
             .collect::<BTreeSet<_>>();
 
         assert_eq!(created.keys().copied().collect::<BTreeSet<_>>(), listed);
-
-        // test list_by_namespace
-        let namespace2 = repos
-            .namespaces()
-            .create("namespace_partition_test2", None)
-            .await
-            .unwrap();
-        let table2 = repos
-            .tables()
-            .create_or_get("test_table2", namespace2.id)
-            .await
-            .unwrap();
-        repos
-            .partitions()
-            .create_or_get("some_key".into(), table2.id)
-            .await
-            .expect("failed to create partition");
-        let listed = repos
-            .partitions()
-            .list_by_namespace(namespace.id)
-            .await
-            .expect("failed to list partitions")
-            .into_iter()
-            .map(|v| (v.id, v))
-            .collect::<BTreeMap<_, _>>();
-        let expected: BTreeMap<_, _> = created
-            .iter()
-            .map(|(k, v)| (*k, v.clone()))
-            .chain(std::iter::once((
-                other_partition.id,
-                other_partition.clone(),
-            )))
-            .collect();
-        assert_eq!(expected, listed);
 
         // sort_key should be empty on creation
         assert!(other_partition.sort_key.is_empty());
@@ -1665,20 +1535,6 @@ pub(crate) mod test_helpers {
         assert_eq!(skipped_partition_record.partition_id, other_partition.id);
         assert_eq!(skipped_partition_record.reason, "I'm on fire");
 
-        // Delete the skipped compaction
-        let deleted_skipped_compaction = repos
-            .partitions()
-            .delete_skipped_compactions(other_partition.id)
-            .await
-            .unwrap()
-            .expect("The skipped compaction should have been returned");
-
-        assert_eq!(deleted_skipped_compaction.partition_id, other_partition.id);
-        assert_eq!(deleted_skipped_compaction.reason, "I'm on fire");
-        assert_eq!(deleted_skipped_compaction.num_files, 11);
-        assert_eq!(deleted_skipped_compaction.limit_num_files, 12);
-        assert_eq!(deleted_skipped_compaction.estimated_bytes, 110);
-        assert_eq!(deleted_skipped_compaction.limit_bytes, 120);
         //
         let skipped_partition_record = repos
             .partitions()
@@ -1686,17 +1542,6 @@ pub(crate) mod test_helpers {
             .await
             .unwrap();
         assert!(skipped_partition_record.is_none());
-
-        let not_deleted_skipped_compaction = repos
-            .partitions()
-            .delete_skipped_compactions(other_partition.id)
-            .await
-            .unwrap();
-
-        assert!(
-            not_deleted_skipped_compaction.is_none(),
-            "There should be no skipped compation",
-        );
 
         let skipped_compactions = repos.partitions().list_skipped_compactions().await.unwrap();
         assert!(
@@ -2535,73 +2380,6 @@ pub(crate) mod test_helpers {
             .exist(p2_n2.id)
             .await
             .expect("parquet file exists check should succeed"));
-    }
-
-    async fn test_txn_isolation(catalog: Arc<dyn Catalog>) {
-        let barrier = Arc::new(tokio::sync::Barrier::new(2));
-
-        let barrier_captured = Arc::clone(&barrier);
-        let catalog_captured = Arc::clone(&catalog);
-        let insertion_task = tokio::spawn(async move {
-            barrier_captured.wait().await;
-
-            let mut txn = catalog_captured.start_transaction().await.unwrap();
-            txn.namespaces()
-                .create("test_txn_isolation", None)
-                .await
-                .unwrap();
-
-            tokio::time::sleep(Duration::from_millis(200)).await;
-            txn.abort().await.unwrap();
-        });
-
-        let mut txn = catalog.start_transaction().await.unwrap();
-
-        barrier.wait().await;
-        tokio::time::sleep(Duration::from_millis(100)).await;
-
-        let namespace = txn
-            .namespaces()
-            .get_by_name("test_txn_isolation", SoftDeletedRows::AllRows)
-            .await
-            .unwrap();
-        assert!(namespace.is_none());
-        txn.abort().await.unwrap();
-
-        insertion_task.await.unwrap();
-
-        let mut txn = catalog.start_transaction().await.unwrap();
-        let namespace = txn
-            .namespaces()
-            .get_by_name("test_txn_isolation", SoftDeletedRows::AllRows)
-            .await
-            .unwrap();
-        assert!(namespace.is_none());
-        txn.abort().await.unwrap();
-    }
-
-    async fn test_txn_drop(catalog: Arc<dyn Catalog>) {
-        let capture = TracingCapture::new();
-        let mut txn = catalog.start_transaction().await.unwrap();
-        txn.namespaces()
-            .create("test_txn_drop", None)
-            .await
-            .unwrap();
-        drop(txn);
-
-        // got a warning
-        assert_contains!(capture.to_string(), "Dropping ");
-        assert_contains!(capture.to_string(), " w/o finalizing (commit or abort)");
-
-        // data is NOT committed
-        let mut txn = catalog.start_transaction().await.unwrap();
-        let namespace = txn
-            .namespaces()
-            .get_by_name("test_txn_drop", SoftDeletedRows::AllRows)
-            .await
-            .unwrap();
-        assert!(namespace.is_none());
-        txn.abort().await.unwrap();
     }
 
     /// Upsert a namespace called `namespace_name` and write `lines` to it.

@@ -3,26 +3,23 @@
 
 use crate::{
     interface::{
-        sealed::TransactionFinalize, CasFailure, Catalog, ColumnRepo, ColumnTypeMismatchSnafu,
-        Error, NamespaceRepo, ParquetFileRepo, PartitionRepo, RepoCollection, Result,
-        SoftDeletedRows, TableRepo, Transaction,
+        CasFailure, Catalog, ColumnRepo, ColumnTypeMismatchSnafu, Error, NamespaceRepo,
+        ParquetFileRepo, PartitionRepo, RepoCollection, Result, SoftDeletedRows, TableRepo,
     },
     metrics::MetricDecorator,
     DEFAULT_MAX_COLUMNS_PER_TABLE, DEFAULT_MAX_TABLES,
 };
 use async_trait::async_trait;
 use data_types::{
-    Column, ColumnId, ColumnType, ColumnTypeCount, CompactionLevel, Namespace, NamespaceId,
-    ParquetFile, ParquetFileId, ParquetFileParams, Partition, PartitionId, PartitionKey,
-    SkippedCompaction, Table, TableId, Timestamp,
+    Column, ColumnId, ColumnType, CompactionLevel, Namespace, NamespaceId, ParquetFile,
+    ParquetFileId, ParquetFileParams, Partition, PartitionId, PartitionKey, SkippedCompaction,
+    Table, TableId, Timestamp,
 };
 use iox_time::{SystemProvider, TimeProvider};
-use observability_deps::tracing::warn;
 use snafu::ensure;
 use sqlx::types::Uuid;
 use std::{
     collections::{HashMap, HashSet},
-    convert::TryFrom,
     fmt::{Display, Formatter},
     sync::Arc,
 };
@@ -70,43 +67,16 @@ struct MemCollections {
     parquet_files: Vec<ParquetFile>,
 }
 
-#[derive(Debug)]
-#[allow(clippy::large_enum_variant)]
-enum MemTxnInner {
-    Txn {
-        guard: OwnedMutexGuard<MemCollections>,
-        stage: MemCollections,
-        finalized: bool,
-    },
-    NoTxn {
-        collections: OwnedMutexGuard<MemCollections>,
-    },
-}
-
 /// transaction bound to an in-memory catalog.
 #[derive(Debug)]
 pub struct MemTxn {
-    inner: MemTxnInner,
+    inner: OwnedMutexGuard<MemCollections>,
     time_provider: Arc<dyn TimeProvider>,
 }
 
 impl MemTxn {
     fn stage(&mut self) -> &mut MemCollections {
-        match &mut self.inner {
-            MemTxnInner::Txn { stage, .. } => stage,
-            MemTxnInner::NoTxn { collections } => collections,
-        }
-    }
-}
-
-impl Drop for MemTxn {
-    fn drop(&mut self) {
-        match self.inner {
-            MemTxnInner::Txn { finalized, .. } if !finalized => {
-                warn!("Dropping MemTxn w/o finalizing (commit or abort)");
-            }
-            _ => {}
-        }
+        &mut self.inner
     }
 }
 
@@ -122,27 +92,11 @@ impl Catalog for MemCatalog {
         Ok(())
     }
 
-    async fn start_transaction(&self) -> Result<Box<dyn Transaction>, Error> {
-        let guard = Arc::clone(&self.collections).lock_owned().await;
-        let stage = guard.clone();
-        Ok(Box::new(MetricDecorator::new(
-            MemTxn {
-                inner: MemTxnInner::Txn {
-                    guard,
-                    stage,
-                    finalized: false,
-                },
-                time_provider: self.time_provider(),
-            },
-            Arc::clone(&self.metrics),
-        )))
-    }
-
     async fn repositories(&self) -> Box<dyn RepoCollection> {
         let collections = Arc::clone(&self.collections).lock_owned().await;
         Box::new(MetricDecorator::new(
             MemTxn {
-                inner: MemTxnInner::NoTxn { collections },
+                inner: collections,
                 time_provider: self.time_provider(),
             },
             Arc::clone(&self.metrics),
@@ -155,40 +109,6 @@ impl Catalog for MemCatalog {
 
     fn time_provider(&self) -> Arc<dyn TimeProvider> {
         Arc::clone(&self.time_provider)
-    }
-}
-
-#[async_trait]
-impl TransactionFinalize for MemTxn {
-    async fn commit_inplace(&mut self) -> Result<(), Error> {
-        match &mut self.inner {
-            MemTxnInner::Txn {
-                guard,
-                stage,
-                finalized,
-            } => {
-                assert!(!*finalized);
-                **guard = std::mem::take(stage);
-                *finalized = true;
-            }
-            MemTxnInner::NoTxn { .. } => {
-                panic!("cannot commit oneshot");
-            }
-        }
-        Ok(())
-    }
-
-    async fn abort_inplace(&mut self) -> Result<(), Error> {
-        match &mut self.inner {
-            MemTxnInner::Txn { finalized, .. } => {
-                assert!(!*finalized);
-                *finalized = true;
-            }
-            MemTxnInner::NoTxn { .. } => {
-                panic!("cannot abort oneshot");
-            }
-        }
-        Ok(())
     }
 }
 
@@ -583,37 +503,6 @@ impl ColumnRepo for MemTxn {
         let stage = self.stage();
         Ok(stage.columns.clone())
     }
-
-    async fn list_type_count_by_table_id(
-        &mut self,
-        table_id: TableId,
-    ) -> Result<Vec<ColumnTypeCount>> {
-        let stage = self.stage();
-
-        let columns = stage
-            .columns
-            .iter()
-            .filter(|c| c.table_id == table_id)
-            .map(|c| c.column_type)
-            .collect::<Vec<_>>();
-
-        let mut cols = HashMap::new();
-        for c in columns {
-            cols.entry(c)
-                .and_modify(|counter| *counter += 1)
-                .or_insert(1);
-        }
-
-        let column_type_counts = cols
-            .iter()
-            .map(|c| ColumnTypeCount {
-                col_type: *c.0,
-                count: *c.1,
-            })
-            .collect::<Vec<_>>();
-
-        Ok(column_type_counts)
-    }
 }
 
 #[async_trait]
@@ -651,23 +540,6 @@ impl PartitionRepo for MemTxn {
             .iter()
             .find(|p| p.id == partition_id)
             .cloned())
-    }
-
-    async fn list_by_namespace(&mut self, namespace_id: NamespaceId) -> Result<Vec<Partition>> {
-        let stage = self.stage();
-
-        let table_ids: HashSet<_> = stage
-            .tables
-            .iter()
-            .filter_map(|table| (table.namespace_id == namespace_id).then_some(table.id))
-            .collect();
-        let partitions: Vec<_> = stage
-            .partitions
-            .iter()
-            .filter(|p| table_ids.contains(&p.table_id))
-            .cloned()
-            .collect();
-        Ok(partitions)
     }
 
     async fn list_by_table_id(&mut self, table_id: TableId) -> Result<Vec<Partition>> {
@@ -767,26 +639,6 @@ impl PartitionRepo for MemTxn {
     async fn list_skipped_compactions(&mut self) -> Result<Vec<SkippedCompaction>> {
         let stage = self.stage();
         Ok(stage.skipped_compactions.clone())
-    }
-
-    async fn delete_skipped_compactions(
-        &mut self,
-        partition_id: PartitionId,
-    ) -> Result<Option<SkippedCompaction>> {
-        use std::mem;
-
-        let stage = self.stage();
-        let skipped_compactions = mem::take(&mut stage.skipped_compactions);
-        let (mut removed, remaining) = skipped_compactions
-            .into_iter()
-            .partition(|sc| sc.partition_id == partition_id);
-        stage.skipped_compactions = remaining;
-
-        match removed.pop() {
-            Some(sc) if removed.is_empty() => Ok(Some(sc)),
-            Some(_) => unreachable!("There must be exactly one skipped compaction per partition"),
-            None => Ok(None),
-        }
     }
 
     async fn most_recent_n(&mut self, n: usize) -> Result<Vec<Partition>> {
@@ -1005,17 +857,6 @@ impl ParquetFileRepo for MemTxn {
         Ok(stage.parquet_files.iter().any(|f| f.id == id))
     }
 
-    async fn count(&mut self) -> Result<i64> {
-        let stage = self.stage();
-
-        let count = stage.parquet_files.len();
-        let count_i64 = i64::try_from(count);
-        if count_i64.is_err() {
-            return Err(Error::InvalidValue { value: count });
-        }
-        Ok(count_i64.unwrap())
-    }
-
     async fn get_by_object_store_id(
         &mut self,
         object_store_id: Uuid,
@@ -1027,6 +868,37 @@ impl ParquetFileRepo for MemTxn {
             .iter()
             .find(|f| f.object_store_id.eq(&object_store_id))
             .cloned())
+    }
+
+    async fn create_update_delete(
+        &mut self,
+        _partition_id: PartitionId,
+        delete: &[ParquetFile],
+        upgrade: &[ParquetFile],
+        create: &[ParquetFileParams],
+        target_level: CompactionLevel,
+    ) -> Result<Vec<ParquetFileId>> {
+        assert!(!upgrade.is_empty() || (!delete.is_empty() && !create.is_empty()));
+
+        let upgrade = upgrade.iter().map(|f| f.id).collect::<Vec<_>>();
+
+        let parquet_files = self.parquet_files();
+
+        for file in delete {
+            parquet_files.flag_for_delete(file.id).await?;
+        }
+
+        parquet_files
+            .update_compaction_level(&upgrade, target_level)
+            .await?;
+
+        let mut ids = Vec::with_capacity(create.len());
+        for file in create {
+            let res = parquet_files.create(file.clone()).await?;
+            ids.push(res.id);
+        }
+
+        Ok(ids)
     }
 }
 

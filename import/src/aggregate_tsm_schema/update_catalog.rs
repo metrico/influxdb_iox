@@ -419,43 +419,45 @@ mod tests {
     #[tokio::test]
     async fn needs_merging() {
         // init a test catalog stack
+        dbg!("hello");
         let metrics = Arc::new(metric::Registry::default());
         let catalog: Arc<dyn Catalog> = Arc::new(MemCatalog::new(Arc::clone(&metrics)));
-        let mut txn = catalog
-            .start_transaction()
-            .await
-            .expect("started transaction");
-        // create namespace, table and columns for weather measurement
-        let namespace = txn
-            .namespaces()
-            .create("1234_5678", None)
-            .await
-            .expect("namespace created");
-        let mut table = txn
-            .tables()
-            .create_or_get("weather", namespace.id)
-            .await
-            .map(|t| TableSchema::new(t.id))
-            .expect("table created");
-        let time_col = txn
-            .columns()
-            .create_or_get("time", table.id, ColumnType::Time)
-            .await
-            .expect("column created");
-        table.add_column(&time_col);
-        let location_col = txn
-            .columns()
-            .create_or_get("city", table.id, ColumnType::Tag)
-            .await
-            .expect("column created");
-        let temperature_col = txn
-            .columns()
-            .create_or_get("temperature", table.id, ColumnType::F64)
-            .await
-            .expect("column created");
-        table.add_column(&location_col);
-        table.add_column(&temperature_col);
-        txn.commit().await.unwrap();
+
+        dbg!("get repos");
+        {
+            let mut txn = catalog.repositories().await;
+            // create namespace, table and columns for weather measurement
+            let namespace = txn
+                .namespaces()
+                .create("1234_5678", None)
+                .await
+                .expect("namespace created");
+            let mut table = txn
+                .tables()
+                .create_or_get("weather", namespace.id)
+                .await
+                .map(|t| TableSchema::new(t.id))
+                .expect("table created");
+            let time_col = txn
+                .columns()
+                .create_or_get("time", table.id, ColumnType::Time)
+                .await
+                .expect("column created");
+            table.add_column(&time_col);
+            let location_col = txn
+                .columns()
+                .create_or_get("city", table.id, ColumnType::Tag)
+                .await
+                .expect("column created");
+            let temperature_col = txn
+                .columns()
+                .create_or_get("temperature", table.id, ColumnType::F64)
+                .await
+                .expect("column created");
+            table.add_column(&location_col);
+            table.add_column(&temperature_col);
+            dbg!("finish creating stuff");
+        }
 
         // merge with aggregate schema that has some overlap
         let json = r#"
@@ -513,35 +515,33 @@ mod tests {
         // init a test catalog stack
         let metrics = Arc::new(metric::Registry::default());
         let catalog: Arc<dyn Catalog> = Arc::new(MemCatalog::new(Arc::clone(&metrics)));
-        let mut txn = catalog
-            .start_transaction()
-            .await
-            .expect("started transaction");
-        // create namespace, table and columns for weather measurement
-        let namespace = txn
-            .namespaces()
-            .create("1234_5678", None)
-            .await
-            .expect("namespace created");
-        let mut table = txn
-            .tables()
-            .create_or_get("weather", namespace.id)
-            .await
-            .map(|t| TableSchema::new(t.id))
-            .expect("table created");
-        let time_col = txn
-            .columns()
-            .create_or_get("time", table.id, ColumnType::Time)
-            .await
-            .expect("column created");
-        table.add_column(&time_col);
-        let temperature_col = txn
-            .columns()
-            .create_or_get("temperature", table.id, ColumnType::F64)
-            .await
-            .expect("column created");
-        table.add_column(&temperature_col);
-        txn.commit().await.unwrap();
+        {
+            let mut txn = catalog.repositories().await;
+            // create namespace, table and columns for weather measurement
+            let namespace = txn
+                .namespaces()
+                .create("1234_5678", None)
+                .await
+                .expect("namespace created");
+            let mut table = txn
+                .tables()
+                .create_or_get("weather", namespace.id)
+                .await
+                .map(|t| TableSchema::new(t.id))
+                .expect("table created");
+            let time_col = txn
+                .columns()
+                .create_or_get("time", table.id, ColumnType::Time)
+                .await
+                .expect("column created");
+            table.add_column(&time_col);
+            let temperature_col = txn
+                .columns()
+                .create_or_get("temperature", table.id, ColumnType::F64)
+                .await
+                .expect("column created");
+            table.add_column(&temperature_col);
+        }
 
         // merge with aggregate schema that has some issue that will trip a catalog error
         let json = r#"
@@ -577,36 +577,34 @@ mod tests {
         // init a test catalog stack
         let metrics = Arc::new(metric::Registry::default());
         let catalog: Arc<dyn Catalog> = Arc::new(MemCatalog::new(Arc::clone(&metrics)));
-        let mut txn = catalog
-            .start_transaction()
-            .await
-            .expect("started transaction");
 
         // create namespace, table and columns for weather measurement
-        let namespace = txn
-            .namespaces()
-            .create("1234_5678", None)
-            .await
-            .expect("namespace created");
-        let mut table = txn
-            .tables()
-            .create_or_get("weather", namespace.id)
-            .await
-            .map(|t| TableSchema::new(t.id))
-            .expect("table created");
-        let time_col = txn
-            .columns()
-            .create_or_get("time", table.id, ColumnType::Time)
-            .await
-            .expect("column created");
-        table.add_column(&time_col);
-        let temperature_col = txn
-            .columns()
-            .create_or_get("temperature", table.id, ColumnType::F64)
-            .await
-            .expect("column created");
-        table.add_column(&temperature_col);
-        txn.commit().await.unwrap();
+        {
+            let mut txn = catalog.repositories().await;
+            let namespace = txn
+                .namespaces()
+                .create("1234_5678", None)
+                .await
+                .expect("namespace created");
+            let mut table = txn
+                .tables()
+                .create_or_get("weather", namespace.id)
+                .await
+                .map(|t| TableSchema::new(t.id))
+                .expect("table created");
+            let time_col = txn
+                .columns()
+                .create_or_get("time", table.id, ColumnType::Time)
+                .await
+                .expect("column created");
+            table.add_column(&time_col);
+            let temperature_col = txn
+                .columns()
+                .create_or_get("temperature", table.id, ColumnType::F64)
+                .await
+                .expect("column created");
+            table.add_column(&temperature_col);
+        }
 
         // merge with aggregate schema that has some issue that will trip a catalog error
         let json = r#"
