@@ -107,7 +107,7 @@ impl DivideInitial for MultipleBranchesDivideInitial {
 
 /// Return a sorted files of the given ones.
 /// The order is used to split the files and form the right groups of files to compact
-// and deduplcate correctly to fewer and larger but same level files
+/// and deduplicate correctly to fewer and larger but same level files
 ///
 /// All given files are in the same given start_level.
 /// They will be sorted on their `max_l0_created_at` if the start_level is 0,

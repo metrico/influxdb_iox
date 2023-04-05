@@ -47,7 +47,7 @@ use crate::{
 ///  time(s).  A single split decision made by this function may split a quantity of files
 ///  many times larger than what we can compact in a single compaction.  But the split will
 ///  allow a future compaction to fit all the data for a relatively narrow time range.
-///  The usefullness of this functions output relies on the chain identification in the
+///  The usefulness of this function's output relies on the chain identification in the
 ///  `ManySmallFiles` case of `divide` in multiple_branches.rs.
 ///
 pub fn high_l0_overlap_split(
@@ -86,9 +86,9 @@ pub fn high_l0_overlap_split(
     files.sort_by_key(|f| f.max_l0_created_at);
 
     // This function currently applies a `vertical split` in two scenarios.
-    // The second scenario is not sufficient on it's own.  The first scenario may be adequate on its own (perhaps at
-    // a lower threshold than 2xmax_compact_size).  We do get a little better efficiency by keeping both verticial
-    // split methods, so scenario #2 can stay for now, but may be removed later as further work is done on efficiency.
+    // The second scenario is not sufficient on its own.  The first scenario may be adequate on its own (perhaps at
+    // a lower threshold than 2xmax_compact_size).  We do get a little better efficiency by keeping both vertical
+    // split methods, so scenario #2 can stay for now but may be removed later as further work is done on efficiency.
     // Vertical split scenario 1:
     if total_cap > 2 * max_compact_size {
         let chains = split_into_chains(files);
@@ -229,7 +229,7 @@ pub fn select_split_times(
 
     // But the data won't be spread perfectly even across the time range, and its better err towards splitting
     // extra small rather than splitting extra large (which may still exceed max_compact_size).
-    // So pad the split count a litle beyond what a perfect distribution would require.
+    // So pad the split count a little beyond what a perfect distribution would require.
     // Add 50% (3/2) to the minimal computation, then +1 to ensure we don't do a single split when the cap
     // is 1 byte less than 2x the max_compact_size
     splits = splits * 3 / 2 + 1;
@@ -289,27 +289,27 @@ pub fn split_into_chains(mut files: Vec<ParquetFile>) -> Vec<Vec<ParquetFile>> {
 }
 
 // merge_small_l0_chains takes a vector of overlapping "chains" (where a chain is vector of overlapping L0 files), and
-// attempts to merge small chains together if doing so can keep them under the given max_comapct_size.
+// attempts to merge small chains together if doing so can keep them under the given max_compact_size.
 // This function makes no assumption about the order of the chains - if they are created by `split_into_chains`, they're
 // ordered by min_time, which is unsafe for merging L0 chains.
 pub fn merge_small_l0_chains(
     mut chains: Vec<Vec<ParquetFile>>,
-    max_compact_size: usize,
+    max_compact_size_bytes: usize,
 ) -> Vec<Vec<ParquetFile>> {
     chains.sort_by_key(|a| get_max_l0_created_at(a.to_vec()));
     let mut merged_chains: Vec<Vec<ParquetFile>> = Vec::with_capacity(chains.len());
-    let mut prior_chain_cap: usize = 0;
+    let mut prior_chain_bytes: usize = 0;
     let mut prior_chain_idx: i32 = -1;
     for chain in &chains {
-        let this_chain_cap = chain.iter().map(|f| f.file_size_bytes as usize).sum();
+        let this_chain_bytes = chain.iter().map(|f| f.file_size_bytes as usize).sum();
 
-        if prior_chain_cap > 0 && prior_chain_cap + this_chain_cap <= max_compact_size {
+        if prior_chain_bytes > 0 && prior_chain_bytes + this_chain_bytes <= max_compact_size_bytes {
             // this chain can be added to the prior chain.
             merged_chains[prior_chain_idx as usize].append(&mut chain.clone());
-            prior_chain_cap += this_chain_cap;
+            prior_chain_bytes += this_chain_bytes;
         } else {
             merged_chains.push(chain.to_vec());
-            prior_chain_cap = this_chain_cap;
+            prior_chain_bytes = this_chain_bytes;
             prior_chain_idx += 1;
         }
     }
