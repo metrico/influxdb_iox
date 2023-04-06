@@ -1,3 +1,4 @@
+use async_trait::async_trait;
 use std::sync::Arc;
 
 use data_types::NamespaceName;
@@ -53,26 +54,28 @@ pub struct WriteParams {
 ///     https://docs.influxdata.com/influxdb/v1.8/tools/api/#write-http-endpoint
 /// [V2 Write API]:
 ///     https://docs.influxdata.com/influxdb/v2.6/api/#operation/PostWrite
+#[async_trait]
 pub trait WriteParamExtractor: std::fmt::Debug + Send + Sync {
     /// Parse a [`WriteParams`] from a HTTP [`Request]`, according to the V1
     /// Write API.
-    fn parse_v1(&self, req: &Request<Body>) -> Result<WriteParams, Error>;
+    async fn parse_v1(&self, req: &Request<Body>) -> Result<WriteParams, Error>;
 
     /// Parse a [`WriteParams`] from a HTTP [`Request]`, according to the V2
     /// Write API.
-    fn parse_v2(&self, req: &Request<Body>) -> Result<WriteParams, Error>;
+    async fn parse_v2(&self, req: &Request<Body>) -> Result<WriteParams, Error>;
 }
 
+#[async_trait]
 impl<T> WriteParamExtractor for Arc<T>
 where
     T: WriteParamExtractor,
 {
-    fn parse_v1(&self, req: &Request<Body>) -> Result<WriteParams, Error> {
-        (**self).parse_v1(req)
+    async fn parse_v1(&self, req: &Request<Body>) -> Result<WriteParams, Error> {
+        (**self).parse_v1(req).await
     }
 
-    fn parse_v2(&self, req: &Request<Body>) -> Result<WriteParams, Error> {
-        (**self).parse_v2(req)
+    async fn parse_v2(&self, req: &Request<Body>) -> Result<WriteParams, Error> {
+        (**self).parse_v2(req).await
     }
 }
 
@@ -130,14 +133,15 @@ pub mod mock {
         }
     }
 
+    #[async_trait]
     impl WriteParamExtractor for MockWriteParamsExtractor {
-        fn parse_v1(&self, _req: &Request<Body>) -> Result<WriteParams, Error> {
+        async fn parse_v1(&self, _req: &Request<Body>) -> Result<WriteParams, Error> {
             let mut guard = self.state.lock();
             guard.calls.push(MockExtractorCall::V1);
             guard.ret.next().unwrap()
         }
 
-        fn parse_v2(&self, _req: &Request<Body>) -> Result<WriteParams, Error> {
+        async fn parse_v2(&self, _req: &Request<Body>) -> Result<WriteParams, Error> {
             let mut guard = self.state.lock();
             guard.calls.push(MockExtractorCall::V2);
             guard.ret.next().unwrap()

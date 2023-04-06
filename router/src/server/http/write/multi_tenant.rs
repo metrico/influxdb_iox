@@ -3,6 +3,8 @@
 //! [V2 Write API]:
 //!     https://docs.influxdata.com/influxdb/v2.6/api/#operation/PostWrite
 
+use async_trait::async_trait;
+
 use data_types::{NamespaceName, OrgBucketMappingError};
 use hyper::{Body, Request};
 
@@ -51,12 +53,13 @@ impl From<&MultiTenantExtractError> for hyper::StatusCode {
 #[derive(Debug, Default)]
 pub struct MultiTenantRequestParser;
 
+#[async_trait]
 impl WriteParamExtractor for MultiTenantRequestParser {
-    fn parse_v1(&self, _req: &Request<Body>) -> Result<WriteParams, Error> {
+    async fn parse_v1(&self, _req: &Request<Body>) -> Result<WriteParams, Error> {
         Err(Error::NoHandler)
     }
 
-    fn parse_v2(&self, req: &Request<Body>) -> Result<WriteParams, Error> {
+    async fn parse_v2(&self, req: &Request<Body>) -> Result<WriteParams, Error> {
         Ok(parse_v2(req)?)
     }
 }
@@ -81,11 +84,11 @@ mod tests {
 
     use super::*;
 
-    #[test]
-    fn test_parse_v1_always_errors() {
+    #[tokio::test]
+    async fn test_parse_v1_always_errors() {
         let parser = MultiTenantRequestParser::default();
 
-        let got = parser.parse_v1(&Request::default());
+        let got = parser.parse_v1(&Request::default()).await;
         assert_matches!(got, Err(Error::NoHandler));
     }
 
@@ -96,8 +99,8 @@ mod tests {
             want = $($want:tt)+                 // A pattern match for assert_matches!
         ) => {
             paste::paste! {
-                #[test]
-                fn [<test_parse_v2_ $name>]() {
+                #[tokio::test]
+                async fn [<test_parse_v2_ $name>]() {
                     let parser = MultiTenantRequestParser::default();
 
                     let query = $query_string;
@@ -107,7 +110,7 @@ mod tests {
                         .body(Body::from(""))
                         .unwrap();
 
-                    let got = parser.parse_v2(&request);
+                    let got = parser.parse_v2(&request).await;
                     assert_matches!(got, $($want)+);
                 }
             }

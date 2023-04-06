@@ -18,13 +18,7 @@ use router::{
     namespace_resolver::{MissingNamespaceAction, NamespaceAutocreation, NamespaceSchemaResolver},
     server::{
         grpc::RpcWriteGrpcDelegate,
-        http::{
-            write::{
-                multi_tenant::MultiTenantRequestParser, single_tenant::SingleTenantRequestParser,
-                WriteParamExtractor,
-            },
-            HttpDelegate,
-        },
+        http::{write::multi_tenant::MultiTenantRequestParser, HttpDelegate},
     },
 };
 use std::{iter, string::String, sync::Arc, time::Duration};
@@ -187,17 +181,13 @@ impl TestContext {
 
         let handler_stack = InstrumentationDecorator::new("request", &metrics, handler_stack);
 
-        let write_param_extractor: Box<dyn WriteParamExtractor> = match single_tenancy {
-            true => Box::<SingleTenantRequestParser>::default(),
-            false => Box::<MultiTenantRequestParser>::default(),
-        };
+        let write_param_extractor = Box::<MultiTenantRequestParser>::default();
 
         let http_delegate = HttpDelegate::new(
             1024,
             100,
             namespace_resolver,
             handler_stack,
-            None,
             &metrics,
             write_param_extractor,
         );

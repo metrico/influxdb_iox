@@ -3,7 +3,6 @@
 mod delete_predicate;
 pub mod write;
 
-use authz::{Action, Authorizer, Permission, Resource};
 use bytes::{Bytes, BytesMut};
 use futures::StreamExt;
 use hashbrown::HashMap;
@@ -14,8 +13,7 @@ use mutable_batch::MutableBatch;
 use mutable_batch_lp::LinesConverter;
 use observability_deps::tracing::*;
 use predicate::delete_predicate::parse_delete_predicate;
-use server_util::authorization::AuthorizationHeaderExtension;
-use std::{str::Utf8Error, sync::Arc, time::Instant};
+use std::{str::Utf8Error, time::Instant};
 use thiserror::Error;
 use tokio::sync::{Semaphore, TryAcquireError};
 use trace::ctx::SpanContext;
@@ -108,10 +106,6 @@ pub enum Error {
     /// The provided authorization is not sufficient to perform the request.
     #[error("access denied")]
     Forbidden,
-
-    /// An error occurred verifying the authorization token.
-    #[error(transparent)]
-    Authorizer(authz::Error),
 }
 
 impl Error {
@@ -141,19 +135,8 @@ impl Error {
             Error::RequestLimit => StatusCode::SERVICE_UNAVAILABLE,
             Error::Unauthenticated => StatusCode::UNAUTHORIZED,
             Error::Forbidden => StatusCode::FORBIDDEN,
-            Error::Authorizer(_) => StatusCode::INTERNAL_SERVER_ERROR,
             Error::SingleTenantError(e) => StatusCode::from(e),
             Error::MultiTenantError(e) => StatusCode::from(e),
-        }
-    }
-}
-
-impl From<authz::Error> for Error {
-    fn from(value: authz::Error) -> Self {
-        match value {
-            authz::Error::Forbidden => Self::Forbidden,
-            authz::Error::NoToken => Self::Unauthenticated,
-            e => Self::Authorizer(e),
         }
     }
 }
@@ -209,7 +192,6 @@ pub struct HttpDelegate<D, N, T = SystemProvider> {
     time_provider: T,
     namespace_resolver: N,
     dml_handler: D,
-    authz: Option<Arc<dyn Authorizer>>,
     write_param_extractor: Box<dyn WriteParamExtractor>,
 
     // A request limiter to restrict the number of simultaneous requests this
@@ -241,7 +223,6 @@ impl<D, N> HttpDelegate<D, N, SystemProvider> {
         max_requests: usize,
         namespace_resolver: N,
         dml_handler: D,
-        authz: Option<Arc<dyn Authorizer>>,
         metrics: &metric::Registry,
         write_param_extractor: Box<dyn WriteParamExtractor>,
     ) -> Self {
@@ -294,7 +275,6 @@ impl<D, N> HttpDelegate<D, N, SystemProvider> {
             namespace_resolver,
             write_param_extractor,
             dml_handler,
-            authz,
             request_sem: Semaphore::new(max_requests),
             write_metric_lines,
             http_line_protocol_parse_duration,
@@ -336,11 +316,11 @@ where
         // Route the request to a handler.
         match (req.method(), req.uri().path()) {
             (&Method::POST, "/write") => {
-                let dml_info = self.write_param_extractor.parse_v1(&req)?;
+                let dml_info = self.write_param_extractor.parse_v1(&req).await?;
                 self.write_handler(req, dml_info).await
             }
             (&Method::POST, "/api/v2/write") => {
-                let dml_info = self.write_param_extractor.parse_v2(&req)?;
+                let dml_info = self.write_param_extractor.parse_v2(&req).await?;
                 self.write_handler(req, dml_info).await
             }
             (&Method::POST, "/api/v2/delete") => self.delete_handler(req).await,
@@ -360,27 +340,6 @@ where
         write_info: WriteParams,
     ) -> Result<(), Error> {
         let span_ctx: Option<SpanContext> = req.extensions().get().cloned();
-
-        let token = req
-            .extensions()
-            .get::<AuthorizationHeaderExtension>()
-            .and_then(|v| v.as_ref())
-            .and_then(|v| {
-                let s = v.as_ref();
-                if s.len() < b"Token ".len() {
-                    None
-                } else {
-                    match s.split_at(b"Token ".len()) {
-                        (b"Token ", token) => Some(token),
-                        _ => None,
-                    }
-                }
-            });
-        let perms = [Permission::ResourceAction(
-            Resource::Database(write_info.namespace.to_string()),
-            Action::Write,
-        )];
-        self.authz.require_any_permission(token, &perms).await?;
 
         trace!(
             namespace=%write_info.namespace,
@@ -442,7 +401,7 @@ where
 
     async fn delete_handler(&self, req: Request<Body>) -> Result<(), Error> {
         let span_ctx: Option<SpanContext> = req.extensions().get().cloned();
-        let write_info = self.write_param_extractor.parse_v2(&req)?;
+        let write_info = self.write_param_extractor.parse_v2(&req).await?;
 
         trace!(namespace=%write_info.namespace, "processing delete request");
 
@@ -565,7 +524,6 @@ mod tests {
         },
     };
     use assert_matches::assert_matches;
-    use async_trait::async_trait;
     use data_types::{
         NamespaceId, NamespaceName, NamespaceNameError, OrgBucketMappingError, TableId,
     };
@@ -574,6 +532,7 @@ mod tests {
     use metric::{Attributes, Metric};
     use mutable_batch::column::ColumnData;
     use mutable_batch_lp::LineWriteError;
+    use server_util::authorization::AuthorizationHeaderExtension;
     use std::{io::Write, iter, sync::Arc, time::Duration};
     use test_helpers::timeout::FutureTimeout;
     use tokio_stream::wrappers::ReceiverStream;
@@ -685,7 +644,6 @@ mod tests {
                         100,
                         mock_namespace_resolver,
                         Arc::clone(&dml_handler),
-                        None,
                         &metrics,
                         Box::<crate::server::http::write::multi_tenant::MultiTenantRequestParser>::default(),
                     );
@@ -1267,7 +1225,6 @@ mod tests {
             1,
             mock_namespace_resolver,
             Arc::clone(&dml_handler),
-            None,
             &metrics,
             Box::new(
                 MockWriteParamsExtractor::default().with_ret(iter::repeat_with(|| {
@@ -1386,105 +1343,6 @@ mod tests {
         assert_metric_hit(&metrics, "http_request_limit_rejected", Some(1));
     }
 
-    #[derive(Debug)]
-    struct MockAuthorizer {}
-
-    #[async_trait]
-    impl Authorizer for MockAuthorizer {
-        async fn permissions(
-            &self,
-            token: Option<&[u8]>,
-            perms: &[Permission],
-        ) -> Result<Vec<Permission>, authz::Error> {
-            match token {
-                Some(b"GOOD") => Ok(perms.to_vec()),
-                Some(b"UGLY") => Err(authz::Error::verification("test", "test error")),
-                Some(_) => Ok(vec![]),
-                None => Err(authz::Error::NoToken),
-            }
-        }
-    }
-
-    #[tokio::test]
-    async fn test_authz() {
-        let mock_namespace_resolver =
-            MockNamespaceResolver::default().with_mapping(NAMESPACE_NAME, NamespaceId::new(42));
-
-        let dml_handler = Arc::new(
-            MockDmlHandler::default()
-                .with_write_return([Ok(())])
-                .with_delete_return([]),
-        );
-        let metrics = Arc::new(metric::Registry::default());
-        let authz = Arc::new(MockAuthorizer {});
-        let delegate = HttpDelegate::new(
-            MAX_BYTES,
-            1,
-            mock_namespace_resolver,
-            Arc::clone(&dml_handler),
-            Some(authz),
-            &metrics,
-            Box::new(
-                MockWriteParamsExtractor::default().with_ret(iter::repeat_with(|| {
-                    Ok(WriteParams {
-                        namespace: NamespaceName::new(NAMESPACE_NAME).unwrap(),
-                        precision: Precision::default(),
-                    })
-                })),
-            ),
-        );
-
-        let request = Request::builder()
-            .uri("https://bananas.example/api/v2/write?org=bananas&bucket=test")
-            .method("POST")
-            .extension(AuthorizationHeaderExtension::new(Some(
-                HeaderValue::from_str("Token GOOD").unwrap(),
-            )))
-            .body(Body::from("platanos,tag1=A,tag2=B val=42i 123456"))
-            .unwrap();
-
-        let got = delegate.route(request).await;
-        assert_matches!(got, Ok(_));
-
-        let request = Request::builder()
-            .uri("https://bananas.example/api/v2/write?org=bananas&bucket=test")
-            .method("POST")
-            .extension(AuthorizationHeaderExtension::new(Some(
-                HeaderValue::from_str("Token BAD").unwrap(),
-            )))
-            .body(Body::from(""))
-            .unwrap();
-
-        let got = delegate.route(request).await;
-        assert_matches!(got, Err(Error::Forbidden));
-
-        let request = Request::builder()
-            .uri("https://bananas.example/api/v2/write?org=bananas&bucket=test")
-            .method("POST")
-            .body(Body::from(""))
-            .unwrap();
-
-        let got = delegate.route(request).await;
-        assert_matches!(got, Err(Error::Unauthenticated));
-
-        let request = Request::builder()
-            .uri("https://bananas.example/api/v2/write?org=bananas&bucket=test")
-            .method("POST")
-            .extension(AuthorizationHeaderExtension::new(Some(
-                HeaderValue::from_str("Token UGLY").unwrap(),
-            )))
-            .body(Body::from(""))
-            .unwrap();
-
-        let got = delegate.route(request).await;
-        assert_matches!(got, Err(Error::Authorizer(_)));
-
-        let calls = dml_handler.calls();
-        assert_matches!(calls.as_slice(), [MockDmlHandlerCall::Write{namespace, ..}] => {
-            assert_eq!(namespace, NAMESPACE_NAME);
-        })
-    }
-
     /// Assert the router rejects writes to the V1 endpoint when in
     /// "multi-tenant" mode.
     #[tokio::test]
@@ -1503,7 +1361,6 @@ mod tests {
             1,
             mock_namespace_resolver,
             Arc::clone(&dml_handler),
-            None,
             &metrics,
             Box::<MultiTenantRequestParser>::default(),
         );
@@ -1552,7 +1409,6 @@ mod tests {
             1,
             mock_namespace_resolver,
             Arc::clone(&dml_handler),
-            None,
             &metrics,
             Box::new(Arc::clone(&request_parser)),
         );
@@ -1790,13 +1646,6 @@ mod tests {
         (
             Forbidden,
             "access denied",
-        ),
-
-        (
-            Authorizer(
-                authz::Error::verification("bananas", NamespaceCreationError::Reject("bananas".to_string()))
-            ),
-            "token verification not possible: bananas",
         ),
 
         (

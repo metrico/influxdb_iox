@@ -65,6 +65,9 @@ pub enum Error {
 
     #[error("No topic named '{topic_name}' found in the catalog")]
     TopicCatalogLookup { topic_name: String },
+
+    #[error("Invalid configuration: '{error}'")]
+    Configuration { error: String },
 }
 
 pub type Result<T, E = Error> = std::result::Result<T, E>;
@@ -344,19 +347,20 @@ pub async fn create_router2_server_type(
     let handler_stack = InstrumentationDecorator::new("request", &metrics, handler_stack);
 
     // Initialize the HTTP API delegate
-    let write_param_extractor: Box<dyn WriteParamExtractor> =
-        match router_config.single_tenant_deployment {
-            true => Box::<SingleTenantRequestParser>::default(),
-            false => Box::<MultiTenantRequestParser>::default(),
+    let write_param_extractor: Result<Box<dyn WriteParamExtractor>> =
+        match (router_config.single_tenant_deployment, authz) {
+            (true, Some(auth)) => Ok(Box::new(SingleTenantRequestParser::new(auth))),
+            (true, None) => Err(Error::Configuration { error: "INFLUXDB_IOX_SINGLE_TENANCY is set, but could not create an authz service. Check the INFLUXDB_IOX_AUTHZ_ADDR.".to_string() }),
+            (false, None) => Ok(Box::<MultiTenantRequestParser>::default()),
+            (false, Some(_)) => Err(Error::Configuration { error: "INFLUXDB_IOX_AUTHZ_ADDR is set, but authz only exists for single_tenancy. Check the INFLUXDB_IOX_SINGLE_TENANCY.".to_string() }),
         };
     let http = HttpDelegate::new(
         common_state.run_config().max_http_request_size,
         router_config.http_request_limit,
         namespace_resolver,
         handler_stack,
-        authz,
         &metrics,
-        write_param_extractor,
+        write_param_extractor?,
     );
 
     // Initialize the gRPC API delegate that creates the services relevant to the RPC

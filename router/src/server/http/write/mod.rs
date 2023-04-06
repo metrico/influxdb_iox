@@ -7,5 +7,7 @@ pub mod v2;
 pub mod multi_tenant;
 pub mod single_tenant;
 
+pub mod auth;
+
 mod params;
 pub use params::*;
