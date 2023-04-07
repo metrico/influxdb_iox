@@ -136,7 +136,7 @@ async fn parse_v1(
             )
         }
     })?;
-    authorize(auth_service, req, &namespace)
+    authorize(auth_service, req, &namespace, write_params.p)
         .await
         .map_err(SingleTenantExtractError::Authorizer)?;
 
@@ -163,7 +163,7 @@ async fn parse_v2(
         return Err(SingleTenantExtractError::NoBucketSpecified);
     }
     let namespace = NamespaceName::new(write_params.bucket)?;
-    authorize(auth_service, req, &namespace)
+    authorize(auth_service, req, &namespace, None)
         .await
         .map_err(SingleTenantExtractError::Authorizer)?;
 

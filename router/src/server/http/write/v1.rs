@@ -76,6 +76,8 @@ pub(crate) struct WriteParamsV1 {
     pub(crate) precision: Precision,
     #[serde(default)]
     pub(crate) rp: RetentionPolicy,
+
+    pub(crate) p: Option<String>,
 }
 
 impl<T> TryFrom<&Request<T>> for WriteParamsV1 {
