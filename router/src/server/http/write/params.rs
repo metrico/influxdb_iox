@@ -44,31 +44,31 @@ pub struct WriteParams {
     pub(crate) precision: Precision,
 }
 
-/// A [`WriteParamExtractor`] abstraction returns [`WriteParams`] from
-/// [`Request`] that conform to the [V1 Write API] or [V2 Write API].
+/// A [`WriteRequestUnifier`] abstraction returns a unified [`WriteParams`]
+/// from [`Request`] that conform to the [V1 Write API] or [V2 Write API].
 ///
-/// Differing request parsing semantics are abstracted through this trait
-/// (single tenant, vs multi tenant).
+/// Differing request parsing semantics and authorization are abstracted
+/// through this trait (single tenant, vs multi tenant).
 ///
 /// [V1 Write API]:
 ///     https://docs.influxdata.com/influxdb/v1.8/tools/api/#write-http-endpoint
 /// [V2 Write API]:
 ///     https://docs.influxdata.com/influxdb/v2.6/api/#operation/PostWrite
 #[async_trait]
-pub trait WriteParamExtractor: std::fmt::Debug + Send + Sync {
-    /// Parse a [`WriteParams`] from a HTTP [`Request]`, according to the V1
-    /// Write API.
+pub trait WriteRequestUnifier: std::fmt::Debug + Send + Sync {
+    /// Perform a unifying parse to produce a [`WriteParams`] from a HTTP [`Request]`,
+    /// according to the V1 Write API.
     async fn parse_v1(&self, req: &Request<Body>) -> Result<WriteParams, Error>;
 
-    /// Parse a [`WriteParams`] from a HTTP [`Request]`, according to the V2
-    /// Write API.
+    /// Perform a unifying parse to produce a [`WriteParams`] from a HTTP [`Request]`,
+    /// according to the V2 Write API.
     async fn parse_v2(&self, req: &Request<Body>) -> Result<WriteParams, Error>;
 }
 
 #[async_trait]
-impl<T> WriteParamExtractor for Arc<T>
+impl<T> WriteRequestUnifier for Arc<T>
 where
-    T: WriteParamExtractor,
+    T: WriteRequestUnifier,
 {
     async fn parse_v1(&self, req: &Request<Body>) -> Result<WriteParams, Error> {
         (**self).parse_v1(req).await
@@ -86,13 +86,13 @@ pub mod mock {
     use super::*;
 
     #[derive(Debug, Clone, Copy)]
-    pub enum MockExtractorCall {
+    pub enum MockUnifyingParseCall {
         V1,
         V2,
     }
 
     struct State {
-        calls: Vec<MockExtractorCall>,
+        calls: Vec<MockUnifyingParseCall>,
         ret: Box<dyn Iterator<Item = Result<WriteParams, Error>> + Send + Sync>,
     }
 
@@ -112,11 +112,11 @@ pub mod mock {
     }
 
     #[derive(Debug, Default)]
-    pub struct MockWriteParamsExtractor {
+    pub struct MockWriteRequestUnifier {
         state: Mutex<State>,
     }
 
-    impl MockWriteParamsExtractor {
+    impl MockWriteRequestUnifier {
         /// Read values off of the provided iterator and return them for calls
         /// to [`Self::write()`].
         pub(crate) fn with_ret<T, U>(self, ret: T) -> Self
@@ -128,22 +128,22 @@ pub mod mock {
             self
         }
 
-        pub(crate) fn calls(&self) -> Vec<MockExtractorCall> {
+        pub(crate) fn calls(&self) -> Vec<MockUnifyingParseCall> {
             self.state.lock().calls.clone()
         }
     }
 
     #[async_trait]
-    impl WriteParamExtractor for MockWriteParamsExtractor {
+    impl WriteRequestUnifier for MockWriteRequestUnifier {
         async fn parse_v1(&self, _req: &Request<Body>) -> Result<WriteParams, Error> {
             let mut guard = self.state.lock();
-            guard.calls.push(MockExtractorCall::V1);
+            guard.calls.push(MockUnifyingParseCall::V1);
             guard.ret.next().unwrap()
         }
 
         async fn parse_v2(&self, _req: &Request<Body>) -> Result<WriteParams, Error> {
             let mut guard = self.state.lock();
-            guard.calls.push(MockExtractorCall::V2);
+            guard.calls.push(MockUnifyingParseCall::V2);
             guard.ret.next().unwrap()
         }
     }

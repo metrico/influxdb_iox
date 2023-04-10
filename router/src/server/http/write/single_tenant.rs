@@ -16,7 +16,7 @@ use super::{
     auth::authorize,
     v1::{RetentionPolicy, V1WriteParseError, WriteParamsV1},
     v2::{V2WriteParseError, WriteParamsV2},
-    WriteParamExtractor, WriteParams,
+    WriteParams, WriteRequestUnifier,
 };
 use crate::server::http::{
     write::v1::V1_NAMESPACE_RP_SEPARATOR,
@@ -81,7 +81,8 @@ impl From<&SingleTenantExtractError> for hyper::StatusCode {
 ///
 /// This handler respects the [V2 Write API] with the following modifications:
 ///
-///   * The namespace is derived from ONLY the bucket name (org is discarded)
+///   * The namespace is derived from ONLY the bucket name (org is discarded).
+///   * Authorization token is required.
 ///
 /// This handler respects a limited subset of the [V1 Write API] defined in
 /// <https://github.com/influxdata/idpe/issues/17265>.
@@ -91,11 +92,11 @@ impl From<&SingleTenantExtractError> for hyper::StatusCode {
 /// [V1 Write API]:
 ///     https://docs.influxdata.com/influxdb/v1.8/tools/api/#write-http-endpoint
 #[derive(Debug)]
-pub struct SingleTenantRequestParser {
+pub struct SingleTenantRequestUnifier {
     auth_service: Arc<dyn Authorizer>,
 }
 
-impl SingleTenantRequestParser {
+impl SingleTenantRequestUnifier {
     /// Creates a new SingleTenantRequestParser
     pub fn new(auth_service: Arc<dyn Authorizer>) -> Self {
         Self { auth_service }
@@ -103,7 +104,7 @@ impl SingleTenantRequestParser {
 }
 
 #[async_trait]
-impl WriteParamExtractor for SingleTenantRequestParser {
+impl WriteRequestUnifier for SingleTenantRequestUnifier {
     async fn parse_v1(&self, req: &Request<Body>) -> Result<WriteParams, Error> {
         Ok(parse_v1(req, &self.auth_service).await?)
     }
@@ -192,7 +193,7 @@ mod tests {
                 #[tokio::test]
                 async fn [<test_parse_v1_ $name>]() {
                     let authz = Arc::new(MockAuthorizer {});
-                    let parser = SingleTenantRequestParser::new(authz);
+                    let unifier = SingleTenantRequestUnifier::new(authz);
 
                     let query = $query_string;
                     let request = Request::builder()
@@ -204,7 +205,7 @@ mod tests {
                         .body(Body::from(""))
                         .unwrap();
 
-                    let got = parser.parse_v1(&request).await;
+                    let got = unifier.parse_v1(&request).await;
                     assert_matches!(got, $($want)+);
                 }
             }
@@ -361,7 +362,7 @@ mod tests {
                 #[tokio::test]
                 async fn [<test_parse_v2_ $name>]() {
                     let authz = Arc::new(MockAuthorizer {});
-                    let parser = SingleTenantRequestParser::new(authz);
+                    let unifier = SingleTenantRequestUnifier::new(authz);
 
                     let query = $query_string;
                     let request = Request::builder()
@@ -373,7 +374,7 @@ mod tests {
                         .body(Body::from(""))
                         .unwrap();
 
-                    let got = parser.parse_v2(&request).await;
+                    let got = unifier.parse_v2(&request).await;
                     assert_matches!(got, $($want)+);
                 }
             }

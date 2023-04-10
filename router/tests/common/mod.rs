@@ -18,7 +18,7 @@ use router::{
     namespace_resolver::{MissingNamespaceAction, NamespaceAutocreation, NamespaceSchemaResolver},
     server::{
         grpc::RpcWriteGrpcDelegate,
-        http::{write::multi_tenant::MultiTenantRequestParser, HttpDelegate},
+        http::{write::multi_tenant::MultiTenantRequestUnifier, HttpDelegate},
     },
 };
 use std::{iter, string::String, sync::Arc, time::Duration};
@@ -181,7 +181,7 @@ impl TestContext {
 
         let handler_stack = InstrumentationDecorator::new("request", &metrics, handler_stack);
 
-        let write_param_extractor = Box::<MultiTenantRequestParser>::default();
+        let write_request_unifier = Box::<MultiTenantRequestUnifier>::default();
 
         let http_delegate = HttpDelegate::new(
             1024,
@@ -189,7 +189,7 @@ impl TestContext {
             namespace_resolver,
             handler_stack,
             &metrics,
-            write_param_extractor,
+            write_request_unifier,
         );
 
         let grpc_delegate = RpcWriteGrpcDelegate::new(

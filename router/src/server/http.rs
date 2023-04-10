@@ -22,7 +22,7 @@ use self::{
     delete_predicate::parse_http_delete_request,
     write::{
         multi_tenant::MultiTenantExtractError, single_tenant::SingleTenantExtractError,
-        WriteParamExtractor, WriteParams,
+        WriteParams, WriteRequestUnifier,
     },
 };
 use crate::{
@@ -192,7 +192,7 @@ pub struct HttpDelegate<D, N, T = SystemProvider> {
     time_provider: T,
     namespace_resolver: N,
     dml_handler: D,
-    write_param_extractor: Box<dyn WriteParamExtractor>,
+    write_request_mode_handler: Box<dyn WriteRequestUnifier>,
 
     // A request limiter to restrict the number of simultaneous requests this
     // router services.
@@ -224,7 +224,7 @@ impl<D, N> HttpDelegate<D, N, SystemProvider> {
         namespace_resolver: N,
         dml_handler: D,
         metrics: &metric::Registry,
-        write_param_extractor: Box<dyn WriteParamExtractor>,
+        write_request_mode_handler: Box<dyn WriteRequestUnifier>,
     ) -> Self {
         let write_metric_lines = metrics
             .register_metric::<U64Counter>(
@@ -273,7 +273,7 @@ impl<D, N> HttpDelegate<D, N, SystemProvider> {
             max_request_bytes,
             time_provider: SystemProvider::default(),
             namespace_resolver,
-            write_param_extractor,
+            write_request_mode_handler,
             dml_handler,
             request_sem: Semaphore::new(max_requests),
             write_metric_lines,
@@ -316,11 +316,11 @@ where
         // Route the request to a handler.
         match (req.method(), req.uri().path()) {
             (&Method::POST, "/write") => {
-                let dml_info = self.write_param_extractor.parse_v1(&req).await?;
+                let dml_info = self.write_request_mode_handler.parse_v1(&req).await?;
                 self.write_handler(req, dml_info).await
             }
             (&Method::POST, "/api/v2/write") => {
-                let dml_info = self.write_param_extractor.parse_v2(&req).await?;
+                let dml_info = self.write_request_mode_handler.parse_v2(&req).await?;
                 self.write_handler(req, dml_info).await
             }
             (&Method::POST, "/api/v2/delete") => self.delete_handler(req).await,
@@ -401,7 +401,7 @@ where
 
     async fn delete_handler(&self, req: Request<Body>) -> Result<(), Error> {
         let span_ctx: Option<SpanContext> = req.extensions().get().cloned();
-        let write_info = self.write_param_extractor.parse_v2(&req).await?;
+        let write_info = self.write_request_mode_handler.parse_v2(&req).await?;
 
         trace!(namespace=%write_info.namespace, "processing delete request");
 
@@ -516,8 +516,8 @@ mod tests {
         },
         namespace_resolver::{mock::MockNamespaceResolver, NamespaceCreationError},
         server::http::write::{
-            mock::{MockExtractorCall, MockWriteParamsExtractor},
-            multi_tenant::MultiTenantRequestParser,
+            mock::{MockUnifyingParseCall, MockWriteRequestUnifier},
+            multi_tenant::MultiTenantRequestUnifier,
             v1::V1WriteParseError,
             v2::V2WriteParseError,
             Precision,
@@ -645,7 +645,7 @@ mod tests {
                         mock_namespace_resolver,
                         Arc::clone(&dml_handler),
                         &metrics,
-                        Box::<crate::server::http::write::multi_tenant::MultiTenantRequestParser>::default(),
+                        Box::<crate::server::http::write::multi_tenant::MultiTenantRequestUnifier>::default(),
                     );
 
                     let got = delegate.route(request).await;
@@ -1227,7 +1227,7 @@ mod tests {
             Arc::clone(&dml_handler),
             &metrics,
             Box::new(
-                MockWriteParamsExtractor::default().with_ret(iter::repeat_with(|| {
+                MockWriteRequestUnifier::default().with_ret(iter::repeat_with(|| {
                     Ok(WriteParams {
                         namespace: NamespaceName::new(NAMESPACE_NAME).unwrap(),
                         precision: Precision::default(),
@@ -1362,7 +1362,7 @@ mod tests {
             mock_namespace_resolver,
             Arc::clone(&dml_handler),
             &metrics,
-            Box::<MultiTenantRequestParser>::default(),
+            Box::<MultiTenantRequestUnifier>::default(),
         );
 
         let request = Request::builder()
@@ -1379,17 +1379,17 @@ mod tests {
     }
 
     /// Assert the router delegates request parsing to the
-    /// [`WriteParamExtractor`] implementation.
+    /// [`WriteRequestUnifier`] implementation.
     ///
     /// By validating request parsing is delegated, behavioural tests for each
     /// implementation can be implemented directly against those implementations
     /// (instead of putting them all here).
     #[tokio::test]
-    async fn test_delegate_to_write_param_extractor_ok() {
+    async fn test_delegate_to_write_request_unifier_ok() {
         let mock_namespace_resolver =
             MockNamespaceResolver::default().with_mapping(NAMESPACE_NAME, NamespaceId::new(42));
 
-        let request_parser = Arc::new(MockWriteParamsExtractor::default().with_ret(
+        let request_unifier = Arc::new(MockWriteRequestUnifier::default().with_ret(
             iter::repeat_with(|| {
                 Ok(WriteParams {
                     namespace: NamespaceName::new(NAMESPACE_NAME).unwrap(),
@@ -1410,7 +1410,7 @@ mod tests {
             mock_namespace_resolver,
             Arc::clone(&dml_handler),
             &metrics,
-            Box::new(Arc::clone(&request_parser)),
+            Box::new(Arc::clone(&request_unifier)),
         );
 
         // A route miss does not invoke the parser
@@ -1432,7 +1432,10 @@ mod tests {
         assert_matches!(got, Ok(_));
 
         // Only one call was received, and it should be v1.
-        assert_matches!(request_parser.calls().as_slice(), [MockExtractorCall::V1]);
+        assert_matches!(
+            request_unifier.calls().as_slice(),
+            [MockUnifyingParseCall::V1]
+        );
 
         // V2 write parsing is delegated
         let request = Request::builder()
@@ -1445,8 +1448,8 @@ mod tests {
 
         // Both call were received.
         assert_matches!(
-            request_parser.calls().as_slice(),
-            [MockExtractorCall::V1, MockExtractorCall::V2]
+            request_unifier.calls().as_slice(),
+            [MockUnifyingParseCall::V1, MockUnifyingParseCall::V2]
         );
 
         // Delete requests hit the v2 parser
@@ -1459,11 +1462,11 @@ mod tests {
 
         // The delete should have hit v2.
         assert_matches!(
-            request_parser.calls().as_slice(),
+            request_unifier.calls().as_slice(),
             [
-                MockExtractorCall::V1,
-                MockExtractorCall::V2,
-                MockExtractorCall::V2
+                MockUnifyingParseCall::V1,
+                MockUnifyingParseCall::V2,
+                MockUnifyingParseCall::V2
             ]
         );
     }

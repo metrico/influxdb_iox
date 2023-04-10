@@ -81,7 +81,7 @@ mod tests {
         namespace_resolver::mock::MockNamespaceResolver,
         server::http::{
             self,
-            write::single_tenant::{SingleTenantExtractError, SingleTenantRequestParser},
+            write::single_tenant::{SingleTenantExtractError, SingleTenantRequestUnifier},
             HttpDelegate,
         },
     };
@@ -110,7 +110,7 @@ mod tests {
             mock_namespace_resolver,
             Arc::clone(&dml_handler),
             &metrics,
-            Box::new(SingleTenantRequestParser::new(authz)),
+            Box::new(SingleTenantRequestUnifier::new(authz)),
         );
 
         let request = Request::builder()

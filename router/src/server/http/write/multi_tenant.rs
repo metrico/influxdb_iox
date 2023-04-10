@@ -10,7 +10,7 @@ use hyper::{Body, Request};
 
 use super::{
     v2::{V2WriteParseError, WriteParamsV2},
-    WriteParamExtractor, WriteParams,
+    WriteParams, WriteRequestUnifier,
 };
 use crate::server::http::Error;
 
@@ -51,10 +51,10 @@ impl From<&MultiTenantExtractError> for hyper::StatusCode {
 /// [V2 Write API]:
 ///     https://docs.influxdata.com/influxdb/v2.6/api/#operation/PostWrite
 #[derive(Debug, Default)]
-pub struct MultiTenantRequestParser;
+pub struct MultiTenantRequestUnifier;
 
 #[async_trait]
-impl WriteParamExtractor for MultiTenantRequestParser {
+impl WriteRequestUnifier for MultiTenantRequestUnifier {
     async fn parse_v1(&self, _req: &Request<Body>) -> Result<WriteParams, Error> {
         Err(Error::NoHandler)
     }
@@ -86,9 +86,9 @@ mod tests {
 
     #[tokio::test]
     async fn test_parse_v1_always_errors() {
-        let parser = MultiTenantRequestParser::default();
+        let unifier = MultiTenantRequestUnifier::default();
 
-        let got = parser.parse_v1(&Request::default()).await;
+        let got = unifier.parse_v1(&Request::default()).await;
         assert_matches!(got, Err(Error::NoHandler));
     }
 
@@ -101,7 +101,7 @@ mod tests {
             paste::paste! {
                 #[tokio::test]
                 async fn [<test_parse_v2_ $name>]() {
-                    let parser = MultiTenantRequestParser::default();
+                    let unifier = MultiTenantRequestUnifier::default();
 
                     let query = $query_string;
                     let request = Request::builder()
@@ -110,7 +110,7 @@ mod tests {
                         .body(Body::from(""))
                         .unwrap();
 
-                    let got = parser.parse_v2(&request).await;
+                    let got = unifier.parse_v2(&request).await;
                     assert_matches!(got, $($want)+);
                 }
             }
