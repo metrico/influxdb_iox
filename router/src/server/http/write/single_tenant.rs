@@ -178,10 +178,48 @@ async fn parse_v2(
 mod tests {
     use super::*;
     use crate::server::http::write::{auth::mock::MockAuthorizer, Precision};
-
     use assert_matches::assert_matches;
+    use authz::Permission;
     use hyper::header::HeaderValue;
+    use metric::U64Counter;
     use server_util::authorization::AuthorizationHeaderExtension;
+
+    #[tokio::test]
+    async fn test_delegate_to_authz() {
+        #[derive(Debug)]
+        struct MockCountingAuthorizer {
+            calls_counter: Arc<U64Counter>,
+        }
+
+        #[async_trait]
+        impl Authorizer for MockCountingAuthorizer {
+            async fn permissions(
+                &self,
+                _token: Option<&[u8]>,
+                perms: &[Permission],
+            ) -> Result<Vec<Permission>, authz::Error> {
+                self.calls_counter.inc(1);
+                Ok(perms.to_vec())
+            }
+        }
+        let counter = Arc::new(U64Counter::default());
+        let authz: Arc<MockCountingAuthorizer> = Arc::new(MockCountingAuthorizer {
+            calls_counter: Arc::clone(&counter),
+        });
+        let unifier = SingleTenantRequestUnifier::new(authz);
+
+        let request = Request::builder()
+            .uri(format!("https://foo?db=bananas"))
+            .method("POST")
+            .extension(AuthorizationHeaderExtension::new(Some(
+                HeaderValue::from_str("Token GOOD").unwrap(),
+            )))
+            .body(Body::from(""))
+            .unwrap();
+
+        assert!(unifier.parse_v1(&request).await.is_ok());
+        assert_eq!(counter.fetch(), 1);
+    }
 
     macro_rules! test_parse_v1 {
         (
@@ -192,7 +230,7 @@ mod tests {
             paste::paste! {
                 #[tokio::test]
                 async fn [<test_parse_v1_ $name>]() {
-                    let authz = Arc::new(MockAuthorizer {});
+                    let authz = Arc::new(MockAuthorizer::default());
                     let unifier = SingleTenantRequestUnifier::new(authz);
 
                     let query = $query_string;
@@ -361,7 +399,7 @@ mod tests {
             paste::paste! {
                 #[tokio::test]
                 async fn [<test_parse_v2_ $name>]() {
-                    let authz = Arc::new(MockAuthorizer {});
+                    let authz = Arc::new(MockAuthorizer::default());
                     let unifier = SingleTenantRequestUnifier::new(authz);
 
                     let query = $query_string;

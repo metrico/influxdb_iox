@@ -53,7 +53,7 @@ pub mod mock {
     use super::*;
     use async_trait::async_trait;
 
-    #[derive(Debug)]
+    #[derive(Debug, Default)]
     pub struct MockAuthorizer {}
 
     #[async_trait]
@@ -103,7 +103,7 @@ mod tests {
                 .with_delete_return([]),
         );
         let metrics = Arc::new(metric::Registry::default());
-        let authz = Arc::new(MockAuthorizer {});
+        let authz = Arc::new(MockAuthorizer::default());
         let delegate = HttpDelegate::new(
             MAX_BYTES,
             1,
@@ -189,7 +189,7 @@ mod tests {
             paste::paste! {
                 #[tokio::test]
                 async fn [<test_authorize_ $name>]() {
-                    let authz: Arc<dyn Authorizer> = Arc::new(MockAuthorizer {});
+                    let authz: Arc<dyn Authorizer> = Arc::new(MockAuthorizer::default());
                     let namespace = NamespaceName::new("test").unwrap();
 
                     let request = Request::builder()
