@@ -349,7 +349,7 @@ pub async fn create_router2_server_type(
     // Initialize the HTTP API delegate
     let write_request_unifier: Result<Box<dyn WriteRequestUnifier>> =
         match (router_config.single_tenant_deployment, authz) {
-            (true, Some(auth)) => Ok(Box::new(SingleTenantRequestUnifier::new(auth))),
+            (true, Some(auth)) => Ok(Box::new(SingleTenantRequestUnifier::new(auth, &metrics))),
             (true, None) => Err(Error::Configuration { error: "INFLUXDB_IOX_SINGLE_TENANCY is set, but could not create an authz service. Check the INFLUXDB_IOX_AUTHZ_ADDR.".to_string() }),
             (false, None) => Ok(Box::<MultiTenantRequestUnifier>::default()),
             (false, Some(_)) => Err(Error::Configuration { error: "INFLUXDB_IOX_AUTHZ_ADDR is set, but authz only exists for single_tenancy. Check the INFLUXDB_IOX_SINGLE_TENANCY.".to_string() }),
