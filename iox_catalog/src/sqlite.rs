@@ -1444,6 +1444,9 @@ WHERE object_store_id = $1;
             let res = Self::create_parquet_file(&mut tx, file.clone()).await?;
             ids.push(res.id);
         }
+        tx.commit()
+            .await
+            .map_err(|e| Error::FailedToCommit { source: e })?;
 
         Ok(ids)
     }
