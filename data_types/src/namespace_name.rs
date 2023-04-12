@@ -1,6 +1,4 @@
 use std::{borrow::Cow, ops::RangeInclusive};
-
-use percent_encoding::{utf8_percent_encode, NON_ALPHANUMERIC};
 use thiserror::Error;
 
 /// Length constraints for a [`NamespaceName`] name.
@@ -109,9 +107,11 @@ impl<'a> NamespaceName<'a> {
 
     /// Map an InfluxDB 2.X org & bucket into an IOx NamespaceName.
     ///
-    /// This function ensures the mapping is unambiguous by encoding any
-    /// non-alphanumeric characters in both `org` and `bucket` in addition to
-    /// the validation performed in [`NamespaceName::new()`].
+    /// Does not perform any additional validation beyond [`NamespaceName::new()`],
+    /// other than confirming the existence of non-empty name parts.
+    ///
+    /// This keeps the onCreate namespaces, which use [`NamespaceName::new()`],
+    /// in alignment with the onUpdate namespace endpoints, which provide org and bucket.
     pub fn from_org_and_bucket<O: AsRef<str>, B: AsRef<str>>(
         org: O,
         bucket: B,
@@ -123,10 +123,7 @@ impl<'a> NamespaceName<'a> {
             return Err(OrgBucketMappingError::NoOrgBucketSpecified);
         }
 
-        let prefix: Cow<'_, str> = utf8_percent_encode(org, NON_ALPHANUMERIC).into();
-        let suffix: Cow<'_, str> = utf8_percent_encode(bucket, NON_ALPHANUMERIC).into();
-
-        let db_name = format!("{}_{}", prefix, suffix);
+        let db_name = format!("{}_{}", org, bucket);
         Ok(Self::new(db_name)?)
     }
 }
@@ -188,34 +185,16 @@ mod tests {
     #[test]
     fn test_org_bucket_map_db_contains_underscore() {
         let got = NamespaceName::from_org_and_bucket("my_org", "bucket").unwrap();
-        assert_eq!(got.as_str(), "my%5Forg_bucket");
+        assert_eq!(got.as_str(), "my_org_bucket");
 
         let got = NamespaceName::from_org_and_bucket("org", "my_bucket").unwrap();
-        assert_eq!(got.as_str(), "org_my%5Fbucket");
+        assert_eq!(got.as_str(), "org_my_bucket");
 
         let got = NamespaceName::from_org_and_bucket("org", "my__bucket").unwrap();
-        assert_eq!(got.as_str(), "org_my%5F%5Fbucket");
+        assert_eq!(got.as_str(), "org_my__bucket");
 
         let got = NamespaceName::from_org_and_bucket("my_org", "my_bucket").unwrap();
-        assert_eq!(got.as_str(), "my%5Forg_my%5Fbucket");
-    }
-
-    #[test]
-    fn test_org_bucket_map_db_contains_underscore_and_percent() {
-        let got = NamespaceName::from_org_and_bucket("my%5Forg", "bucket").unwrap();
-        assert_eq!(got.as_str(), "my%255Forg_bucket");
-
-        let got = NamespaceName::from_org_and_bucket("my%5Forg_", "bucket").unwrap();
-        assert_eq!(got.as_str(), "my%255Forg%5F_bucket");
-    }
-
-    #[test]
-    fn test_bad_namespace_name_is_encoded() {
-        let got = NamespaceName::from_org_and_bucket("org", "bucket?").unwrap();
-        assert_eq!(got.as_str(), "org_bucket%3F");
-
-        let got = NamespaceName::from_org_and_bucket("org!", "bucket").unwrap();
-        assert_eq!(got.as_str(), "org%21_bucket");
+        assert_eq!(got.as_str(), "my_org_my_bucket");
     }
 
     #[test]

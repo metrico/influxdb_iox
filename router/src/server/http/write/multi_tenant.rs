@@ -163,6 +163,8 @@ mod tests {
         ))
     );
 
+    // iox's namespace onCreate does not encode non-alphanumeric chars
+    // therefore, we need to maintain the same contract onWrite
     test_parse_v2!(
         encoded_separator,
         query_string = "?org=cool_confusing&bucket=bucket",
@@ -170,7 +172,7 @@ mod tests {
             namespace,
             ..
         }) => {
-            assert_eq!(namespace.as_str(), "cool%5Fconfusing_bucket");
+            assert_eq!(namespace.as_str(), "cool_confusing_bucket");
         }
     );
 
@@ -185,6 +187,8 @@ mod tests {
         }
     );
 
+    // iox's namespace onCreate does not filter for single quotation
+    // therefore, we need to maintain the same contract onWrite
     test_parse_v2!(
         encoded_quotation,
         query_string = "?org=cool'confusing&bucket=bucket",
@@ -192,10 +196,12 @@ mod tests {
             namespace,
             ..
         }) => {
-            assert_eq!(namespace.as_str(), "cool%27confusing_bucket");
+            assert_eq!(namespace.as_str(), "cool'confusing_bucket");
         }
     );
 
+    // iox's namespace onCreate does not filter beginning with underscore
+    // therefore, we need to maintain the same contract onWrite
     test_parse_v2!(
         start_nonalphanumeric,
         query_string = "?org=_coolconfusing&bucket=bucket",
@@ -203,7 +209,7 @@ mod tests {
             namespace,
             ..
         }) => {
-            assert_eq!(namespace.as_str(), "%5Fcoolconfusing_bucket");
+            assert_eq!(namespace.as_str(), "_coolconfusing_bucket");
         }
     );
 
