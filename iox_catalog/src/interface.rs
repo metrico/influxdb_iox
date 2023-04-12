@@ -1573,11 +1573,6 @@ pub(crate) mod test_helpers {
 
         repos
             .namespaces()
-            .soft_delete("namespace_partition_test2")
-            .await
-            .expect("delete namespace should succeed");
-        repos
-            .namespaces()
             .soft_delete("namespace_partition_test")
             .await
             .expect("delete namespace should succeed");
