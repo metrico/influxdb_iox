@@ -187,14 +187,6 @@ pub trait Catalog: Send + Sync + Debug + Display {
     /// Setup catalog for usage and apply possible migrations.
     async fn setup(&self) -> Result<(), Error>;
 
-    /// Creates a new [`Transaction`].
-    ///
-    /// Creating transactions is potentially expensive. Holding one consumes resources. The number
-    /// of parallel active transactions might be limited per catalog, so you MUST NOT rely on the
-    /// ability to create multiple transactions in parallel for correctness. Parallel transactions
-    /// must only be used for scaling.
-    async fn start_transaction(&self) -> Result<Box<dyn Transaction>, Error>;
-
     /// Accesses the repositories without a transaction scope.
     async fn repositories(&self) -> Box<dyn RepoCollection>;
 
@@ -204,68 +196,6 @@ pub trait Catalog: Send + Sync + Debug + Display {
     /// Gets the time provider associated with this catalog.
     fn time_provider(&self) -> Arc<dyn TimeProvider>;
 }
-
-/// Secret module for [sealed traits].
-///
-/// [sealed traits]: https://rust-lang.github.io/api-guidelines/future-proofing.html#sealed-traits-protect-against-downstream-implementations-c-sealed
-#[doc(hidden)]
-pub(crate) mod sealed {
-    use super::*;
-
-    /// Helper trait to implement commit and abort of an transaction.
-    ///
-    /// The problem is that both methods cannot take `self` directly, otherwise the [`Transaction`]
-    /// would not be object safe. Therefore we can only take a reference. To avoid that a user uses
-    /// a transaction after calling one of the finalizers, we use a tiny trick and take `Box<dyn
-    /// Transaction>` in our public interface and use a sealed trait for the actual implementation.
-    #[async_trait]
-    pub trait TransactionFinalize: Send + Sync + Debug {
-        async fn commit_inplace(&mut self) -> Result<(), Error>;
-        async fn abort_inplace(&mut self) -> Result<(), Error>;
-    }
-}
-
-/// Transaction in a [`Catalog`] (similar to a database transaction).
-///
-/// A transaction provides a consistent view on data and stages writes.
-/// To finalize a transaction, call [commit](Self::commit) or [abort](Self::abort).
-///
-/// Repositories can cheaply be borrowed from it.
-///
-/// Note that after any method in this transaction (including all repositories derived from it)
-/// returns an error, the transaction MIGHT be poisoned and will return errors for all operations,
-/// depending on the backend.
-///
-///
-/// # Drop
-///
-/// Dropping a transaction without calling [`commit`](Self::commit) or [`abort`](Self::abort) will
-/// abort the transaction. However resources might not be released immediately, so it is adviced to
-/// always call [`abort`](Self::abort) when you want to enforce that. Dropping w/o
-/// commiting/aborting will also log a warning.
-#[async_trait]
-pub trait Transaction: Send + Sync + Debug + sealed::TransactionFinalize + RepoCollection {
-    /// Commits a transaction.
-    ///
-    /// # Error Handling
-    ///
-    /// If successful, all changes will be visible to other transactions.
-    ///
-    /// If an error is returned, the transaction may or or not be committed. This might be due to
-    /// IO errors after the transaction was finished. However in either case, the transaction is
-    /// atomic and can only succeed or fail entirely.
-    async fn commit(mut self: Box<Self>) -> Result<(), Error> {
-        self.commit_inplace().await
-    }
-
-    /// Aborts the transaction, throwing away all changes.
-    async fn abort(mut self: Box<Self>) -> Result<(), Error> {
-        self.abort_inplace().await
-    }
-}
-
-impl<T> Transaction for T where T: Send + Sync + Debug + sealed::TransactionFinalize + RepoCollection
-{}
 
 /// Methods for working with the catalog's various repositories (collections of entities).
 ///
@@ -551,6 +481,16 @@ pub trait ParquetFileRepo: Send + Sync {
         &mut self,
         object_store_id: Uuid,
     ) -> Result<Option<ParquetFile>>;
+
+    /// Commmit deletions, upgrades and creations in a single transaction.
+    async fn create_update_delete(
+        &mut self,
+        _partition_id: PartitionId,
+        delete: &[ParquetFile],
+        upgrade: &[ParquetFile],
+        create: &[ParquetFileParams],
+        target_level: CompactionLevel,
+    ) -> Result<Vec<ParquetFileId>>;
 }
 
 /// Gets the namespace schema including all tables and columns.
@@ -2097,6 +2037,79 @@ pub(crate) mod test_helpers {
             .await
             .unwrap();
         assert!(ids.is_empty());
+
+        // test create_update_delete
+        let f6_params = ParquetFileParams {
+            object_store_id: Uuid::new_v4(),
+            ..f5_params
+        };
+        let f1_uuid = f1.object_store_id;
+        let f5_uuid = f5.object_store_id;
+        let cud = repos
+            .parquet_files()
+            .create_update_delete(
+                f4.partition_id,
+                &[f5.clone()],
+                &[f1.clone()],
+                &[f6_params.clone()],
+                CompactionLevel::Final,
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(cud.len(), 1);
+        let f5_delete = repos
+            .parquet_files()
+            .get_by_object_store_id(f5_uuid)
+            .await
+            .unwrap()
+            .unwrap();
+        println!("f5_delete: {:?}", &f5_delete);
+        assert_matches!(f5_delete.to_delete, Some(_));
+
+        let f1_compaction_level = repos
+            .parquet_files()
+            .get_by_object_store_id(f1_uuid)
+            .await
+            .unwrap()
+            .unwrap();
+        assert_matches!(f1_compaction_level.compaction_level, CompactionLevel::Final);
+
+        let f6 = repos
+            .parquet_files()
+            .get_by_object_store_id(f6_params.object_store_id)
+            .await
+            .unwrap()
+            .unwrap();
+
+        let f6_uuid = f6.object_store_id;
+
+        // test create_update_delete transaction (rollsback because f6 already exists)
+        let cud = repos
+            .parquet_files()
+            .create_update_delete(
+                f4.partition_id,
+                &[f5],
+                &[f2],
+                &[f6_params.clone()],
+                CompactionLevel::Final,
+            )
+            .await;
+
+        assert_matches!(
+            cud,
+            Err(Error::FileExists {
+                object_store_id
+            }) if object_store_id == f6_params.object_store_id
+        );
+
+        let f6_not_delete = repos
+            .parquet_files()
+            .get_by_object_store_id(f6_uuid)
+            .await
+            .unwrap()
+            .unwrap();
+        assert_matches!(f6_not_delete.to_delete, None);
     }
 
     async fn test_parquet_file_delete_broken(catalog: Arc<dyn Catalog>) {
@@ -2535,73 +2548,6 @@ pub(crate) mod test_helpers {
             .exist(p2_n2.id)
             .await
             .expect("parquet file exists check should succeed"));
-    }
-
-    async fn test_txn_isolation(catalog: Arc<dyn Catalog>) {
-        let barrier = Arc::new(tokio::sync::Barrier::new(2));
-
-        let barrier_captured = Arc::clone(&barrier);
-        let catalog_captured = Arc::clone(&catalog);
-        let insertion_task = tokio::spawn(async move {
-            barrier_captured.wait().await;
-
-            let mut txn = catalog_captured.start_transaction().await.unwrap();
-            txn.namespaces()
-                .create("test_txn_isolation", None)
-                .await
-                .unwrap();
-
-            tokio::time::sleep(Duration::from_millis(200)).await;
-            txn.abort().await.unwrap();
-        });
-
-        let mut txn = catalog.start_transaction().await.unwrap();
-
-        barrier.wait().await;
-        tokio::time::sleep(Duration::from_millis(100)).await;
-
-        let namespace = txn
-            .namespaces()
-            .get_by_name("test_txn_isolation", SoftDeletedRows::AllRows)
-            .await
-            .unwrap();
-        assert!(namespace.is_none());
-        txn.abort().await.unwrap();
-
-        insertion_task.await.unwrap();
-
-        let mut txn = catalog.start_transaction().await.unwrap();
-        let namespace = txn
-            .namespaces()
-            .get_by_name("test_txn_isolation", SoftDeletedRows::AllRows)
-            .await
-            .unwrap();
-        assert!(namespace.is_none());
-        txn.abort().await.unwrap();
-    }
-
-    async fn test_txn_drop(catalog: Arc<dyn Catalog>) {
-        let capture = TracingCapture::new();
-        let mut txn = catalog.start_transaction().await.unwrap();
-        txn.namespaces()
-            .create("test_txn_drop", None)
-            .await
-            .unwrap();
-        drop(txn);
-
-        // got a warning
-        assert_contains!(capture.to_string(), "Dropping ");
-        assert_contains!(capture.to_string(), " w/o finalizing (commit or abort)");
-
-        // data is NOT committed
-        let mut txn = catalog.start_transaction().await.unwrap();
-        let namespace = txn
-            .namespaces()
-            .get_by_name("test_txn_drop", SoftDeletedRows::AllRows)
-            .await
-            .unwrap();
-        assert!(namespace.is_none());
-        txn.abort().await.unwrap();
     }
 
     /// Upsert a namespace called `namespace_name` and write `lines` to it.
