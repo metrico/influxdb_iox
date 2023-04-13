@@ -338,6 +338,7 @@ mod tests {
 
         let handler = NamespaceService::new(catalog, Some(topic.id), Some(query_pool.id));
 
+        // Length constraint
         let name = "A".repeat(1000);
         let invalid_name_err = NamespaceNameError::LengthConstraint {
             name: String::from(&name),
@@ -347,6 +348,28 @@ mod tests {
             retention_period_ns: Some(RETENTION),
         };
         let create_ns_response = handler.create_namespace(Request::new(req)).await;
+        assert_matches!(
+            create_ns_response,
+        s => match s {
+            Err(s) => {
+                assert_eq!(s.code(), Code::InvalidArgument);
+                assert_eq!(s.message(), invalid_name_err.to_string());
+            },
+            Ok(_) => panic!("NamespaceName was successful, when it should have failed."),
+        });
+
+        // Restricted char
+        let name = String::from("name'space");
+        let invalid_name_err = NamespaceNameError::BadChars {
+            bad_char_offset: 4,
+            name: name.clone(),
+        };
+        let req = CreateNamespaceRequest {
+            name,
+            retention_period_ns: Some(RETENTION),
+        };
+        let create_ns_response = handler.create_namespace(Request::new(req)).await;
+        println!("{:?}", create_ns_response);
         assert_matches!(
             create_ns_response,
         s => match s {

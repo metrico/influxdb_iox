@@ -75,9 +75,9 @@ fn parse_v2(req: &Request<Body>) -> Result<WriteParams, MultiTenantExtractError>
 
 #[cfg(test)]
 mod tests {
-    use assert_matches::assert_matches;
-
     use crate::server::http::write::Precision;
+    use assert_matches::assert_matches;
+    use data_types::NamespaceNameError;
 
     use super::*;
 
@@ -187,17 +187,14 @@ mod tests {
         }
     );
 
-    // iox's namespace onCreate does not filter for single quotation
-    // therefore, we need to maintain the same contract onWrite
     test_parse_v2!(
         encoded_quotation,
         query_string = "?org=cool'confusing&bucket=bucket",
-        want = Ok(WriteParams {
-            namespace,
-            ..
-        }) => {
-            assert_eq!(namespace.as_str(), "cool'confusing_bucket");
-        }
+        want = Err(Error::MultiTenantError(
+            MultiTenantExtractError::InvalidOrgAndBucket(
+                OrgBucketMappingError::InvalidNamespaceName(NamespaceNameError::BadChars { .. })
+            )
+        ))
     );
 
     // iox's namespace onCreate does not filter beginning with underscore

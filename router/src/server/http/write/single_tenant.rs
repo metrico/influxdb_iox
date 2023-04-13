@@ -280,9 +280,9 @@ mod tests {
     test_parse_v1!(
         encoded_quotation,
         query_string = "?db=ban'anas",
-        want = Ok(WriteParams{ namespace, precision: _ }) => {
-            assert_eq!(namespace.as_str(), "ban'anas");
-        }
+        want = Err(Error::SingleTenantError(
+            SingleTenantExtractError::InvalidNamespace(NamespaceNameError::BadChars { .. })
+        ))
     );
 
     test_parse_v1!(
@@ -415,12 +415,9 @@ mod tests {
     test_parse_v2!(
         encoded_quotation,
         query_string = "?bucket=buc'ket",
-        want = Ok(WriteParams {
-            namespace,
-            ..
-        }) => {
-            assert_eq!(namespace.as_str(), "buc'ket");
-        }
+        want = Err(Error::SingleTenantError(
+            SingleTenantExtractError::InvalidNamespace(NamespaceNameError::BadChars { .. })
+        ))
     );
 
     test_parse_v2!(

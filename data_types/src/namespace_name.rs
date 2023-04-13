@@ -6,6 +6,10 @@ use thiserror::Error;
 /// A `RangeInclusive` is a closed interval, covering [1, 64]
 const LENGTH_CONSTRAINT: RangeInclusive<usize> = 1..=64;
 
+fn is_restricted(c: char) -> bool {
+    matches!(c, '\t' | '\r' | '\n' | '\\' | '\'' | '"' | '%' | '?')
+}
+
 /// Errors returned when attempting to construct a [`NamespaceName`] from an org
 /// & bucket string pair.
 #[derive(Debug, Error)]
@@ -39,7 +43,7 @@ pub enum NamespaceNameError {
     /// The provided namespace name contains an unacceptable character.
     #[error(
         "namespace name '{}' contains invalid character, character number {} \
-        is a control which is not allowed.",
+        is a control or restricted character, which is not allowed.",
         name,
         bad_char_offset
     )]
@@ -90,7 +94,10 @@ impl<'a> NamespaceName<'a> {
         //
         // NOTE: If changing these characters, please update the error message
         // above.
-        if let Some(bad_char_offset) = name.chars().position(|c| c.is_control()) {
+        if let Some(bad_char_offset) = name
+            .chars()
+            .position(|c| c.is_control() || is_restricted(c))
+        {
             return Err(NamespaceNameError::BadChars {
                 bad_char_offset,
                 name: name.to_string(),
@@ -235,25 +242,43 @@ mod tests {
     #[test]
     fn test_bad_chars_null() {
         let got = NamespaceName::new("example\x00").unwrap_err();
-        assert_eq!(got.to_string() , "namespace name 'example\x00' contains invalid character, character number 7 is a control which is not allowed.");
+        assert_eq!(got.to_string() , "namespace name 'example\x00' contains invalid character, character number 7 is a control or restricted character, which is not allowed.");
     }
 
     #[test]
     fn test_bad_chars_high_control() {
         let got = NamespaceName::new("\u{007f}example").unwrap_err();
-        assert_eq!(got.to_string() , "namespace name '\u{007f}example' contains invalid character, character number 0 is a control which is not allowed.");
+        assert_eq!(got.to_string() , "namespace name '\u{007f}example' contains invalid character, character number 0 is a control or restricted character, which is not allowed.");
     }
 
     #[test]
     fn test_bad_chars_tab() {
         let got = NamespaceName::new("example\tdb").unwrap_err();
-        assert_eq!(got.to_string() , "namespace name 'example\tdb' contains invalid character, character number 7 is a control which is not allowed.");
+        assert_eq!(got.to_string() , "namespace name 'example\tdb' contains invalid character, character number 7 is a control or restricted character, which is not allowed.");
     }
 
     #[test]
     fn test_bad_chars_newline() {
         let got = NamespaceName::new("my_example\ndb").unwrap_err();
-        assert_eq!(got.to_string() , "namespace name 'my_example\ndb' contains invalid character, character number 10 is a control which is not allowed.");
+        assert_eq!(got.to_string() , "namespace name 'my_example\ndb' contains invalid character, character number 10 is a control or restricted character, which is not allowed.");
+    }
+
+    #[test]
+    fn test_bad_chars_single_qoute() {
+        let got = NamespaceName::new("my_example'db").unwrap_err();
+        assert_eq!(got.to_string() , "namespace name 'my_example\'db' contains invalid character, character number 10 is a control or restricted character, which is not allowed.");
+    }
+
+    #[test]
+    fn test_bad_chars_percent() {
+        let got = NamespaceName::new("my_example%db").unwrap_err();
+        assert_eq!(got.to_string() , "namespace name 'my_example%db' contains invalid character, character number 10 is a control or restricted character, which is not allowed.");
+    }
+
+    #[test]
+    fn test_bad_chars_question_mark() {
+        let got = NamespaceName::new("my_example?db").unwrap_err();
+        assert_eq!(got.to_string() , "namespace name 'my_example?db' contains invalid character, character number 10 is a control or restricted character, which is not allowed.");
     }
 
     #[test]
