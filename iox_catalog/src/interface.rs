@@ -1534,22 +1534,6 @@ pub(crate) mod test_helpers {
         assert_eq!(skipped_partition_record.partition_id, other_partition.id);
         assert_eq!(skipped_partition_record.reason, "I'm on fire");
 
-        /*
-        //
-        let skipped_partition_record = repos
-            .partitions()
-            .get_in_skipped_compaction(other_partition.id)
-            .await
-            .unwrap();
-        assert!(skipped_partition_record.is_none());
-
-        let skipped_compactions = repos.partitions().list_skipped_compactions().await.unwrap();
-        assert!(
-            skipped_compactions.is_empty(),
-            "Expected no skipped compactions, got: {skipped_compactions:?}"
-        );
-        */
-
         let recent = repos
             .partitions()
             .most_recent_n(10)
