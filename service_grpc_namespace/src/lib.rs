@@ -1,7 +1,7 @@
 //! Implementation of the namespace gRPC service
 use std::sync::Arc;
 
-use data_types::{Namespace as CatalogNamespace, QueryPoolId, TopicId};
+use data_types::{Namespace as CatalogNamespace, NamespaceName, QueryPoolId, TopicId};
 use generated_types::influxdata::iox::namespace::v1::{
     update_namespace_service_protection_limit_request::LimitUpdate, *,
 };
@@ -65,18 +65,20 @@ impl namespace_service_server::NamespaceService for NamespaceService {
         let mut repos = self.catalog.repositories().await;
 
         let CreateNamespaceRequest {
-            name: namespace_name,
+            name,
             retention_period_ns,
         } = request.into_inner();
 
         let retention_period_ns = map_retention_period(retention_period_ns)?;
+        let namespace_name =
+            NamespaceName::new(name).map_err(|err| Status::invalid_argument(err.to_string()))?;
 
-        debug!(%namespace_name, ?retention_period_ns, "Creating namespace");
+        debug!(namespace = %namespace_name.as_str(), ?retention_period_ns, "Creating namespace");
 
         let namespace = repos
             .namespaces()
             .create(
-                &namespace_name,
+                namespace_name.as_str(),
                 retention_period_ns,
                 self.topic_id.unwrap(),
                 self.query_id.unwrap(),
@@ -88,7 +90,7 @@ impl namespace_service_server::NamespaceService for NamespaceService {
             })?;
 
         info!(
-            namespace_name,
+            namespace_name = %namespace_name.as_str(),
             namespace_id = %namespace.id,
             "created namespace"
         );
@@ -290,6 +292,7 @@ mod tests {
     use std::time::Duration;
 
     use assert_matches::assert_matches;
+    use data_types::NamespaceNameError;
     use generated_types::influxdata::iox::namespace::v1::namespace_service_server::NamespaceService as _;
     use iox_catalog::mem::MemCatalog;
     use tonic::Code;
@@ -310,6 +313,48 @@ mod tests {
         });
         assert_matches!(map_retention_period(Some(-42)), Err(e) => {
             assert_eq!(e.code(), Code::InvalidArgument)
+        });
+    }
+
+    #[tokio::test]
+    async fn test_invalid_namespace_name_error() {
+        let catalog: Arc<dyn Catalog> =
+            Arc::new(MemCatalog::new(Arc::new(metric::Registry::default())));
+
+        let topic = catalog
+            .repositories()
+            .await
+            .topics()
+            .create_or_get("kafka-topic")
+            .await
+            .unwrap();
+        let query_pool = catalog
+            .repositories()
+            .await
+            .query_pools()
+            .create_or_get("query-pool")
+            .await
+            .unwrap();
+
+        let handler = NamespaceService::new(catalog, Some(topic.id), Some(query_pool.id));
+
+        let name = "A".repeat(1000);
+        let invalid_name_err = NamespaceNameError::LengthConstraint {
+            name: String::from(&name),
+        };
+        let req = CreateNamespaceRequest {
+            name,
+            retention_period_ns: Some(RETENTION),
+        };
+        let create_ns_response = handler.create_namespace(Request::new(req)).await;
+        assert_matches!(
+            create_ns_response,
+        s => match s {
+            Err(s) => {
+                assert_eq!(s.code(), Code::InvalidArgument);
+                assert_eq!(s.message(), invalid_name_err.to_string());
+            },
+            Ok(_) => panic!("NamespaceName was successful, when it should have failed."),
         });
     }
 
