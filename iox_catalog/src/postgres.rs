@@ -14,9 +14,9 @@ use crate::{
 };
 use async_trait::async_trait;
 use data_types::{
-    Column, ColumnType, ColumnTypeCount, CompactionLevel, Namespace, NamespaceId, ParquetFile,
-    ParquetFileId, ParquetFileParams, Partition, PartitionId, PartitionKey, SkippedCompaction,
-    Table, TableId, Timestamp,
+    Column, ColumnType, CompactionLevel, Namespace, NamespaceId, ParquetFile, ParquetFileId,
+    ParquetFileParams, Partition, PartitionId, PartitionKey, SkippedCompaction, Table, TableId,
+    Timestamp,
 };
 use iox_time::{SystemProvider, TimeProvider};
 use observability_deps::tracing::{debug, info, warn};
@@ -1074,21 +1074,6 @@ RETURNING *;
 
         Ok(out)
     }
-
-    async fn list_type_count_by_table_id(
-        &mut self,
-        table_id: TableId,
-    ) -> Result<Vec<ColumnTypeCount>> {
-        sqlx::query_as::<_, ColumnTypeCount>(
-            r#"
-select column_type as col_type, count(1) from column_name where table_id = $1 group by 1;
-            "#,
-        )
-        .bind(table_id) // $1
-        .fetch_all(&mut self.inner)
-        .await
-        .map_err(|e| Error::SqlxError { source: e })
-    }
 }
 
 #[async_trait]
@@ -1144,22 +1129,6 @@ WHERE id = $1;
         let partition = rec.map_err(|e| Error::SqlxError { source: e })?;
 
         Ok(Some(partition))
-    }
-
-    async fn list_by_namespace(&mut self, namespace_id: NamespaceId) -> Result<Vec<Partition>> {
-        sqlx::query_as::<_, Partition>(
-            r#"
-SELECT partition.id, partition.table_id, partition.partition_key, partition.sort_key,
-       partition.new_file_at
-FROM table_name
-INNER JOIN partition on partition.table_id = table_name.id
-WHERE table_name.namespace_id = $1;
-            "#,
-        )
-        .bind(namespace_id) // $1
-        .fetch_all(&mut self.inner)
-        .await
-        .map_err(|e| Error::SqlxError { source: e })
     }
 
     async fn list_by_table_id(&mut self, table_id: TableId) -> Result<Vec<Partition>> {
@@ -1322,23 +1291,6 @@ SELECT * FROM skipped_compactions
         .fetch_all(&mut self.inner)
         .await
         .context(interface::CouldNotListSkippedCompactionsSnafu)
-    }
-
-    async fn delete_skipped_compactions(
-        &mut self,
-        partition_id: PartitionId,
-    ) -> Result<Option<SkippedCompaction>> {
-        sqlx::query_as::<_, SkippedCompaction>(
-            r#"
-DELETE FROM skipped_compactions
-WHERE partition_id = $1
-RETURNING *
-        "#,
-        )
-        .bind(partition_id)
-        .fetch_optional(&mut self.inner)
-        .await
-        .context(interface::CouldNotDeleteSkippedCompactionsSnafu)
     }
 
     async fn most_recent_n(&mut self, n: usize) -> Result<Vec<Partition>> {
@@ -1556,16 +1508,6 @@ WHERE parquet_file.partition_id = $1
         .map_err(|e| Error::SqlxError { source: e })?;
 
         Ok(read_result.count > 0)
-    }
-
-    async fn count(&mut self) -> Result<i64> {
-        let read_result =
-            sqlx::query_as::<_, Count>(r#"SELECT count(1) as count FROM parquet_file;"#)
-                .fetch_one(&mut self.inner)
-                .await
-                .map_err(|e| Error::SqlxError { source: e })?;
-
-        Ok(read_result.count)
     }
 
     async fn get_by_object_store_id(

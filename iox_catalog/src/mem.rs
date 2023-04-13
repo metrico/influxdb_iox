@@ -11,17 +11,15 @@ use crate::{
 };
 use async_trait::async_trait;
 use data_types::{
-    Column, ColumnId, ColumnType, ColumnTypeCount, CompactionLevel, Namespace, NamespaceId,
-    ParquetFile, ParquetFileId, ParquetFileParams, Partition, PartitionId, PartitionKey,
-    SkippedCompaction, Table, TableId, Timestamp,
+    Column, ColumnId, ColumnType, CompactionLevel, Namespace, NamespaceId, ParquetFile,
+    ParquetFileId, ParquetFileParams, Partition, PartitionId, PartitionKey, SkippedCompaction,
+    Table, TableId, Timestamp,
 };
 use iox_time::{SystemProvider, TimeProvider};
-use observability_deps::tracing::warn;
 use snafu::ensure;
 use sqlx::types::Uuid;
 use std::{
     collections::{HashMap, HashSet},
-    convert::TryFrom,
     fmt::{Display, Formatter},
     sync::Arc,
 };
@@ -574,37 +572,6 @@ impl ColumnRepo for MemTxn {
         let stage = self.stage();
         Ok(stage.columns.clone())
     }
-
-    async fn list_type_count_by_table_id(
-        &mut self,
-        table_id: TableId,
-    ) -> Result<Vec<ColumnTypeCount>> {
-        let stage = self.stage();
-
-        let columns = stage
-            .columns
-            .iter()
-            .filter(|c| c.table_id == table_id)
-            .map(|c| c.column_type)
-            .collect::<Vec<_>>();
-
-        let mut cols = HashMap::new();
-        for c in columns {
-            cols.entry(c)
-                .and_modify(|counter| *counter += 1)
-                .or_insert(1);
-        }
-
-        let column_type_counts = cols
-            .iter()
-            .map(|c| ColumnTypeCount {
-                col_type: *c.0,
-                count: *c.1,
-            })
-            .collect::<Vec<_>>();
-
-        Ok(column_type_counts)
-    }
 }
 
 #[async_trait]
@@ -642,23 +609,6 @@ impl PartitionRepo for MemTxn {
             .iter()
             .find(|p| p.id == partition_id)
             .cloned())
-    }
-
-    async fn list_by_namespace(&mut self, namespace_id: NamespaceId) -> Result<Vec<Partition>> {
-        let stage = self.stage();
-
-        let table_ids: HashSet<_> = stage
-            .tables
-            .iter()
-            .filter_map(|table| (table.namespace_id == namespace_id).then_some(table.id))
-            .collect();
-        let partitions: Vec<_> = stage
-            .partitions
-            .iter()
-            .filter(|p| table_ids.contains(&p.table_id))
-            .cloned()
-            .collect();
-        Ok(partitions)
     }
 
     async fn list_by_table_id(&mut self, table_id: TableId) -> Result<Vec<Partition>> {
@@ -758,26 +708,6 @@ impl PartitionRepo for MemTxn {
     async fn list_skipped_compactions(&mut self) -> Result<Vec<SkippedCompaction>> {
         let stage = self.stage();
         Ok(stage.skipped_compactions.clone())
-    }
-
-    async fn delete_skipped_compactions(
-        &mut self,
-        partition_id: PartitionId,
-    ) -> Result<Option<SkippedCompaction>> {
-        use std::mem;
-
-        let stage = self.stage();
-        let skipped_compactions = mem::take(&mut stage.skipped_compactions);
-        let (mut removed, remaining) = skipped_compactions
-            .into_iter()
-            .partition(|sc| sc.partition_id == partition_id);
-        stage.skipped_compactions = remaining;
-
-        match removed.pop() {
-            Some(sc) if removed.is_empty() => Ok(Some(sc)),
-            Some(_) => unreachable!("There must be exactly one skipped compaction per partition"),
-            None => Ok(None),
-        }
     }
 
     async fn most_recent_n(&mut self, n: usize) -> Result<Vec<Partition>> {
@@ -994,17 +924,6 @@ impl ParquetFileRepo for MemTxn {
         let stage = self.stage();
 
         Ok(stage.parquet_files.iter().any(|f| f.id == id))
-    }
-
-    async fn count(&mut self) -> Result<i64> {
-        let stage = self.stage();
-
-        let count = stage.parquet_files.len();
-        let count_i64 = i64::try_from(count);
-        if count_i64.is_err() {
-            return Err(Error::InvalidValue { value: count });
-        }
-        Ok(count_i64.unwrap())
     }
 
     async fn get_by_object_store_id(
