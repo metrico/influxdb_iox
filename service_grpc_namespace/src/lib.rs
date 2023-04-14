@@ -349,13 +349,10 @@ mod tests {
         };
         let create_ns_response = handler.create_namespace(Request::new(req)).await;
         assert_matches!(
-            create_ns_response,
-        s => match s {
-            Err(s) => {
-                assert_eq!(s.code(), Code::InvalidArgument);
-                assert_eq!(s.message(), invalid_name_err.to_string());
-            },
-            Ok(_) => panic!("NamespaceName was successful, when it should have failed."),
+        create_ns_response,
+        Err(s) => {
+            assert_eq!(s.code(), Code::InvalidArgument);
+            assert_eq!(s.message(), invalid_name_err.to_string());
         });
 
         // Restricted char
@@ -372,13 +369,10 @@ mod tests {
         println!("{:?}", create_ns_response);
         assert_matches!(
             create_ns_response,
-        s => match s {
-            Err(s) => {
+        Err(s) => {
                 assert_eq!(s.code(), Code::InvalidArgument);
                 assert_eq!(s.message(), invalid_name_err.to_string());
-            },
-            Ok(_) => panic!("NamespaceName was successful, when it should have failed."),
-        });
+            });
     }
 
     #[test]
