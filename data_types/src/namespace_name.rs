@@ -1,4 +1,5 @@
 use std::{borrow::Cow, ops::RangeInclusive};
+
 use thiserror::Error;
 
 /// Length constraints for a [`NamespaceName`] name.

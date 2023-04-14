@@ -7,6 +7,7 @@
 //! [V1 Write API]:
 //!     https://docs.influxdata.com/influxdb/v1.8/tools/api/#write-http-endpoint
 
+use data_types::{NamespaceName, NamespaceNameError};
 use hyper::{Body, Request};
 use thiserror::Error;
 
@@ -19,7 +20,6 @@ use crate::server::http::{
     write::v1::V1_NAMESPACE_RP_SEPARATOR,
     Error::{self},
 };
-use data_types::{NamespaceName, NamespaceNameError};
 
 /// Request parsing errors when operating in "single tenant" mode.
 #[derive(Debug, Error)]
@@ -139,11 +139,10 @@ fn parse_v2(req: &Request<Body>) -> Result<WriteParams, SingleTenantExtractError
 
 #[cfg(test)]
 mod tests {
-    use crate::server::http::write::Precision;
+    use assert_matches::assert_matches;
 
     use super::*;
-
-    use assert_matches::assert_matches;
+    use crate::server::http::write::Precision;
 
     macro_rules! test_parse_v1 {
         (

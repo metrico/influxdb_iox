@@ -75,11 +75,11 @@ fn parse_v2(req: &Request<Body>) -> Result<WriteParams, MultiTenantExtractError>
 
 #[cfg(test)]
 mod tests {
-    use crate::server::http::write::Precision;
     use assert_matches::assert_matches;
     use data_types::NamespaceNameError;
 
     use super::*;
+    use crate::server::http::write::Precision;
 
     #[test]
     fn test_parse_v1_always_errors() {
