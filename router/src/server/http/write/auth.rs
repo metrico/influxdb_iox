@@ -110,7 +110,7 @@ mod tests {
             mock_namespace_resolver,
             Arc::clone(&dml_handler),
             &metrics,
-            Box::new(SingleTenantRequestUnifier::new(authz, &metrics)),
+            Box::new(SingleTenantRequestUnifier::new(authz)),
         );
 
         let request = Request::builder()

@@ -9,7 +9,7 @@
 
 use async_trait::async_trait;
 use hyper::{Body, Request};
-use std::{sync::Arc, time::Instant};
+use std::sync::Arc;
 use thiserror::Error;
 
 use super::{
@@ -24,7 +24,6 @@ use crate::server::http::{
 };
 use authz::{self, Authorizer};
 use data_types::{NamespaceName, NamespaceNameError};
-use metric::{DurationHistogram, Registry};
 
 /// Request parsing errors when operating in "single tenant" mode.
 #[derive(Debug, Error)]
@@ -95,31 +94,23 @@ impl From<&SingleTenantExtractError> for hyper::StatusCode {
 #[derive(Debug)]
 pub struct SingleTenantRequestUnifier {
     authz: Arc<dyn Authorizer>,
-    single_tenant_auth_duration: DurationHistogram,
 }
 
 impl SingleTenantRequestUnifier {
     /// Creates a new SingleTenantRequestParser
-    pub fn new(authz: Arc<dyn Authorizer>, metrics: &Registry) -> Self {
-        let single_tenant_auth_duration = metrics
-            .register_metric::<DurationHistogram>("single_tenant_auth_duration", "latency of authz")
-            .recorder(&[]);
-
-        Self {
-            authz,
-            single_tenant_auth_duration,
-        }
+    pub fn new(authz: Arc<dyn Authorizer>) -> Self {
+        Self { authz }
     }
 }
 
 #[async_trait]
 impl WriteRequestUnifier for SingleTenantRequestUnifier {
     async fn parse_v1(&self, req: &Request<Body>) -> Result<WriteParams, Error> {
-        Ok(parse_v1(req, &self.authz, &self.single_tenant_auth_duration).await?)
+        Ok(parse_v1(req, &self.authz).await?)
     }
 
     async fn parse_v2(&self, req: &Request<Body>) -> Result<WriteParams, Error> {
-        Ok(parse_v2(req, &self.authz, &self.single_tenant_auth_duration).await?)
+        Ok(parse_v2(req, &self.authz).await?)
     }
 }
 
@@ -127,7 +118,6 @@ impl WriteRequestUnifier for SingleTenantRequestUnifier {
 async fn parse_v1(
     req: &Request<Body>,
     authz: &Arc<dyn Authorizer>,
-    duration_histogram_recorder: &DurationHistogram,
 ) -> Result<WriteParams, SingleTenantExtractError> {
     // Extract the write parameters.
     let write_params = WriteParamsV1::try_from(req)?;
@@ -147,12 +137,9 @@ async fn parse_v1(
             )
         }
     })?;
-
-    let start_instant = Instant::now();
-    let authz_result = authorize(authz, req, &namespace, write_params.p).await;
-    authz_result.map_err(SingleTenantExtractError::Authorizer)?;
-    let duration = start_instant.elapsed();
-    duration_histogram_recorder.record(duration);
+    authorize(authz, req, &namespace, write_params.password)
+        .await
+        .map_err(SingleTenantExtractError::Authorizer)?;
 
     Ok(WriteParams {
         namespace,
@@ -164,7 +151,6 @@ async fn parse_v1(
 async fn parse_v2(
     req: &Request<Body>,
     authz: &Arc<dyn Authorizer>,
-    duration_histogram_recorder: &DurationHistogram,
 ) -> Result<WriteParams, SingleTenantExtractError> {
     let write_params = WriteParamsV2::try_from(req)?;
 
@@ -178,12 +164,9 @@ async fn parse_v2(
         return Err(SingleTenantExtractError::NoBucketSpecified);
     }
     let namespace = NamespaceName::new(write_params.bucket)?;
-
-    let start_instant = Instant::now();
-    let authz_result = authorize(authz, req, &namespace, None).await;
-    let duration = start_instant.elapsed();
-    duration_histogram_recorder.record(duration);
-    authz_result.map_err(SingleTenantExtractError::Authorizer)?;
+    authorize(authz, req, &namespace, None)
+        .await
+        .map_err(SingleTenantExtractError::Authorizer)?;
 
     Ok(WriteParams {
         namespace,
@@ -219,15 +202,14 @@ mod tests {
                 Ok(perms.to_vec())
             }
         }
-        let call_counter = Arc::new(U64Counter::default());
+        let counter = Arc::new(U64Counter::default());
         let authz: Arc<MockCountingAuthorizer> = Arc::new(MockCountingAuthorizer {
-            calls_counter: Arc::clone(&call_counter),
+            calls_counter: Arc::clone(&counter),
         });
-        let metrics = Arc::new(metric::Registry::default());
-        let unifier = SingleTenantRequestUnifier::new(authz, &metrics);
+        let unifier = SingleTenantRequestUnifier::new(authz);
 
         let request = Request::builder()
-            .uri("https://foo?db=bananas&bucket=bananas".to_string())
+            .uri("https://foo?db=bananas")
             .method("POST")
             .extension(AuthorizationHeaderExtension::new(Some(
                 HeaderValue::from_str("Token GOOD").unwrap(),
@@ -235,17 +217,8 @@ mod tests {
             .body(Body::from(""))
             .unwrap();
 
-        // parse_v1
         assert!(unifier.parse_v1(&request).await.is_ok());
-        assert_eq!(call_counter.fetch(), 1);
-        let metric_recorded = unifier.single_tenant_auth_duration.fetch();
-        assert_eq!(metric_recorded.sample_count(), 1);
-
-        // parse_v2
-        assert!(unifier.parse_v2(&request).await.is_ok());
-        assert_eq!(call_counter.fetch(), 2);
-        let metric_recorded = unifier.single_tenant_auth_duration.fetch();
-        assert_eq!(metric_recorded.sample_count(), 2);
+        assert_eq!(counter.fetch(), 1);
     }
 
     macro_rules! test_parse_v1 {
@@ -258,8 +231,7 @@ mod tests {
                 #[tokio::test]
                 async fn [<test_parse_v1_ $name>]() {
                     let authz = Arc::new(MockAuthorizer::default());
-                    let metrics = Arc::new(metric::Registry::default());
-                    let unifier = SingleTenantRequestUnifier::new(authz, &metrics);
+                    let unifier = SingleTenantRequestUnifier::new(authz);
 
                     let query = $query_string;
                     let request = Request::builder()
@@ -428,8 +400,7 @@ mod tests {
                 #[tokio::test]
                 async fn [<test_parse_v2_ $name>]() {
                     let authz = Arc::new(MockAuthorizer::default());
-                    let metrics = Arc::new(metric::Registry::default());
-                    let unifier = SingleTenantRequestUnifier::new(authz, &metrics);
+                    let unifier = SingleTenantRequestUnifier::new(authz);
 
                     let query = $query_string;
                     let request = Request::builder()
