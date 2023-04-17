@@ -14,8 +14,9 @@ use crate::{
 use async_trait::async_trait;
 use data_types::{
     Column, ColumnId, ColumnSet, ColumnType, CompactionLevel, Namespace, NamespaceId, ParquetFile,
-    ParquetFileId, ParquetFileParams, Partition, PartitionId, PartitionKey, QueryPool, QueryPoolId,
-    SequenceNumber, SkippedCompaction, Table, TableId, Timestamp, TopicId, TopicMetadata,
+    ParquetFileId, ParquetFileParams, Partition, PartitionHashId, PartitionId, PartitionKey,
+    QueryPool, QueryPoolId, SequenceNumber, SkippedCompaction, Table, TableId, Timestamp, TopicId,
+    TopicMetadata,
 };
 use serde::{Deserialize, Serialize};
 use std::ops::Deref;
@@ -868,6 +869,7 @@ RETURNING *;
 #[derive(Debug, Clone, PartialEq, Eq, sqlx::FromRow)]
 struct PartitionPod {
     id: PartitionId,
+    hash_id: Option<PartitionHashId>,
     table_id: TableId,
     partition_key: PartitionKey,
     sort_key: Json<Vec<String>>,
@@ -879,6 +881,7 @@ impl From<PartitionPod> for Partition {
     fn from(value: PartitionPod) -> Self {
         Self {
             id: value.id,
+            hash_id: value.hash_id,
             table_id: value.table_id,
             partition_key: value.partition_key,
             sort_key: value.sort_key.0,
@@ -895,20 +898,23 @@ impl PartitionRepo for SqliteTxn {
         // array rather than NULL which sqlx will throw `UnexpectedNullError` while is is doing
         // `ColumnDecode`
 
+        let hash_id = PartitionHashId::new(table_id, &key);
+
         let v = sqlx::query_as::<_, PartitionPod>(
             r#"
 INSERT INTO partition
-    ( partition_key, shard_id, table_id, sort_key)
+    (partition_key, shard_id, table_id, hash_id, sort_key)
 VALUES
-    ( $1, $2, $3, '[]')
+    ($1, $2, $3, $4, '[]')
 ON CONFLICT (table_id, partition_key)
 DO UPDATE SET partition_key = partition.partition_key
-RETURNING id, table_id, partition_key, sort_key, persisted_sequence_number, new_file_at;
+RETURNING id, hash_id, table_id, partition_key, sort_key, persisted_sequence_number, new_file_at;
         "#,
         )
         .bind(key) // $1
         .bind(TRANSITION_SHARD_ID) // $2
         .bind(table_id) // $3
+        .bind(&hash_id) // $4
         .fetch_one(self.inner.get_mut())
         .await
         .map_err(|e| {
@@ -925,7 +931,7 @@ RETURNING id, table_id, partition_key, sort_key, persisted_sequence_number, new_
     async fn get_by_id(&mut self, partition_id: PartitionId) -> Result<Option<Partition>> {
         let rec = sqlx::query_as::<_, PartitionPod>(
             r#"
-SELECT id, table_id, partition_key, sort_key, persisted_sequence_number, new_file_at
+SELECT id, hash_id, table_id, partition_key, sort_key, persisted_sequence_number, new_file_at
 FROM partition
 WHERE id = $1;
             "#,
@@ -946,7 +952,7 @@ WHERE id = $1;
     async fn list_by_table_id(&mut self, table_id: TableId) -> Result<Vec<Partition>> {
         Ok(sqlx::query_as::<_, PartitionPod>(
             r#"
-SELECT id, table_id, partition_key, sort_key, persisted_sequence_number, new_file_at
+SELECT id, hash_id, table_id, partition_key, sort_key, persisted_sequence_number, new_file_at
 FROM partition
 WHERE table_id = $1;
             "#,
@@ -990,7 +996,7 @@ WHERE table_id = $1;
 UPDATE partition
 SET sort_key = $1
 WHERE id = $2 AND sort_key = $3
-RETURNING id, table_id, partition_key, sort_key, persisted_sequence_number, new_file_at;
+RETURNING id, hash_id, table_id, partition_key, sort_key, persisted_sequence_number, new_file_at;
         "#,
         )
         .bind(Json(new_sort_key)) // $1
@@ -1129,7 +1135,7 @@ RETURNING *
     async fn most_recent_n(&mut self, n: usize) -> Result<Vec<Partition>> {
         Ok(sqlx::query_as::<_, PartitionPod>(
             r#"
-SELECT id, table_id, partition_key, sort_key, persisted_sequence_number, new_file_at
+SELECT id, hash_id, table_id, partition_key, sort_key, persisted_sequence_number, new_file_at
 FROM partition
 ORDER BY id DESC
 LIMIT $1;
@@ -1618,26 +1624,41 @@ mod tests {
             .expect("create table failed")
             .id;
 
-        let key = "bananas";
+        let key = PartitionKey::from("bananas");
+
+        let hash_id = PartitionHashId::new(table_id, &key);
 
         let a = sqlite
             .repositories()
             .await
             .partitions()
-            .create_or_get(key.into(), table_id)
+            .create_or_get(key.clone(), table_id)
             .await
             .expect("should create OK");
+
+        assert_eq!(a.hash_id.as_ref().unwrap(), &hash_id);
 
         // Call create_or_get for the same (key, table_id) pair, to ensure the write is idempotent.
         let b = sqlite
             .repositories()
             .await
             .partitions()
-            .create_or_get(key.into(), table_id)
+            .create_or_get(key.clone(), table_id)
             .await
             .expect("idempotent write should succeed");
 
         assert_eq!(a, b);
+
+        // Check that the hash_id is saved in the database and is returned when queried.
+        let table_partitions = sqlite
+            .repositories()
+            .await
+            .partitions()
+            .list_by_table_id(table_id)
+            .await
+            .unwrap();
+        assert_eq!(table_partitions.len(), 1);
+        assert_eq!(table_partitions[0].hash_id.as_ref().unwrap(), &hash_id);
     }
 
     macro_rules! test_column_create_or_get_many_unchecked {

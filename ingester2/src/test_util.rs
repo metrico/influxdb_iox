@@ -1,6 +1,6 @@
 use std::{collections::BTreeMap, sync::Arc, time::Duration};
 
-use data_types::{NamespaceId, Partition, PartitionId, PartitionKey, SequenceNumber, TableId};
+use data_types::{NamespaceId, PartitionId, PartitionKey, SequenceNumber, TableId};
 use dml::{DmlMeta, DmlWrite};
 use iox_catalog::interface::Catalog;
 use lazy_static::lazy_static;
@@ -115,19 +115,6 @@ impl PartitionDataBuilder {
                 .unwrap_or_else(|| Arc::clone(&*DEFER_TABLE_NAME_1_SEC)),
             self.sort_key.unwrap_or(SortKeyState::Provided(None)),
         )
-    }
-}
-
-/// Generate a valid [`Partition`] for use in the tests where the exact values (or at least some of
-/// them) don't particularly matter.
-pub(crate) fn arbitrary_partition() -> Partition {
-    Partition {
-        id: ARBITRARY_PARTITION_ID,
-        table_id: ARBITRARY_TABLE_ID,
-        partition_key: ARBITRARY_PARTITION_KEY.clone(),
-        sort_key: Default::default(),
-        persisted_sequence_number: Default::default(),
-        new_file_at: Default::default(),
     }
 }
 

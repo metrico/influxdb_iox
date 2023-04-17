@@ -222,7 +222,7 @@ mod tests {
     use crate::{
         buffer_tree::partition::resolver::mock::MockPartitionProvider,
         test_util::{
-            arbitrary_partition, PartitionDataBuilder, ARBITRARY_NAMESPACE_ID,
+            PartitionDataBuilder, ARBITRARY_NAMESPACE_ID,
             ARBITRARY_NAMESPACE_NAME, ARBITRARY_PARTITION_ID, ARBITRARY_PARTITION_KEY,
             ARBITRARY_PARTITION_KEY_STR, ARBITRARY_TABLE_ID, ARBITRARY_TABLE_NAME,
             DEFER_NAMESPACE_NAME_1_SEC, DEFER_TABLE_NAME_1_SEC,
@@ -279,11 +279,14 @@ mod tests {
         let inner = MockPartitionProvider::default();
 
         let stored_partition_key = PartitionKey::from(ARBITRARY_PARTITION_KEY_STR);
-        let partition = Partition {
-            partition_key: stored_partition_key.clone(),
-            sort_key: vec!["dos".to_string(), "bananas".to_string()],
-            ..arbitrary_partition()
-        };
+        let partition = Partition::new(
+            ARBITRARY_PARTITION_ID,
+            ARBITRARY_TABLE_ID,
+            stored_partition_key.clone(),
+            vec!["dos".to_string(), "bananas".to_string()],
+            Default::default(),
+            Default::default(),
+        );
 
         let cache = new_cache(inner, [partition]);
 
@@ -336,7 +339,14 @@ mod tests {
                 .build(),
         );
 
-        let partition = arbitrary_partition();
+        let partition = Partition::new(
+            ARBITRARY_PARTITION_ID,
+            ARBITRARY_TABLE_ID,
+            ARBITRARY_PARTITION_KEY.clone(),
+            Default::default(),
+            Default::default(),
+            Default::default(),
+        );
 
         let cache = new_cache(inner, [partition]);
         let got = cache
@@ -366,7 +376,14 @@ mod tests {
                 .build(),
         );
 
-        let partition = arbitrary_partition();
+        let partition = Partition::new(
+            ARBITRARY_PARTITION_ID,
+            ARBITRARY_TABLE_ID,
+            ARBITRARY_PARTITION_KEY.clone(),
+            Default::default(),
+            Default::default(),
+            Default::default(),
+        );
 
         let cache = new_cache(inner, [partition]);
         let got = cache

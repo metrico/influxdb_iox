@@ -24,6 +24,7 @@ use schema::{
     builder::SchemaBuilder, sort::SortKey, InfluxColumnType, InfluxFieldType, Schema,
     TIME_COLUMN_NAME,
 };
+use sha2::Digest;
 use sqlx::postgres::PgHasArrayType;
 use std::{
     borrow::Borrow,
@@ -175,8 +176,13 @@ impl TableId {
     pub const fn new(v: i64) -> Self {
         Self(v)
     }
+
     pub fn get(&self) -> i64 {
         self.0
+    }
+
+    pub const fn to_be_bytes(&self) -> [u8; 8] {
+        self.0.to_be_bytes()
     }
 }
 
@@ -720,6 +726,11 @@ impl PartitionKey {
     pub fn ptr_eq(&self, other: &Self) -> bool {
         Arc::ptr_eq(&self.0, &other.0)
     }
+
+    /// Returns the bytes of the inner string.
+    pub fn as_bytes(&self) -> &[u8] {
+        self.0.as_bytes()
+    }
 }
 
 impl Display for PartitionKey {
@@ -793,12 +804,95 @@ impl sqlx::Decode<'_, sqlx::Sqlite> for PartitionKey {
     }
 }
 
-/// Data object for a partition. The combination of shard, table and key are unique (i.e. only
-/// one record can exist for each combo)
+const PARTITION_HASH_ID_SIZE_BYTES: usize = 32;
+
+/// Uniquely identify a partition based on its table ID and partition key.
+#[derive(Debug, Clone, PartialEq, Eq, sqlx::FromRow)]
+#[sqlx(transparent)]
+pub struct PartitionHashId(Arc<[u8; PARTITION_HASH_ID_SIZE_BYTES]>);
+
+impl PartitionHashId {
+    /// Create a new `PartitionHashId`.
+    pub fn new(table_id: TableId, partition_key: &PartitionKey) -> Self {
+        // The hash ID of a partition is the SHA-256 of the `TableId` then the `PartitionKey`. This
+        // particular hash format was chosen so that there won't be collisions and this value can
+        // be used to uniquely identify a Partition without needing to go to the catalog to get a
+        // database-assigned ID. Given that users might set their `PartitionKey`, a cryptographic
+        // hash scoped by the `TableId` is needed to prevent malicious users from constructing
+        // collisions. This data will be held in memory across many services, so SHA-256 was chosen
+        // over SHA-512 to get the needed attributes in the smallest amount of space.
+        let mut inner = sha2::Sha256::new();
+
+        let table_bytes = table_id.to_be_bytes();
+        // Avoiding collisions depends on the table ID's bytes always being a fixed size. So even
+        // though the current return type of `TableId::to_be_bytes` is `[u8; 8]`, we're asserting
+        // on the length here to make sure this code's assumptions hold even if the type of
+        // `TableId` changes in the future.
+        assert_eq!(table_bytes.len(), 8);
+        inner.update(table_bytes);
+
+        inner.update(partition_key.as_bytes());
+        Self(Arc::new(inner.finalize().into()))
+    }
+}
+
+impl<'q> sqlx::encode::Encode<'q, sqlx::Postgres> for &'q PartitionHashId {
+    fn encode_by_ref(&self, buf: &mut sqlx::postgres::PgArgumentBuffer) -> sqlx::encode::IsNull {
+        buf.extend_from_slice(self.0.as_ref());
+
+        sqlx::encode::IsNull::No
+    }
+}
+
+impl<'q> sqlx::encode::Encode<'q, sqlx::Sqlite> for &'q PartitionHashId {
+    fn encode_by_ref(
+        &self,
+        args: &mut Vec<sqlx::sqlite::SqliteArgumentValue<'q>>,
+    ) -> sqlx::encode::IsNull {
+        args.push(sqlx::sqlite::SqliteArgumentValue::Blob(
+            std::borrow::Cow::Borrowed(self.0.as_ref()),
+        ));
+
+        sqlx::encode::IsNull::No
+    }
+}
+
+impl<'r, DB: ::sqlx::Database> ::sqlx::decode::Decode<'r, DB> for PartitionHashId
+where
+    &'r [u8]: sqlx::Decode<'r, DB>,
+{
+    fn decode(
+        value: <DB as ::sqlx::database::HasValueRef<'r>>::ValueRef,
+    ) -> ::std::result::Result<
+        Self,
+        ::std::boxed::Box<
+            dyn ::std::error::Error + 'static + ::std::marker::Send + ::std::marker::Sync,
+        >,
+    > {
+        let data = <&[u8] as ::sqlx::decode::Decode<'r, DB>>::decode(value)?;
+        let data: [u8; PARTITION_HASH_ID_SIZE_BYTES] = data.try_into()?;
+        Ok(Self(Arc::new(data)))
+    }
+}
+
+impl<'r, DB: ::sqlx::Database> ::sqlx::Type<DB> for PartitionHashId
+where
+    &'r [u8]: ::sqlx::Type<DB>,
+{
+    fn type_info() -> DB::TypeInfo {
+        <&[u8] as ::sqlx::Type<DB>>::type_info()
+    }
+}
+
+/// Data object for a partition. The combination of table and key are unique (i.e. only one record
+/// can exist for each combo)
 #[derive(Debug, Clone, PartialEq, Eq, sqlx::FromRow)]
 pub struct Partition {
     /// the id of the partition
     pub id: PartitionId,
+    /// The unique hash derived from the table ID and partition key, if available. This will become
+    /// required when the value has been backfilled for all partitions.
+    pub hash_id: Option<PartitionHashId>,
     /// the table the partition is under
     pub table_id: TableId,
     /// the string key of the partition
@@ -852,6 +946,30 @@ pub struct Partition {
 }
 
 impl Partition {
+    /// Create a new Partition data object from the given attributes. Use this constructor when
+    /// you have not already computed the [`PartitionHashId`]; this constructor will take care of
+    /// doing so. If you have computed the [`PartitionHashId`], construct the `Partition` instance
+    /// directly using the public field access.
+    pub fn new(
+        id: PartitionId,
+        table_id: TableId,
+        partition_key: PartitionKey,
+        sort_key: Vec<String>,
+        persisted_sequence_number: Option<SequenceNumber>,
+        new_file_at: Option<Timestamp>,
+    ) -> Self {
+        let hash_id = PartitionHashId::new(table_id, &partition_key);
+        Self {
+            id,
+            hash_id: Some(hash_id),
+            table_id,
+            partition_key,
+            sort_key,
+            persisted_sequence_number,
+            new_file_at,
+        }
+    }
+
     /// The sort key for the partition, if present, structured as a `SortKey`
     pub fn sort_key(&self) -> Option<SortKey> {
         if self.sort_key.is_empty() {

@@ -1540,6 +1540,8 @@ pub(crate) mod test_helpers {
             .map(|v| (v.id, v))
             .collect::<BTreeMap<_, _>>();
 
+        assert!(listed.values().all(|partition| partition.hash_id.is_some()));
+
         created.insert(other_partition.id, other_partition.clone());
         assert_eq!(created, listed);
 

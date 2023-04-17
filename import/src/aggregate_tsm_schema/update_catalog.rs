@@ -1020,14 +1020,14 @@ mod tests {
             earliest_time: DateTime::parse_from_rfc3339("2022-01-01T00:00:00+00:00").unwrap(),
             latest_time: DateTime::parse_from_rfc3339("2022-07-07T06:00:00+00:00").unwrap(),
         };
-        let partition = Partition {
-            id: PartitionId::new(1),
-            table_id: TableId::new(1),
-            persisted_sequence_number: None,
-            partition_key: PartitionKey::from("2022-06-21"),
-            sort_key: Vec::new(),
-            new_file_at: None,
-        };
+        let partition = Partition::new(
+            PartitionId::new(1),
+            TableId::new(1),
+            PartitionKey::from("2022-06-21"),
+            Vec::new(),
+            None,
+            None,
+        );
         let sort_key = get_sort_key(&partition, &m).1.unwrap();
         let sort_key = sort_key.to_columns().collect::<Vec<_>>();
         // ensure sort key is updated with the computed one
@@ -1067,15 +1067,16 @@ mod tests {
             earliest_time: DateTime::parse_from_rfc3339("2022-01-01T00:00:00+00:00").unwrap(),
             latest_time: DateTime::parse_from_rfc3339("2022-07-07T06:00:00+00:00").unwrap(),
         };
-        let partition = Partition {
-            id: PartitionId::new(1),
-            table_id: TableId::new(1),
-            persisted_sequence_number: None,
-            partition_key: PartitionKey::from("2022-06-21"),
-            // N.B. sort key is already what it will computed to; here we're testing the `adjust_sort_key_columns` code path
-            sort_key: vec!["host".to_string(), "arch".to_string(), "time".to_string()],
-            new_file_at: None,
-        };
+        let partition = Partition::new(
+            PartitionId::new(1),
+            TableId::new(1),
+            PartitionKey::from("2022-06-21"),
+            // N.B. sort key is already what it will computed to; here we're testing the
+            // `adjust_sort_key_columns` code path
+            vec!["host".to_string(), "arch".to_string(), "time".to_string()],
+            None,
+            None,
+        );
         // ensure sort key is unchanged
         let _maybe_updated_sk = get_sort_key(&partition, &m).1;
         assert_matches!(None::<SortKey>, _maybe_updated_sk);
@@ -1114,15 +1115,15 @@ mod tests {
             earliest_time: DateTime::parse_from_rfc3339("2022-01-01T00:00:00+00:00").unwrap(),
             latest_time: DateTime::parse_from_rfc3339("2022-07-07T06:00:00+00:00").unwrap(),
         };
-        let partition = Partition {
-            id: PartitionId::new(1),
-            table_id: TableId::new(1),
-            persisted_sequence_number: None,
-            partition_key: PartitionKey::from("2022-06-21"),
+        let partition = Partition::new(
+            PartitionId::new(1),
+            TableId::new(1),
+            PartitionKey::from("2022-06-21"),
             // N.B. is missing host so will need updating
-            sort_key: vec!["arch".to_string(), "time".to_string()],
-            new_file_at: None,
-        };
+            vec!["arch".to_string(), "time".to_string()],
+            None,
+            None,
+        );
         let sort_key = get_sort_key(&partition, &m).1.unwrap();
         let sort_key = sort_key.to_columns().collect::<Vec<_>>();
         // ensure sort key is updated; host would have been sorted first but it got added later so
@@ -1163,15 +1164,15 @@ mod tests {
             earliest_time: DateTime::parse_from_rfc3339("2022-01-01T00:00:00+00:00").unwrap(),
             latest_time: DateTime::parse_from_rfc3339("2022-07-07T06:00:00+00:00").unwrap(),
         };
-        let partition = Partition {
-            id: PartitionId::new(1),
-            table_id: TableId::new(1),
-            persisted_sequence_number: None,
-            partition_key: PartitionKey::from("2022-06-21"),
+        let partition = Partition::new(
+            PartitionId::new(1),
+            TableId::new(1),
+            PartitionKey::from("2022-06-21"),
             // N.B. is missing arch so will need updating
-            sort_key: vec!["host".to_string(), "time".to_string()],
-            new_file_at: None,
-        };
+            vec!["host".to_string(), "time".to_string()],
+            None,
+            None,
+        );
         let sort_key = get_sort_key(&partition, &m).1.unwrap();
         let sort_key = sort_key.to_columns().collect::<Vec<_>>();
         // ensure sort key is updated; new columns get appended after existing ones only

@@ -1432,6 +1432,7 @@ dependencies = [
  "proptest",
  "schema",
  "serde",
+ "sha2",
  "sqlx",
  "test_helpers",
  "thiserror",
