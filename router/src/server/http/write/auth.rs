@@ -28,7 +28,7 @@ fn extract_token<'a>(
 }
 
 pub(crate) async fn authorize(
-    auth_service: &Arc<dyn Authorizer>,
+    authz: &Arc<dyn Authorizer>,
     req: &Request<Body>,
     namespace: &NamespaceName<'_>,
     query_param_token: Option<String>,
@@ -44,7 +44,7 @@ pub(crate) async fn authorize(
         Action::Write,
     )];
 
-    auth_service.require_any_permission(token, &perms).await?;
+    authz.require_any_permission(token, &perms).await?;
     Ok(())
 }
 

@@ -94,19 +94,19 @@ impl From<&SingleTenantExtractError> for hyper::StatusCode {
 ///     https://docs.influxdata.com/influxdb/v1.8/tools/api/#write-http-endpoint
 #[derive(Debug)]
 pub struct SingleTenantRequestUnifier {
-    auth_service: Arc<dyn Authorizer>,
+    authz: Arc<dyn Authorizer>,
     single_tenant_auth_duration: DurationHistogram,
 }
 
 impl SingleTenantRequestUnifier {
     /// Creates a new SingleTenantRequestParser
-    pub fn new(auth_service: Arc<dyn Authorizer>, metrics: &Registry) -> Self {
+    pub fn new(authz: Arc<dyn Authorizer>, metrics: &Registry) -> Self {
         let single_tenant_auth_duration = metrics
             .register_metric::<DurationHistogram>("single_tenant_auth_duration", "latency of authz")
             .recorder(&[]);
 
         Self {
-            auth_service,
+            authz,
             single_tenant_auth_duration,
         }
     }
@@ -115,18 +115,18 @@ impl SingleTenantRequestUnifier {
 #[async_trait]
 impl WriteRequestUnifier for SingleTenantRequestUnifier {
     async fn parse_v1(&self, req: &Request<Body>) -> Result<WriteParams, Error> {
-        Ok(parse_v1(req, &self.auth_service, &self.single_tenant_auth_duration).await?)
+        Ok(parse_v1(req, &self.authz, &self.single_tenant_auth_duration).await?)
     }
 
     async fn parse_v2(&self, req: &Request<Body>) -> Result<WriteParams, Error> {
-        Ok(parse_v2(req, &self.auth_service, &self.single_tenant_auth_duration).await?)
+        Ok(parse_v2(req, &self.authz, &self.single_tenant_auth_duration).await?)
     }
 }
 
 // Parse a V1 write request for single tenant mode.
 async fn parse_v1(
     req: &Request<Body>,
-    auth_service: &Arc<dyn Authorizer>,
+    authz: &Arc<dyn Authorizer>,
     duration_histogram_recorder: &DurationHistogram,
 ) -> Result<WriteParams, SingleTenantExtractError> {
     // Extract the write parameters.
@@ -149,7 +149,7 @@ async fn parse_v1(
     })?;
 
     let start_instant = Instant::now();
-    let authz_result = authorize(auth_service, req, &namespace, write_params.p).await;
+    let authz_result = authorize(authz, req, &namespace, write_params.p).await;
     authz_result.map_err(SingleTenantExtractError::Authorizer)?;
     let duration = start_instant.elapsed();
     duration_histogram_recorder.record(duration);
@@ -163,7 +163,7 @@ async fn parse_v1(
 // Parse a V2 write request for single tenant mode.
 async fn parse_v2(
     req: &Request<Body>,
-    auth_service: &Arc<dyn Authorizer>,
+    authz: &Arc<dyn Authorizer>,
     duration_histogram_recorder: &DurationHistogram,
 ) -> Result<WriteParams, SingleTenantExtractError> {
     let write_params = WriteParamsV2::try_from(req)?;
@@ -180,7 +180,7 @@ async fn parse_v2(
     let namespace = NamespaceName::new(write_params.bucket)?;
 
     let start_instant = Instant::now();
-    let authz_result = authorize(auth_service, req, &namespace, None).await;
+    let authz_result = authorize(authz, req, &namespace, None).await;
     let duration = start_instant.elapsed();
     duration_histogram_recorder.record(duration);
     authz_result.map_err(SingleTenantExtractError::Authorizer)?;
