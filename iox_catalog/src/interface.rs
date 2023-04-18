@@ -468,7 +468,7 @@ pub trait ParquetFileRepo: Send + Sync {
     ) -> Result<Option<ParquetFile>>;
 
     /// Commmit deletions, upgrades and creations in a single transaction.
-    async fn create_update_delete(
+    async fn create_upgrade_delete(
         &mut self,
         _partition_id: PartitionId,
         delete: &[ParquetFile],
@@ -1932,7 +1932,7 @@ pub(crate) mod test_helpers {
         let f5_uuid = f5.object_store_id;
         let cud = repos
             .parquet_files()
-            .create_update_delete(
+            .create_upgrade_delete(
                 f4.partition_id,
                 &[f5.clone()],
                 &[f1.clone()],
@@ -1972,7 +1972,7 @@ pub(crate) mod test_helpers {
         // test create_update_delete transaction (rollsback because f6 already exists)
         let cud = repos
             .parquet_files()
-            .create_update_delete(
+            .create_upgrade_delete(
                 f4.partition_id,
                 &[f5],
                 &[f2],

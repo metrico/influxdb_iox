@@ -195,6 +195,6 @@ decorate!(
         "parquet_update_compaction_level" = update_compaction_level(&mut self, parquet_file_ids: &[ParquetFileId], compaction_level: CompactionLevel) -> Result<Vec<ParquetFileId>>;
         "parquet_exist" = exist(&mut self, id: ParquetFileId) -> Result<bool>;
         "parquet_get_by_object_store_id" = get_by_object_store_id(&mut self, object_store_id: Uuid) -> Result<Option<ParquetFile>>;
-        "parquet_create_update_delete" = create_update_delete(&mut self, _partition_id: PartitionId, delete: &[ParquetFile], upgrade: &[ParquetFile], create: &[ParquetFileParams], target_level: CompactionLevel) -> Result<Vec<ParquetFileId>>;
+        "parquet_create_update_delete" = create_upgrade_delete(&mut self, _partition_id: PartitionId, delete: &[ParquetFile], upgrade: &[ParquetFile], create: &[ParquetFileParams], target_level: CompactionLevel) -> Result<Vec<ParquetFileId>>;
     ]
 );

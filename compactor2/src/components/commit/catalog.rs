@@ -43,7 +43,7 @@ impl Commit for CatalogCommit {
                 let mut repos = self.catalog.repositories().await;
                 let parquet_files = repos.parquet_files();
                 let ids = parquet_files
-                    .create_update_delete(_partition_id, delete, upgrade, create, target_level)
+                    .create_upgrade_delete(_partition_id, delete, upgrade, create, target_level)
                     .await?;
 
                 Ok::<_, iox_catalog::interface::Error>(ids)
