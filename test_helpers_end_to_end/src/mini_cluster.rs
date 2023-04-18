@@ -236,17 +236,19 @@ impl MiniCluster {
     /// Create a non-shared "version 2" MiniCluster that has a router,
     /// ingester, and querier. The router and querier will be configured
     /// to use the authorization service and will require all requests to
-    /// be authorized. Save config for a compactor, but the compactor service
+    /// be authorized. The router will run in single-tenant-specific mode.
+    /// Save config for a compactor, but the compactor service
     /// should be run on-demand in tests using `compactor run-once` rather
     /// than using `run compactor`.
-    pub async fn create_non_shared2_with_authz(
+    pub async fn create_non_shared2_with_single_tenant_mode(
         database_url: String,
         authz_addr: impl Into<String> + Clone,
     ) -> Self {
         let ingester_config = TestConfig::new_ingester2(&database_url);
         let router_config =
-            TestConfig::new_router2(&ingester_config).with_authz_addr(authz_addr.clone());
-        let querier_config = TestConfig::new_querier2(&ingester_config).with_authz_addr(authz_addr);
+            TestConfig::new_router2(&ingester_config).with_single_tenant_mode(authz_addr.clone());
+        let querier_config =
+            TestConfig::new_querier2(&ingester_config).with_single_tenant_mode(authz_addr);
         let compactor_config = TestConfig::new_compactor2(&ingester_config);
 
         // Set up the cluster  ====================================

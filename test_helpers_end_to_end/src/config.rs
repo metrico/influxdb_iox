@@ -181,7 +181,7 @@ impl TestConfig {
     }
 
     /// Configure the authorization server.
-    pub fn with_authz_addr(self, addr: impl Into<String>) -> Self {
+    pub fn with_single_tenant_mode(self, addr: impl Into<String>) -> Self {
         self.with_env("INFLUXDB_IOX_AUTHZ_ADDR", addr)
             .with_env("INFLUXDB_IOX_SINGLE_TENANCY", "true")
     }

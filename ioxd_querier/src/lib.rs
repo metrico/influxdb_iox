@@ -1,5 +1,5 @@
 use async_trait::async_trait;
-use authz::Authorizer;
+use authz::{Authorizer, IoxAuthorizer};
 use clap_blocks::querier::{IngesterAddresses, QuerierConfig};
 use datafusion_util::config::register_iox_object_store;
 use hyper::{Body, Request, Response};
@@ -162,13 +162,21 @@ pub struct QuerierServerTypeArgs<'a> {
     pub ingester_addresses: IngesterAddresses,
     pub querier_config: QuerierConfig,
     pub rpc_write: bool,
-    pub authz: Option<Arc<dyn Authorizer>>,
 }
 
 #[derive(Debug, Error)]
 pub enum Error {
     #[error("querier error: {0}")]
     Querier(#[from] querier::QuerierDatabaseError),
+
+    #[error("Authz configuration error for '{addr}': '{source}'")]
+    AuthzConfig {
+        source: Box<dyn std::error::Error>,
+        addr: String,
+    },
+
+    #[error("Authz service error: {0}")]
+    AuthzService(#[from] authz::Error),
 }
 
 /// Instantiate a querier server
@@ -248,11 +256,25 @@ pub async fn create_querier_server_type(
         Arc::clone(&args.object_store),
     ));
 
+    let authz = match args.querier_config.authz_addr {
+        Some(addr) => {
+            let authz = IoxAuthorizer::connect_lazy(addr.clone())
+                .map(|c| Arc::new(c) as Arc<dyn Authorizer>)
+                .map_err(|source| Error::AuthzConfig {
+                    source,
+                    addr: addr.clone(),
+                })?;
+            authz.probe().await.expect("Authz connection test failed.");
+            Some(authz)
+        }
+        None => None,
+    };
+
     let querier = QuerierServer::new(args.metric_registry, querier_handler);
     Ok(Arc::new(QuerierServerType::new(
         querier,
         database,
         args.common_state,
-        args.authz.as_ref().map(Arc::clone),
+        authz,
     )))
 }

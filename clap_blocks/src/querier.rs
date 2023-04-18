@@ -1,5 +1,9 @@
 //! Querier-related configs.
-use crate::ingester_address::IngesterAddress;
+
+use crate::{
+    authz::{CONFIG_AUTHZ_ENV_NAME, CONFIG_AUTHZ_FLAG_NAME},
+    ingester_address::IngesterAddress,
+};
 use data_types::{IngesterMapping, ShardIndex};
 use serde::Deserialize;
 use snafu::{ResultExt, Snafu};
@@ -49,6 +53,14 @@ pub enum Error {
 /// CLI config for querier configuration
 #[derive(Debug, Clone, PartialEq, Eq, clap::Parser)]
 pub struct QuerierConfig {
+    /// Optional request authorization service address.
+    /// Required for single tenant deployments.
+    #[clap(
+        long = CONFIG_AUTHZ_FLAG_NAME,
+        env = CONFIG_AUTHZ_ENV_NAME,
+    )]
+    pub authz_addr: Option<String>,
+
     /// The number of threads to use for queries.
     ///
     /// If not specified, defaults to the number of cores on the system

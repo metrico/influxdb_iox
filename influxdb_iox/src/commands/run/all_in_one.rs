@@ -3,7 +3,6 @@
 use crate::process_info::setup_metric_registry;
 
 use super::main;
-use authz::Authorizer;
 use clap_blocks::{
     authz::AuthzConfig,
     catalog_dsn::CatalogDsnConfig,
@@ -88,12 +87,6 @@ pub enum Error {
 
     #[error("Invalid config: {0}")]
     InvalidConfig(#[from] CommonServerStateError),
-
-    #[error("Authz configuration error: {0}")]
-    AuthzConfig(#[from] clap_blocks::authz::Error),
-
-    #[error("Authz service error: {0}")]
-    AuthzService(#[from] authz::Error),
 }
 
 pub type Result<T, E = Error> = std::result::Result<T, E>;
@@ -456,6 +449,7 @@ impl Config {
         };
 
         let router_config = Router2Config {
+            authz_addr: authz_config.authz_addr.clone(),
             query_pool_name: QUERY_POOL_NAME.to_string(),
             http_request_limit: 1_000,
             ingester_addresses: vec![IngesterAddress::from_str(
@@ -498,6 +492,7 @@ impl Config {
         };
 
         let querier_config = QuerierConfig {
+            authz_addr: authz_config.authz_addr,
             num_query_threads: None,       // will be ignored
             shard_to_ingesters_file: None, // will be ignored
             shard_to_ingesters: None,      // will be ignored
@@ -521,7 +516,6 @@ impl Config {
             router_config,
             compactor_config,
             querier_config,
-            authz_config,
         }
     }
 }
@@ -549,7 +543,6 @@ struct SpecializedConfig {
     router_config: Router2Config,
     compactor_config: Compactor2Config,
     querier_config: QuerierConfig,
-    authz_config: AuthzConfig,
 }
 
 pub async fn command(config: Config) -> Result<()> {
@@ -563,7 +556,6 @@ pub async fn command(config: Config) -> Result<()> {
         router_config,
         compactor_config,
         querier_config,
-        authz_config,
     } = config.specialize();
 
     let metrics = setup_metric_registry();
@@ -591,10 +583,6 @@ pub async fn command(config: Config) -> Result<()> {
 
     let time_provider: Arc<dyn TimeProvider> = Arc::new(SystemProvider::new());
 
-    let authz = authz_config.authorizer()?;
-    // Verify the connection to the authorizer, if configured.
-    authz.probe().await?;
-
     // create common state from the router and use it below
     let common_state = CommonServerState::from_config(router_run_config.clone())?;
 
@@ -621,7 +609,6 @@ pub async fn command(config: Config) -> Result<()> {
         Arc::clone(&metrics),
         Arc::clone(&catalog),
         Arc::clone(&object_store),
-        authz.as_ref().map(Arc::clone),
         &router_config,
     )
     .await?;
@@ -676,7 +663,6 @@ pub async fn command(config: Config) -> Result<()> {
         ingester_addresses,
         querier_config,
         rpc_write: true,
-        authz: authz.as_ref().map(Arc::clone),
     })
     .await?;
 
