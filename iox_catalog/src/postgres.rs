@@ -28,6 +28,7 @@ use sqlx::{
     Acquire, ConnectOptions, Executor, Postgres, Row,
 };
 use sqlx_hotswap_pool::HotSwapPool;
+use std::collections::HashSet;
 use std::{collections::HashMap, fmt::Display, str::FromStr, sync::Arc, time::Duration};
 
 static MIGRATOR: Migrator = sqlx::migrate!();
@@ -1432,7 +1433,20 @@ WHERE object_store_id = $1;
         create: &[ParquetFileParams],
         target_level: CompactionLevel,
     ) -> Result<Vec<ParquetFileId>> {
-        assert!(!upgrade.is_empty() || (!delete.is_empty() && !create.is_empty()));
+        let mut delete_set = HashSet::new();
+        let mut upgrade_set = HashSet::new();
+        for d in delete {
+            delete_set.insert(d.id.get());
+        }
+        for u in upgrade {
+            upgrade_set.insert(u.id.get());
+        }
+
+        assert!(
+            delete_set.is_disjoint(&upgrade_set),
+            "attempted to upgrade a file scheduled for delete"
+        );
+
         let mut tx = self
             .inner
             .pool

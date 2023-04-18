@@ -38,6 +38,7 @@ impl Commit for CatalogCommit {
         create: &[ParquetFileParams],
         target_level: CompactionLevel,
     ) -> Vec<ParquetFileId> {
+        assert!(!upgrade.is_empty() || (!delete.is_empty() && !create.is_empty()));
         Backoff::new(&self.backoff_config)
             .retry_all_errors("commit parquet file changes", || async {
                 let mut repos = self.catalog.repositories().await;

@@ -826,7 +826,20 @@ impl ParquetFileRepo for MemTxn {
         create: &[ParquetFileParams],
         target_level: CompactionLevel,
     ) -> Result<Vec<ParquetFileId>> {
-        assert!(!upgrade.is_empty() || (!delete.is_empty() && !create.is_empty()));
+        let mut delete_set = HashSet::new();
+        let mut upgrade_set = HashSet::new();
+        for d in delete {
+            delete_set.insert(d.id.get());
+        }
+        for u in upgrade {
+            upgrade_set.insert(u.id.get());
+        }
+
+        assert!(
+            delete_set.is_disjoint(&upgrade_set),
+            "attempted to upgrade a file scheduled for delete"
+        );
+
         let mut stage = self.inner.clone();
 
         let upgrade = upgrade.iter().map(|f| f.id).collect::<Vec<_>>();
