@@ -15,7 +15,7 @@ use data_types::{
     Column, ColumnId, ColumnSet, ColumnType, CompactionLevel, Namespace, NamespaceId, ParquetFile,
     ParquetFileId, ParquetFileParams, Partition, PartitionId, PartitionKey, PartitionParam,
     QueryPool, QueryPoolId, SequenceNumber, Shard, ShardId, ShardIndex, SkippedCompaction, Table,
-    TableId, Timestamp, TopicId, TopicMetadata, TRANSITION_SHARD_ID, TRANSITION_SHARD_INDEX,
+    TableId, Timestamp, TopicId, TopicMetadata, TRANSITION_SHARD_ID, TRANSITION_SHARD_INDEX, NamespaceName,
 };
 use serde::{Deserialize, Serialize};
 use std::ops::Deref;
@@ -400,10 +400,10 @@ RETURNING *;
 }
 
 #[async_trait]
-impl NamespaceRepo for SqliteTxn {
+impl NamespaceRepo<'_> for SqliteTxn {
     async fn create(
         &mut self,
-        name: &str,
+        name: NamespaceName,
         retention_period_ns: Option<i64>,
         topic_id: TopicId,
         query_pool_id: QueryPoolId,
@@ -415,7 +415,7 @@ impl NamespaceRepo for SqliteTxn {
                 RETURNING *;
             "#,
         )
-            .bind(name) // $1
+            .bind(name.as_str()) // $1
             .bind(topic_id) // $2
             .bind(query_pool_id) // $3
             .bind(retention_period_ns) // $4

@@ -5,7 +5,7 @@ use data_types::{
     Column, ColumnSchema, ColumnType, CompactionLevel, Namespace, NamespaceId, NamespaceSchema,
     ParquetFile, ParquetFileId, ParquetFileParams, Partition, PartitionId, PartitionKey,
     PartitionParam, QueryPool, QueryPoolId, SequenceNumber, Shard, ShardId, ShardIndex,
-    SkippedCompaction, Table, TableId, TableSchema, Timestamp, TopicId, TopicMetadata,
+    SkippedCompaction, Table, TableId, TableSchema, Timestamp, TopicId, TopicMetadata, NamespaceName,
 };
 use iox_time::TimeProvider;
 use snafu::{OptionExt, Snafu};
@@ -326,13 +326,13 @@ pub trait QueryPoolRepo: Send + Sync {
 
 /// Functions for working with namespaces in the catalog
 #[async_trait]
-pub trait NamespaceRepo: Send + Sync {
+pub trait NamespaceRepo<'a, T = NamespaceName<'a>>: Send + Sync {
     /// Creates the namespace in the catalog. If one by the same name already exists, an
     /// error is returned.
     /// Specify `None` for `retention_period_ns` to get infinite retention.
     async fn create(
         &mut self,
-        name: &str,
+        name: T,
         retention_period_ns: Option<i64>,
         topic_id: TopicId,
         query_pool_id: QueryPoolId,

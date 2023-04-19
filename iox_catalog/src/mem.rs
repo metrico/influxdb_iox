@@ -15,7 +15,7 @@ use data_types::{
     Column, ColumnId, ColumnType, CompactionLevel, Namespace, NamespaceId, ParquetFile,
     ParquetFileId, ParquetFileParams, Partition, PartitionId, PartitionKey, PartitionParam,
     QueryPool, QueryPoolId, SequenceNumber, Shard, ShardId, ShardIndex, SkippedCompaction, Table,
-    TableId, Timestamp, TopicId, TopicMetadata,
+    TableId, Timestamp, TopicId, TopicMetadata, NamespaceName,
 };
 use iox_time::{SystemProvider, TimeProvider};
 use observability_deps::tracing::warn;
@@ -282,17 +282,17 @@ impl QueryPoolRepo for MemTxn {
 }
 
 #[async_trait]
-impl NamespaceRepo for MemTxn {
+impl NamespaceRepo<'_> for MemTxn {
     async fn create(
         &mut self,
-        name: &str,
+        name: NamespaceName,
         retention_period_ns: Option<i64>,
         topic_id: TopicId,
         query_pool_id: QueryPoolId,
     ) -> Result<Namespace> {
         let stage = self.stage();
 
-        if stage.namespaces.iter().any(|n| n.name == name) {
+        if stage.namespaces.iter().any(|n| n.name == name.to_string()) {
             return Err(Error::NameExists {
                 name: name.to_string(),
             });
@@ -402,6 +402,20 @@ impl NamespaceRepo for MemTxn {
                 name: name.to_string(),
             }),
         }
+    }
+}
+
+impl MemTxn {
+    async fn create(
+        &mut self,
+        name: &str,
+        retention_period_ns: Option<i64>,
+        topic_id: TopicId,
+        query_pool_id: QueryPoolId,
+    ) -> Result<Namespace> {
+        // TODO figure out map_err() to what error
+        let namespace_name = NamespaceName::new(name).unwrap();
+        <Self as NamespaceRepo>::create(self, namespace_name, retention_period_ns, topic_id, query_pool_id).await
     }
 }
 

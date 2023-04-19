@@ -10,7 +10,7 @@ use data_types::{
     Column, ColumnType, CompactionLevel, Namespace, NamespaceId, ParquetFile, ParquetFileId,
     ParquetFileParams, Partition, PartitionId, PartitionKey, PartitionParam, QueryPool,
     QueryPoolId, SequenceNumber, Shard, ShardId, ShardIndex, SkippedCompaction, Table, TableId,
-    Timestamp, TopicId, TopicMetadata,
+    Timestamp, TopicId, TopicMetadata, NamespaceName,
 };
 use iox_time::{SystemProvider, TimeProvider};
 use metric::{DurationHistogram, Metric};
@@ -41,11 +41,11 @@ impl<T> MetricDecorator<T> {
     }
 }
 
-impl<T, P> RepoCollection for MetricDecorator<T, P>
+impl<'a, T, P> RepoCollection for MetricDecorator<T, P>
 where
     T: TopicMetadataRepo
         + QueryPoolRepo
-        + NamespaceRepo
+        + NamespaceRepo<'a>
         + TableRepo
         + ColumnRepo
         + ShardRepo
@@ -180,9 +180,9 @@ decorate!(
 );
 
 decorate!(
-    impl_trait = NamespaceRepo,
+    impl_trait = for<'a> NamespaceRepo<'a>,
     methods = [
-        "namespace_create" = create(&mut self, name: &str, retention_period_ns: Option<i64>, topic_id: TopicId, query_pool_id: QueryPoolId) -> Result<Namespace>;
+        "namespace_create" = create(&mut self, name: NamespaceName<'_>, retention_period_ns: Option<i64>, topic_id: TopicId, query_pool_id: QueryPoolId) -> Result<Namespace>;
         "namespace_update_retention_period" = update_retention_period(&mut self, name: &str, retention_period_ns: Option<i64>) -> Result<Namespace>;
         "namespace_list" = list(&mut self, deleted: SoftDeletedRows) -> Result<Vec<Namespace>>;
         "namespace_get_by_id" = get_by_id(&mut self, id: NamespaceId, deleted: SoftDeletedRows) -> Result<Option<Namespace>>;
