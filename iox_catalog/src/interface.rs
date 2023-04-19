@@ -2,10 +2,10 @@
 
 use async_trait::async_trait;
 use data_types::{
-    Column, ColumnSchema, ColumnType, CompactionLevel, Namespace, NamespaceId, NamespaceSchema,
-    ParquetFile, ParquetFileId, ParquetFileParams, Partition, PartitionId, PartitionKey,
-    PartitionParam, QueryPool, QueryPoolId, SequenceNumber, Shard, ShardId, ShardIndex,
-    SkippedCompaction, Table, TableId, TableSchema, Timestamp, TopicId, TopicMetadata,
+    Column, ColumnSchema, ColumnType, CompactionLevel, Namespace, NamespaceId, NamespaceName,
+    NamespaceSchema, ParquetFile, ParquetFileId, ParquetFileParams, Partition, PartitionId,
+    PartitionKey, PartitionParam, QueryPool, QueryPoolId, SequenceNumber, Shard, ShardId,
+    ShardIndex, SkippedCompaction, Table, TableId, TableSchema, Timestamp, TopicId, TopicMetadata,
 };
 use iox_time::TimeProvider;
 use snafu::{OptionExt, Snafu};
@@ -330,13 +330,39 @@ pub trait NamespaceRepo: Send + Sync {
     /// Creates the namespace in the catalog. If one by the same name already exists, an
     /// error is returned.
     /// Specify `None` for `retention_period_ns` to get infinite retention.
+    async fn create_namespace(
+        &mut self,
+        name: &NamespaceName<'_>,
+        retention_period_ns: Option<i64>,
+        topic_id: TopicId,
+        query_pool_id: QueryPoolId,
+    ) -> Result<Namespace>;
+
+    /// Creates the namespace in the catalog. If one by the same name already exists, an
+    /// error is returned.
+    /// Specify `None` for `retention_period_ns` to get infinite retention.
     async fn create(
         &mut self,
         name: &str,
         retention_period_ns: Option<i64>,
         topic_id: TopicId,
         query_pool_id: QueryPoolId,
-    ) -> Result<Namespace>;
+    ) -> Result<Namespace> {
+        match NamespaceName::new(name) {
+            Ok(namespace_name) => {
+                self.create_namespace(
+                    &namespace_name,
+                    retention_period_ns,
+                    topic_id,
+                    query_pool_id,
+                )
+                .await
+            }
+            Err(_) => Err(Error::NamespaceNotFoundByName {
+                name: name.to_string(),
+            }),
+        }
+    }
 
     /// Update retention period for a namespace
     async fn update_retention_period(
