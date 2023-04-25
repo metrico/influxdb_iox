@@ -20,9 +20,16 @@ subsystem crate.
 
 ### Running
 
-The end to end tests are run using the `cargo test --test end_to_end` command, after setting the
-`TEST_INTEGRATION` and `TEST_INFLUXDB_IOX_CATALOG_DSN` environment variables. NOTE if you don't set
-these variables the tests will "pass" locally (really they will be skipped).
+The end to end tests are run using the `cargo test --test end_to_end`
+command. By default these tests run with a file based sqlite catalog.
+
+To ensure the tests run against an external catalog (such as posgres) you
+must set both the `TEST_INTEGRATION` and
+`TEST_INFLUXDB_IOX_CATALOG_DSN` environment variables.
+
+NOTE if you don't set `TEST_INTEGRATION` but do set
+`TEST_INFLUXDB_IOX_CATALOG_DSN` the tests will "pass" locally (really
+they will be skipped).
 
 For example, you can run this docker compose to get postgres running:
 
