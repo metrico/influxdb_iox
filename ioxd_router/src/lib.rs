@@ -25,7 +25,7 @@ use ioxd_common::{
     server_type::{CommonServerState, RpcError, ServerType},
     setup_builder,
 };
-use metric::Registry;
+use metric::{DurationHistogramDecorator, Registry};
 use mutable_batch::MutableBatch;
 use object_store::DynObjectStore;
 use router::{
@@ -360,7 +360,14 @@ pub async fn create_router2_server_type(
     ) {
         (true, Some(addr)) => {
             let authz = IoxAuthorizer::connect_lazy(addr.clone())
-                .map(|c| Arc::new(c) as Arc<dyn Authorizer>)
+                .map(|c| {
+                    Arc::new(DurationHistogramDecorator::new(
+                        "dml_authz_duration",
+                        "duration of authz on dml requests",
+                        &metrics,
+                        c,
+                    )) as Arc<dyn Authorizer>
+                })
                 .map_err(|source| Error::AuthzConfig {
                     source,
                     addr: addr.clone(),
