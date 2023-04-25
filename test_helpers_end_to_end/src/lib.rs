@@ -107,8 +107,11 @@ fn dump_log_to_stdout(server_type: &str, log_path: &std::path::Path) {
     info!("****************");
 }
 
-// Helper macro to skip tests if TEST_INTEGRATION and TEST_INFLUXDB_IOX_CATALOG_DSN environment
-// variables are not set.
+/// Helper macro to skip tests if TEST_INTEGRATION and TEST_INFLUXDB_IOX_CATALOG_DSN environment
+/// variables are not set.
+///
+/// panic if TEST_INTEGRATION is set but TEST_INFLUXDB_IOX_CATALOG_DSN
+/// is not, to ensure CI is not silently skipping these tests.
 #[macro_export]
 macro_rules! maybe_skip_integration {
     ($panic_msg:expr) => {{
@@ -129,13 +132,10 @@ macro_rules! maybe_skip_integration {
                     would connect to a Postgres catalog."
                 )
             }
-            (false, maybe_dsn) => {
-                let unset_vars = match maybe_dsn {
-                    Some(_) => "TEST_INTEGRATION",
-                    None => "TEST_INTEGRATION and TEST_INFLUXDB_IOX_CATALOG_DSN",
-                };
-
-                eprintln!("skipping end-to-end integration tests - set {unset_vars} to run");
+            (false, Some(dsn)) => {
+                eprintln!("skipping end-to-end integration tests because \
+                           TEST_INFLUXDB_IOX_CATALOG_DSN is set but TEST_INTEGRATION is not. \
+                           To run, set TEST_INTEGRATION");
 
                 let panic_msg: &'static str = $panic_msg;
                 if !panic_msg.is_empty() {
@@ -143,6 +143,11 @@ macro_rules! maybe_skip_integration {
                 }
 
                 return;
+            }
+            // if the DSN isn't set, and we aren't in TEST_INTEGRATION
+            // mode, use a sqlite file catalog
+            (false, None) => {
+                "file:///tmp/catalog.sqlite".to_string()
             }
         }
     }};
