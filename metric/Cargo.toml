@@ -6,6 +6,7 @@ edition.workspace = true
 license.workspace = true
 
 [dependencies] # In alphabetical order
+iox_time = { version = "0.1.0", path = "../iox_time" }
 parking_lot = "0.12"
 workspace-hack = { version = "0.1", path = "../workspace-hack" }
 

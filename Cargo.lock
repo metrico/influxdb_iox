@@ -3470,6 +3470,7 @@ dependencies = [
 name = "metric"
 version = "0.1.0"
 dependencies = [
+ "iox_time",
  "parking_lot 0.12.1",
  "workspace-hack",
 ]

@@ -120,6 +120,7 @@ use std::collections::BTreeMap;
 
 mod counter;
 mod cumulative;
+mod decorators;
 mod duration;
 mod gauge;
 mod histogram;
@@ -128,6 +129,7 @@ mod metric;
 pub use crate::metric::*;
 pub use counter::*;
 pub use cumulative::*;
+pub use decorators::*;
 pub use duration::*;
 pub use gauge::*;
 pub use histogram::*;
