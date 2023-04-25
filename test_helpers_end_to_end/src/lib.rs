@@ -133,9 +133,11 @@ macro_rules! maybe_skip_integration {
                 )
             }
             (false, Some(dsn)) => {
-                eprintln!("skipping end-to-end integration tests because \
+                eprintln!(
+                    "skipping end-to-end integration tests because \
                            TEST_INFLUXDB_IOX_CATALOG_DSN is set but TEST_INTEGRATION is not. \
-                           To run, set TEST_INTEGRATION");
+                           To run, set TEST_INTEGRATION"
+                );
 
                 let panic_msg: &'static str = $panic_msg;
                 if !panic_msg.is_empty() {
@@ -147,7 +149,8 @@ macro_rules! maybe_skip_integration {
             // if the DSN isn't set, and we aren't in TEST_INTEGRATION
             // mode, use a sqlite file catalog
             (false, None) => {
-                "file:///tmp/catalog.sqlite".to_string()
+                // the iox_test_sqlite placeholder is filled in by the test config later on
+                "iox_test_sqlite".to_string()
             }
         }
     }};

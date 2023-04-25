@@ -17,7 +17,7 @@ pub enum Error {
     UnknownCatalogDsn { dsn: String },
 
     #[snafu(display("Catalog DSN not specified. Expected a string like 'postgresql://postgres@localhost:5432/postgres' or 'file:///tmp/catalog.sqlite'"))]
-    DsnNotSpecified { },
+    DsnNotSpecified {},
 
     #[snafu(display("A catalog error occurred: {}", source))]
     Catalog {
@@ -162,7 +162,9 @@ impl CatalogDsnConfig {
                     .context(CatalogSnafu)?,
             ) as Arc<dyn Catalog>)
         } else {
-            Err(Error::UnknownCatalogDsn {dsn: dsn.to_string()})
+            Err(Error::UnknownCatalogDsn {
+                dsn: dsn.to_string(),
+            })
         }
     }
 }
