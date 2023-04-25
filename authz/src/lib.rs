@@ -18,6 +18,7 @@
 
 use async_trait::async_trait;
 use generated_types::influxdata::iox::authz::v1 as proto;
+use metric::DurationHistogramDecorator;
 use observability_deps::tracing::warn;
 use snafu::Snafu;
 
@@ -91,6 +92,21 @@ impl<T: AsRef<dyn Authorizer> + std::fmt::Debug + Send + Sync> Authorizer for T 
         perms: &[Permission],
     ) -> Result<Vec<Permission>, Error> {
         self.as_ref().permissions(token, perms).await
+    }
+}
+
+#[async_trait]
+impl<T> Authorizer for DurationHistogramDecorator<T>
+where
+    T: Authorizer,
+{
+    async fn permissions(
+        &self,
+        token: Option<&[u8]>,
+        perms: &[Permission],
+    ) -> Result<Vec<Permission>, Error> {
+        self.record_duration(|| async move { self.inner().permissions(token, perms).await })
+            .await
     }
 }
 
