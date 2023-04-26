@@ -892,7 +892,7 @@ pub struct Partition {
     pub id: PartitionId,
     /// The unique hash derived from the table ID and partition key, if available. This will become
     /// required when the value has been backfilled for all partitions.
-    pub hash_id: Option<PartitionHashId>,
+    hash_id: Option<PartitionHashId>,
     /// the table the partition is under
     pub table_id: TableId,
     /// the string key of the partition
@@ -946,10 +946,8 @@ pub struct Partition {
 }
 
 impl Partition {
-    /// Create a new Partition data object from the given attributes. Use this constructor when
-    /// you have not already computed the [`PartitionHashId`]; this constructor will take care of
-    /// doing so. If you have computed the [`PartitionHashId`], construct the `Partition` instance
-    /// directly using the public field access.
+    /// Create a new Partition data object from the given attributes. This constructor will take
+    /// care of computing the [`PartitionHashId`].
     pub fn new(
         id: PartitionId,
         table_id: TableId,
@@ -968,6 +966,14 @@ impl Partition {
             persisted_sequence_number,
             new_file_at,
         }
+    }
+
+    /// The unique hash derived from the table ID and partition key.
+    pub fn hash_id(&self) -> PartitionHashId {
+        self.hash_id
+            .as_ref()
+            .cloned()
+            .unwrap_or_else(|| PartitionHashId::new(self.table_id, &self.partition_key))
     }
 
     /// The sort key for the partition, if present, structured as a `SortKey`

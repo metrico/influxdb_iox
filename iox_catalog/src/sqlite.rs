@@ -879,15 +879,24 @@ struct PartitionPod {
 
 impl From<PartitionPod> for Partition {
     fn from(value: PartitionPod) -> Self {
-        Self {
-            id: value.id,
-            hash_id: value.hash_id,
-            table_id: value.table_id,
-            partition_key: value.partition_key,
-            sort_key: value.sort_key.0,
-            persisted_sequence_number: value.persisted_sequence_number,
-            new_file_at: value.new_file_at,
-        }
+        let partition = Partition::new(
+            value.id,
+            value.table_id,
+            value.partition_key,
+            value.sort_key.0,
+            value.persisted_sequence_number,
+            value.new_file_at,
+        );
+
+        // The constructor recomputes the `PartitionHashId` even though it may be in the database.
+        // If it is in the database, it'd better match what we just computed.
+
+        assert!(value
+            .hash_id
+            .map(|database_hash_id| { database_hash_id == partition.hash_id() })
+            .unwrap_or(true));
+
+        partition
     }
 }
 
@@ -1636,7 +1645,7 @@ mod tests {
             .await
             .expect("should create OK");
 
-        assert_eq!(a.hash_id.as_ref().unwrap(), &hash_id);
+        assert_eq!(a.hash_id(), hash_id);
 
         // Call create_or_get for the same (key, table_id) pair, to ensure the write is idempotent.
         let b = sqlite
@@ -1658,7 +1667,7 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(table_partitions.len(), 1);
-        assert_eq!(table_partitions[0].hash_id.as_ref().unwrap(), &hash_id);
+        assert_eq!(table_partitions[0].hash_id(), hash_id);
     }
 
     macro_rules! test_column_create_or_get_many_unchecked {

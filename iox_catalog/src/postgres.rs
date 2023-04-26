@@ -1897,7 +1897,7 @@ mod tests {
             .await
             .expect("should create OK");
 
-        assert_eq!(a.hash_id.as_ref().unwrap(), &hash_id);
+        assert_eq!(a.hash_id(), hash_id);
 
         // Call create_or_get for the same (key, table_id) pair, to ensure the write is idempotent.
         let b = postgres
@@ -1919,7 +1919,7 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(table_partitions.len(), 1);
-        assert_eq!(table_partitions[0].hash_id.as_ref().unwrap(), &hash_id);
+        assert_eq!(table_partitions[0].hash_id(), hash_id);
     }
 
     #[test]
