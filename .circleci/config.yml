@@ -325,8 +325,8 @@ jobs:
       - rust_components
       - cache_restore
       - run:
-          name: cargo test --no-default-features --features=heappy end_to_end
-          command: cargo test --no-default-features --features=heappy end_to_end
+          name: cargo test --no-default-features --features=heappy --test end_to_end
+          command: cargo test --no-default-features --features=heappy --test end_to_end
       - cache_save
 
   # Build a dev binary.
