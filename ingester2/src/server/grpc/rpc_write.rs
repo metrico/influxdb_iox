@@ -12,8 +12,8 @@ use thiserror::Error;
 use tonic::{Code, Request, Response};
 
 use crate::{
-    dml_sink::{DmlError, DmlSink},
     ingest_state::{IngestState, IngestStateError},
+    internal_implementation_details::dml_sink::{DmlError, DmlSink},
     timestamp_oracle::TimestampOracle,
 };
 
@@ -222,7 +222,7 @@ mod tests {
     };
 
     use super::*;
-    use crate::dml_sink::mock_sink::MockDmlSink;
+    use crate::internal_implementation_details::dml_sink::mock_sink::MockDmlSink;
 
     const NAMESPACE_ID: NamespaceId = NamespaceId::new(42);
     const PARTITION_KEY: &str = "bananas";

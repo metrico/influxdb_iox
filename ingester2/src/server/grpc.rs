@@ -10,12 +10,12 @@ use iox_catalog::interface::Catalog;
 use service_grpc_catalog::CatalogService;
 
 use crate::{
-    dml_sink::DmlSink,
     ingest_state::IngestState,
     ingester_id::IngesterId,
     init::IngesterRpcInterface,
-    partition_iter::PartitionIter,
-    persist::queue::PersistQueue,
+    internal_implementation_details::{
+        dml_sink::DmlSink, partition_iter::PartitionIter, persist::queue::PersistQueue,
+    },
     query::{response::QueryResponse, QueryExec},
     timestamp_oracle::TimestampOracle,
 };

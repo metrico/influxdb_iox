@@ -1,4 +1,4 @@
-use crate::{
+use crate::internal_implementation_details::{
     partition_iter::PartitionIter,
     persist::{drain_buffer::persist_partitions, queue::PersistQueue},
 };

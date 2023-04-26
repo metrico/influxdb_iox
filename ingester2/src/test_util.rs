@@ -8,7 +8,8 @@ use mutable_batch_lp::lines_to_batches;
 use schema::Projection;
 
 use crate::{
-    buffer_tree::{
+    deferred_load::DeferredLoad,
+    internal_implementation_details::buffer_tree::{
         namespace::{
             name_resolver::{mock::MockNamespaceNameProvider, NamespaceNameProvider},
             NamespaceName,
@@ -19,7 +20,6 @@ use crate::{
             TableName,
         },
     },
-    deferred_load::DeferredLoad,
 };
 
 pub(crate) const ARBITRARY_PARTITION_ID: PartitionId = PartitionId::new(1);

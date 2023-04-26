@@ -174,13 +174,13 @@
 //! reordering causing T1 to observe `{0, 1, 2}` and T2 observing `{0, 2}` and
 //! after a faulty range comparison, `{1}` to converge.
 //!
-//! [`BufferTree`]: crate::buffer_tree::BufferTree
+//! [`BufferTree`]: crate::internal_implementation_details::buffer_tree::BufferTree
 //! [`SequenceNumber`]: data_types::SequenceNumber
-//! [`PersistQueue`]: crate::persist::queue::PersistQueue
-//! [`PersistHandle`]: crate::persist::handle::PersistHandle
+//! [`PersistQueue`]: crate::internal_implementation_details::persist::queue::PersistQueue
+//! [`PersistHandle`]: crate::internal_implementation_details::persist::handle::PersistHandle
 //! [`IngestState`]: crate::ingest_state::IngestState
 //! [`grpc`]: crate::server::grpc
-//! [`DmlSink`]: crate::dml_sink::DmlSink
+//! [`DmlSink`]: crate::internal_implementation_details::dml_sink::DmlSink
 //! [`QueryExec`]: crate::query::QueryExec
 //! [`IngestStateError::PersistSaturated`]:
 //!     crate::ingest_state::IngestStateError
@@ -198,31 +198,6 @@
     missing_debug_implementations,
     missing_docs
 )]
-
-/// A macro to conditionally prepend `pub` to the inner tokens for benchmarking
-/// purposes, should the `benches` feature be enabled.
-///
-/// Call as `maybe_pub!(mod name)` to conditionally export a private module.
-///
-/// Call as `maybe_pub!( <block> )` to conditionally define a private module
-/// called "benches".
-#[macro_export]
-macro_rules! maybe_pub {
-    (mod $($t:tt)+) => {
-        #[cfg(feature = "benches")]
-        #[allow(missing_docs)]
-        pub mod $($t)+;
-        #[cfg(not(feature = "benches"))]
-        mod $($t)+;
-    };
-    ($($t:tt)+) => {
-        #[cfg(feature = "benches")]
-        #[allow(missing_docs)]
-        pub mod benches {
-            $($t)+
-        }
-    };
-}
 
 /// Ingester initialisation methods & types.
 ///
@@ -243,16 +218,13 @@ pub use init::*;
 // through its public API only, and not by poking around at the internals.
 //
 
-maybe_pub!(mod buffer_tree);
-maybe_pub!(mod dml_sink);
-maybe_pub!(mod persist);
-maybe_pub!(mod partition_iter);
-maybe_pub!(mod wal);
 mod arcmap;
 mod cancellation_safe;
 mod deferred_load;
 mod ingest_state;
 mod ingester_id;
+/// This module needs to be pub for the benchmarks but should not be used outside the crate.
+pub mod internal_implementation_details;
 mod query;
 mod query_adaptor;
 pub(crate) mod server;

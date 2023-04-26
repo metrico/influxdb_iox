@@ -7,8 +7,10 @@ use tokio_util::sync::CancellationToken;
 
 use crate::{
     ingest_state::{IngestState, IngestStateError},
-    partition_iter::PartitionIter,
-    persist::{drain_buffer::persist_partitions, queue::PersistQueue},
+    internal_implementation_details::{
+        partition_iter::PartitionIter,
+        persist::{drain_buffer::persist_partitions, queue::PersistQueue},
+    },
 };
 
 /// Defines how often the shutdown task polls the partition buffers for
@@ -32,7 +34,7 @@ const SHUTDOWN_POLL_INTERVAL: Duration = Duration::from_secs(1);
 /// [`IngestState`].
 ///
 /// [`PartitionData::mark_persisting()`]:
-///     crate::buffer_tree::partition::PartitionData::mark_persisting()
+///     crate::internal_implementation_details::buffer_tree::partition::PartitionData::mark_persisting()
 pub(super) async fn graceful_shutdown_handler<F, T, P>(
     fut: F,
     complete: oneshot::Sender<()>,
@@ -139,8 +141,9 @@ mod tests {
     use test_helpers::timeout::FutureTimeout;
 
     use crate::{
-        buffer_tree::partition::PartitionData,
-        persist::queue::mock::MockPersistQueue,
+        internal_implementation_details::{
+            buffer_tree::partition::PartitionData, persist::queue::mock::MockPersistQueue,
+        },
         test_util::{PartitionDataBuilder, ARBITRARY_TABLE_NAME},
     };
 

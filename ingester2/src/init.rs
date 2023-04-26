@@ -1,6 +1,8 @@
-crate::maybe_pub!(
+/// Re-export WAL replay code for benchmarking purposes only.
+#[cfg(feature = "benches")]
+pub mod benches {
     pub use super::wal_replay::*;
-);
+}
 
 mod graceful_shutdown;
 mod wal_replay;
@@ -24,20 +26,24 @@ use tokio_util::sync::CancellationToken;
 use wal::Wal;
 
 use crate::{
-    buffer_tree::{
-        namespace::name_resolver::{NamespaceNameProvider, NamespaceNameResolver},
-        partition::resolver::{
-            CatalogPartitionResolver, CoalescePartitionResolver, PartitionCache, PartitionProvider,
-        },
-        table::name_resolver::{TableNameProvider, TableNameResolver},
-        BufferTree,
-    },
-    dml_sink::{instrumentation::DmlSinkInstrumentation, tracing::DmlSinkTracing},
     ingest_state::IngestState,
     ingester_id::IngesterId,
-    persist::{
-        completion_observer::NopObserver, handle::PersistHandle,
-        hot_partitions::HotPartitionPersister,
+    internal_implementation_details::{
+        buffer_tree::{
+            namespace::name_resolver::{NamespaceNameProvider, NamespaceNameResolver},
+            partition::resolver::{
+                CatalogPartitionResolver, CoalescePartitionResolver, PartitionCache,
+                PartitionProvider,
+            },
+            table::name_resolver::{TableNameProvider, TableNameResolver},
+            BufferTree,
+        },
+        dml_sink::{instrumentation::DmlSinkInstrumentation, tracing::DmlSinkTracing},
+        persist::{
+            completion_observer::NopObserver, handle::PersistHandle,
+            hot_partitions::HotPartitionPersister,
+        },
+        wal::{rotate_task::periodic_rotation, wal_sink::WalSink},
     },
     query::{
         exec_instrumentation::QueryExecInstrumentation,
@@ -45,7 +51,6 @@ use crate::{
     },
     server::grpc::GrpcDelegate,
     timestamp_oracle::TimestampOracle,
-    wal::{rotate_task::periodic_rotation, wal_sink::WalSink},
 };
 
 use self::graceful_shutdown::graceful_shutdown_handler;

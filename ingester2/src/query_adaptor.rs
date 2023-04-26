@@ -23,7 +23,7 @@ use schema::{merge::merge_record_batch_schemas, sort::SortKey, Projection, Schem
 /// row. This frees the caller of having to reason about empty [`QueryAdaptor`]
 /// instances yielding empty [`RecordBatch`].
 ///
-/// [`PartitionData`]: crate::buffer_tree::partition::PartitionData
+/// [`PartitionData`]: crate::internal_implementation_details::buffer_tree::partition::PartitionData
 #[derive(Debug, PartialEq, Clone)]
 pub struct QueryAdaptor {
     /// The snapshot data from a partition.

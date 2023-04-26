@@ -8,7 +8,7 @@ use std::time::Instant;
 use thiserror::Error;
 use wal::{SequencedWalOp, Wal};
 
-use crate::{
+use crate::internal_implementation_details::{
     dml_sink::{DmlError, DmlSink},
     partition_iter::PartitionIter,
     persist::{drain_buffer::persist_partitions, queue::PersistQueue},
@@ -32,7 +32,7 @@ pub enum WalReplayError {
     /// A failure to apply a [`DmlOperation`] from the WAL to the in-memory
     /// [`BufferTree`].
     ///
-    /// [`BufferTree`]: crate::buffer_tree::BufferTree
+    /// [`BufferTree`]: crate::internal_implementation_details::buffer_tree::BufferTree
     #[error("failed to apply op: {0}")]
     Apply(#[from] DmlError),
 }
@@ -263,15 +263,15 @@ mod tests {
     use wal::Wal;
 
     use crate::{
-        buffer_tree::partition::PartitionData,
-        dml_sink::mock_sink::MockDmlSink,
-        persist::queue::mock::MockPersistQueue,
+        internal_implementation_details::{
+            buffer_tree::partition::PartitionData, dml_sink::mock_sink::MockDmlSink,
+            persist::queue::mock::MockPersistQueue, wal::wal_sink::WalSink,
+        },
         test_util::{
             assert_dml_writes_eq, make_write_op, PartitionDataBuilder, ARBITRARY_NAMESPACE_ID,
             ARBITRARY_PARTITION_ID, ARBITRARY_PARTITION_KEY, ARBITRARY_TABLE_ID,
             ARBITRARY_TABLE_NAME,
         },
-        wal::wal_sink::WalSink,
     };
 
     use super::*;

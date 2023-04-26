@@ -7,9 +7,11 @@ use dml::{DmlMeta, DmlOperation, DmlWrite};
 use generated_types::influxdata::{
     iox::wal::v1::sequenced_wal_op::Op as WalOp, pbdata::v1::DatabaseBatch,
 };
-use ingester2::{
+use ingester2::internal_implementation_details::{
     buffer_tree::benches::PartitionData,
     dml_sink::{DmlError, DmlSink},
+    partition_iter::PartitionIter,
+    persist::queue::benches::MockPersistQueue,
 };
 use mutable_batch_pb::encode::encode_write;
 use wal::SequencedWalOp;
@@ -61,7 +63,7 @@ fn wal_replay_bench(c: &mut Criterion) {
                 // overhead.
                 let sink = NopSink::default();
 
-                let persist = ingester2::persist::queue::benches::MockPersistQueue::default();
+                let persist = MockPersistQueue::default();
 
                 // Replay the wal into the NOP.
                 ingester2::benches::replay(
@@ -117,7 +119,7 @@ impl DmlSink for NopSink {
     }
 }
 
-impl ingester2::partition_iter::PartitionIter for NopSink {
+impl PartitionIter for NopSink {
     fn partition_iter(
         &self,
     ) -> Box<dyn Iterator<Item = std::sync::Arc<parking_lot::Mutex<PartitionData>>> + Send> {
