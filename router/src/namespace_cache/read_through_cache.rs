@@ -1,10 +1,11 @@
 //! Read-through caching behaviour for a [`NamespaceCache`] implementation
 
+use std::time::{Duration, Instant};
 use std::{ops::DerefMut, sync::Arc};
 
 use async_trait::async_trait;
 use data_types::{NamespaceName, NamespaceSchema};
-use iox_catalog::interface::{get_schema_by_name, Catalog, SoftDeletedRows};
+use iox_catalog::interface::{get_schema_by_name, Catalog, RepoCollection, SoftDeletedRows};
 use observability_deps::tracing::*;
 
 use super::memory::CacheMissErr;
@@ -60,23 +61,12 @@ where
                 assert_eq!(cache_ns, *namespace);
                 let mut repos = self.catalog.repositories().await;
 
-                let schema = match get_schema_by_name(
+                let schema = get_schema_by_name_retry(
                     namespace,
                     repos.deref_mut(),
                     SoftDeletedRows::ExcludeDeleted,
                 )
-                .await
-                {
-                    Ok(v) => v,
-                    Err(e) => {
-                        warn!(
-                            error = %e,
-                            %namespace,
-                            "failed to retrieve namespace schema"
-                        );
-                        return Err(e);
-                    }
-                };
+                .await?;
 
                 let (new_schema, _) = self.put_schema(namespace.clone(), schema);
 
@@ -92,6 +82,45 @@ where
         schema: NamespaceSchema,
     ) -> (Arc<NamespaceSchema>, ChangeStats) {
         self.inner_cache.put_schema(namespace, schema)
+    }
+}
+
+/// Gets the namespace schema including all tables and columns.  If
+/// the namespace is not found, retries up to 500ms for it to be
+/// visible.
+async fn get_schema_by_name_retry<R>(
+    name: &str,
+    repos: &mut R,
+    deleted: SoftDeletedRows,
+) -> Result<NamespaceSchema, iox_catalog::interface::Error>
+where
+    R: RepoCollection + ?Sized,
+{
+    let sleep_time = Duration::from_millis(100);
+    let deadline = Instant::now() + Duration::from_millis(500);
+
+    loop {
+        match get_schema_by_name(name, repos, deleted).await {
+            Ok(v) => {
+                return Ok(v);
+            }
+            // retry if not found
+            Err(iox_catalog::interface::Error::NamespaceNotFoundByName { .. })
+                if Instant::now() < deadline =>
+            {
+                info!("Namespace not found, retrying");
+                tokio::time::sleep(sleep_time).await;
+                continue;
+            }
+            Err(e) => {
+                warn!(
+                    error = %e,
+                    %name,
+                    "failed to retrieve namespace schema"
+                );
+                return Err(e);
+            }
+        };
     }
 }
 
