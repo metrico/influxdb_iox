@@ -26,11 +26,11 @@ use metric::Registry;
 use observability_deps::tracing::{debug, warn};
 use parking_lot::Mutex;
 use snafu::prelude::*;
-use sqlx::types::Json;
 use sqlx::{
     migrate::Migrator, sqlite::SqliteConnectOptions, types::Uuid, Executor, Pool, Row, Sqlite,
     SqlitePool,
 };
+use sqlx::{sqlite::SqliteJournalMode, types::Json};
 use std::str::FromStr;
 use std::sync::Arc;
 
@@ -202,7 +202,7 @@ impl SqliteCatalog {
             .map_err(|e| Error::SqlxError { source: e })?
             .create_if_missing(true)
             // use journaling mode to support concurrent writes
-            .pragma("journal_mode", "wal");
+            .journal_mode(SqliteJournalMode::Wal);
 
         let pool = SqlitePool::connect_with(opts)
             .await
