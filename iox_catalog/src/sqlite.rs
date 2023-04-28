@@ -200,7 +200,9 @@ impl SqliteCatalog {
     pub async fn connect(options: SqliteConnectionOptions, metrics: Arc<Registry>) -> Result<Self> {
         let opts = SqliteConnectOptions::from_str(&options.file_path)
             .map_err(|e| Error::SqlxError { source: e })?
-            .create_if_missing(true);
+            .create_if_missing(true)
+            // use journaling mode to support concurrent writes
+            .pragma("journal_mode", "wal");
 
         let pool = SqlitePool::connect_with(opts)
             .await
