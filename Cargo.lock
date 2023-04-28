@@ -1423,6 +1423,7 @@ dependencies = [
  "proptest",
  "schema",
  "serde",
+ "serde_json",
  "sqlx",
  "test_helpers",
  "thiserror",

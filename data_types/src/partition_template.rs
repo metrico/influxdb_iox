@@ -1,8 +1,9 @@
 use once_cell::sync::Lazy;
+use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 
 /// A partition template specified by a namespace record.
-#[derive(Debug, Eq, PartialEq, Clone)]
+#[derive(Debug, Eq, PartialEq, Clone, Serialize, Deserialize)]
 pub struct NamespacePartitionTemplateOverride(PartitionTemplate);
 
 impl NamespacePartitionTemplateOverride {
@@ -13,7 +14,7 @@ impl NamespacePartitionTemplateOverride {
 }
 
 /// A partition template specified by a table record.
-#[derive(Debug, Eq, PartialEq, Clone)]
+#[derive(Debug, Eq, PartialEq, Clone, Serialize, Deserialize)]
 pub struct TablePartitionTemplateOverride(PartitionTemplate);
 
 impl TablePartitionTemplateOverride {
@@ -44,7 +45,7 @@ pub static PARTITION_BY_DAY: Lazy<PartitionTemplate> = Lazy::new(|| PartitionTem
 ///
 /// The key is constructed in order of the template parts; thus ordering changes what partition key
 /// is generated.
-#[derive(Debug, Eq, PartialEq, Clone)]
+#[derive(Debug, Eq, PartialEq, Clone, Serialize, Deserialize)]
 #[allow(missing_docs)]
 pub struct PartitionTemplate {
     pub parts: Vec<TemplatePart>,
@@ -68,7 +69,7 @@ impl PartitionTemplate {
 
 /// `TemplatePart` specifies what part of a row should be used to compute this
 /// part of a partition key.
-#[derive(Debug, Eq, PartialEq, Clone)]
+#[derive(Debug, Eq, PartialEq, Clone, Serialize, Deserialize)]
 pub enum TemplatePart {
     /// The value in a named column
     Column(String),
@@ -78,4 +79,32 @@ pub enum TemplatePart {
     /// partition key parts such as "2021-03-14 12:25:21" and
     /// "2021-04-14 12:24:21"
     TimeFormat(String),
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn partition_template_to_json() {
+        let partition_template = PartitionTemplate {
+            parts: vec![
+                TemplatePart::Column("tag1".into()),
+                TemplatePart::TimeFormat("%Y-%m".into()),
+            ],
+        };
+
+        let json = serde_json::to_string(&partition_template).unwrap();
+
+        assert_eq!(
+            json,
+            "{\"parts\":[\
+                {\"Column\":\"tag1\"},\
+                {\"TimeFormat\":\"%Y-%m\"}\
+            ]}"
+        );
+
+        let back: PartitionTemplate = serde_json::from_str(&json).unwrap();
+        assert_eq!(partition_template, back);
+    }
 }
