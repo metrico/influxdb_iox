@@ -13,6 +13,12 @@ impl NamespacePartitionTemplateOverride {
     }
 }
 
+impl Default for NamespacePartitionTemplateOverride {
+    fn default() -> Self {
+        Self(PARTITION_BY_DAY.clone())
+    }
+}
+
 /// A partition template specified by a table record.
 #[derive(Debug, Eq, PartialEq, Clone, Serialize, Deserialize)]
 pub struct TablePartitionTemplateOverride(PartitionTemplate);
@@ -21,6 +27,20 @@ impl TablePartitionTemplateOverride {
     /// Create a new, immutable override for a table's partition template.
     pub fn new(partition_template: PartitionTemplate) -> Self {
         Self(partition_template)
+    }
+}
+
+/// This is used when setting a new table's override to the namespace's override because no table
+/// override has been specified during creation.
+impl From<&NamespacePartitionTemplateOverride> for TablePartitionTemplateOverride {
+    fn from(namespace: &NamespacePartitionTemplateOverride) -> Self {
+        Self(namespace.0.clone())
+    }
+}
+
+impl Default for TablePartitionTemplateOverride {
+    fn default() -> Self {
+        Self(PARTITION_BY_DAY.clone())
     }
 }
 

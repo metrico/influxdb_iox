@@ -14,7 +14,7 @@
 )]
 
 use crate::interface::{ColumnTypeMismatchSnafu, Error, RepoCollection, Result};
-use data_types::{ColumnType, NamespaceSchema, TableSchema};
+use data_types::{ColumnType, NamespaceSchema, TablePartitionTemplateOverride, TableSchema};
 use mutable_batch::MutableBatch;
 use std::{borrow::Cow, collections::HashMap};
 use thiserror::Error;
@@ -114,9 +114,20 @@ where
             //
             // Attempt to create the table in the catalog, or load an existing
             // table from the catalog to populate the cache.
+
+            // The partition template to use if the table needs to be created. Use the namespace's
+            // partition template if it's specified, otherwise use the default. Eventually,
+            // namespaces will be required to have a partition template and this fallback won't be
+            // needed.
+            let partition_template = schema
+                .partition_template
+                .as_ref()
+                .map(|n| TablePartitionTemplateOverride::from(n.as_ref()))
+                .unwrap_or_default();
+
             let mut table = repos
                 .tables()
-                .create_or_get(table_name, schema.id)
+                .create_or_get(table_name, &partition_template, schema.id)
                 .await
                 .map(|t| TableSchema::new_empty_from(&t))?;
 
@@ -238,7 +249,7 @@ mod tests {
 
                     let namespace = txn
                         .namespaces()
-                        .create(NAMESPACE_NAME, None)
+                        .create(NAMESPACE_NAME, &Default::default(), None)
                         .await
                         .unwrap();
 

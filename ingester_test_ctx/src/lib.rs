@@ -207,23 +207,13 @@ where
             .repositories()
             .await
             .namespaces()
-            .create(name, None)
+            .create(name, &Default::default(), retention_period_ns)
             .await
             .expect("failed to create test namespace");
 
         assert!(
             self.namespaces
-                .insert(
-                    ns.id,
-                    NamespaceSchema {
-                        id: ns.id,
-                        tables: Default::default(),
-                        max_columns_per_table: iox_catalog::DEFAULT_MAX_COLUMNS_PER_TABLE as usize,
-                        max_tables: iox_catalog::DEFAULT_MAX_TABLES as usize,
-                        retention_period_ns,
-                        partition_template: None,
-                    },
-                )
+                .insert(ns.id, NamespaceSchema::new_empty_from(&ns))
                 .is_none(),
             "namespace must not be duplicated"
         );
@@ -273,7 +263,7 @@ where
                         .repositories()
                         .await
                         .tables()
-                        .create_or_get(table_name.as_str(), namespace_id)
+                        .create_or_get(table_name.as_str(), &Default::default(), namespace_id)
                         .await
                         .expect("table should create OK")
                         .id;

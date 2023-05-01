@@ -270,7 +270,7 @@ async fn test_write_propagate_ids() {
         .repositories()
         .await
         .namespaces()
-        .create("bananas_test", None)
+        .create("bananas_test", &Default::default(), None)
         .await
         .expect("failed to update table limit");
 
@@ -284,7 +284,7 @@ async fn test_write_propagate_ids() {
                     .repositories()
                     .await
                     .tables()
-                    .create_or_get(t, ns.id)
+                    .create_or_get(t, &Default::default(), ns.id)
                     .await
                     .unwrap();
                 (*t, table.id)
@@ -352,7 +352,7 @@ async fn test_delete_unsupported() {
         .repositories()
         .await
         .namespaces()
-        .create("bananas_test", None)
+        .create("bananas_test", &Default::default(), None)
         .await
         .expect("failed to update table limit");
 

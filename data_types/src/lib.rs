@@ -299,6 +299,8 @@ pub struct Namespace {
     pub max_columns_per_table: i32,
     /// When this file was marked for deletion.
     pub deleted_at: Option<Timestamp>,
+    /// The optionally-specified partition template to use for writes in this namespace.
+    pub partition_template: Option<sqlx::types::Json<NamespacePartitionTemplateOverride>>,
 }
 
 /// Schema collection for a namespace. This is an in-memory object useful for a schema
@@ -329,6 +331,7 @@ impl NamespaceSchema {
             retention_period_ns,
             max_tables,
             max_columns_per_table,
+            ref partition_template,
             ..
         } = namespace;
 
@@ -338,14 +341,12 @@ impl NamespaceSchema {
             max_columns_per_table: max_columns_per_table as usize,
             max_tables: max_tables as usize,
             retention_period_ns,
-
-            // TODO: Store and retrieve PartitionTemplate from the database
-            partition_template: None,
+            partition_template: partition_template
+                .as_ref()
+                .map(|json_type| Arc::new(json_type.0.clone())),
         }
     }
-}
 
-impl NamespaceSchema {
     /// Estimated Size in bytes including `self`.
     pub fn size(&self) -> usize {
         std::mem::size_of_val(self)
@@ -366,6 +367,8 @@ pub struct Table {
     pub namespace_id: NamespaceId,
     /// The name of the table, which is unique within the associated namespace
     pub name: String,
+    /// The optionally-specified partition template to use for writes in this namespace.
+    pub partition_template: Option<sqlx::types::Json<TablePartitionTemplateOverride>>,
 }
 
 /// Column definitions for a table
@@ -395,8 +398,10 @@ impl TableSchema {
     pub fn new_empty_from(table: &Table) -> Self {
         Self {
             id: table.id,
-            // TODO: Store and retrieve PartitionTemplate from the database
-            partition_template: None,
+            partition_template: table
+                .partition_template
+                .as_ref()
+                .map(|json_type| Arc::new(json_type.0.clone())),
             columns: ColumnsByName::new([]),
         }
     }

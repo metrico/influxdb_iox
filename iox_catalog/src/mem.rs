@@ -12,9 +12,10 @@ use crate::{
 };
 use async_trait::async_trait;
 use data_types::{
-    Column, ColumnId, ColumnType, CompactionLevel, Namespace, NamespaceId, ParquetFile,
-    ParquetFileId, ParquetFileParams, Partition, PartitionId, PartitionKey, SkippedCompaction,
-    Table, TableId, Timestamp,
+    Column, ColumnId, ColumnType, CompactionLevel, Namespace, NamespaceId,
+    NamespacePartitionTemplateOverride, ParquetFile, ParquetFileId, ParquetFileParams, Partition,
+    PartitionId, PartitionKey, SkippedCompaction, Table, TableId, TablePartitionTemplateOverride,
+    Timestamp,
 };
 use iox_time::{SystemProvider, TimeProvider};
 use observability_deps::tracing::warn;
@@ -217,7 +218,12 @@ impl RepoCollection for MemTxn {
 
 #[async_trait]
 impl NamespaceRepo for MemTxn {
-    async fn create(&mut self, name: &str, retention_period_ns: Option<i64>) -> Result<Namespace> {
+    async fn create(
+        &mut self,
+        name: &str,
+        partition_template: &NamespacePartitionTemplateOverride,
+        retention_period_ns: Option<i64>,
+    ) -> Result<Namespace> {
         let stage = self.stage();
 
         if stage.namespaces.iter().any(|n| n.name == name) {
@@ -233,6 +239,7 @@ impl NamespaceRepo for MemTxn {
             max_columns_per_table: DEFAULT_MAX_COLUMNS_PER_TABLE,
             retention_period_ns,
             deleted_at: None,
+            partition_template: Some(sqlx::types::Json(partition_template.to_owned())),
         };
         stage.namespaces.push(namespace);
         Ok(stage.namespaces.last().unwrap().clone())
@@ -333,7 +340,12 @@ impl NamespaceRepo for MemTxn {
 
 #[async_trait]
 impl TableRepo for MemTxn {
-    async fn create_or_get(&mut self, name: &str, namespace_id: NamespaceId) -> Result<Table> {
+    async fn create_or_get(
+        &mut self,
+        name: &str,
+        partition_template: &TablePartitionTemplateOverride,
+        namespace_id: NamespaceId,
+    ) -> Result<Table> {
         let stage = self.stage();
 
         // this block is just to ensure the mem impl correctly creates TableCreateLimitError in
@@ -375,6 +387,7 @@ impl TableRepo for MemTxn {
                     id: TableId::new(stage.tables.len() as i64 + 1),
                     namespace_id,
                     name: name.to_string(),
+                    partition_template: Some(sqlx::types::Json(partition_template.to_owned())),
                 };
                 stage.tables.push(table);
                 stage.tables.last().unwrap()

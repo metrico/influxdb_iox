@@ -26,6 +26,7 @@ impl PartitionInfoBuilder {
                     id: TableId::new(3),
                     namespace_id,
                     name: String::from("table"),
+                    partition_template: None,
                 }),
                 table_schema: Arc::new(TableSchema::new(table_id)),
                 sort_key: None,

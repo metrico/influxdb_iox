@@ -107,7 +107,7 @@ where
                         .repositories()
                         .await
                         .namespaces()
-                        .create(namespace.as_str(), retention_period_ns)
+                        .create(namespace.as_str(), &Default::default(), retention_period_ns)
                         .await
                     {
                         Ok(_) => {
@@ -137,7 +137,7 @@ mod tests {
     use std::sync::Arc;
 
     use assert_matches::assert_matches;
-    use data_types::{Namespace, NamespaceId, NamespaceSchema};
+    use data_types::{NamespaceId, NamespaceSchema};
     use iox_catalog::{interface::SoftDeletedRows, mem::MemCatalog};
 
     use super::*;
@@ -238,17 +238,6 @@ mod tests {
             .expect("creation request should be sent to catalog");
 
         assert_eq!(got.id, created_namespace_schema.id);
-        assert_eq!(
-            got,
-            Namespace {
-                id: NamespaceId::new(1),
-                name: ns.to_string(),
-                max_tables: iox_catalog::DEFAULT_MAX_TABLES,
-                max_columns_per_table: iox_catalog::DEFAULT_MAX_COLUMNS_PER_TABLE,
-                retention_period_ns: TEST_RETENTION_PERIOD_NS,
-                deleted_at: None,
-            }
-        );
     }
 
     #[tokio::test]

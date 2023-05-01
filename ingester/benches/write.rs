@@ -45,12 +45,18 @@ async fn init(lp: impl AsRef<str>) -> (TestContext<impl IngesterRpcInterface>, D
         .into_iter()
         .map(|(table_name, batch)| {
             let catalog = Arc::clone(&ctx.catalog());
+            let partition_template = ns
+                .partition_template
+                .as_ref()
+                .map(|pt| &pt.0)
+                .unwrap_or(&Default::default())
+                .into();
             async move {
                 let id = catalog
                     .repositories()
                     .await
                     .tables()
-                    .create_or_get(table_name.as_str(), ns.id)
+                    .create_or_get(table_name.as_str(), &partition_template, ns.id)
                     .await
                     .expect("table should create OK")
                     .id;

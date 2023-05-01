@@ -116,13 +116,13 @@ mod tests {
             let mut repos = catalog.repositories().await;
             let ns = repos
                 .namespaces()
-                .create(TABLE_NAME, None)
+                .create(TABLE_NAME, &Default::default(), None)
                 .await
                 .unwrap();
 
             let table = repos
                 .tables()
-                .create_or_get(TABLE_NAME, ns.id)
+                .create_or_get(TABLE_NAME, &Default::default(), ns.id)
                 .await
                 .unwrap();
 

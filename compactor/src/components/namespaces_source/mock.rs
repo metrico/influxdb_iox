@@ -186,6 +186,7 @@ mod tests {
                         max_columns_per_table: 10,
                         retention_period_ns: None,
                         deleted_at: None,
+                        partition_template: None,
                     },
                     schema: NamespaceSchema {
                         id,

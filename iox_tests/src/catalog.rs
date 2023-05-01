@@ -145,7 +145,7 @@ impl TestCatalog {
         let mut repos = self.catalog.repositories().await;
         let namespace = repos
             .namespaces()
-            .create(name, retention_period_ns)
+            .create(name, &Default::default(), retention_period_ns)
             .await
             .unwrap();
 
@@ -218,9 +218,17 @@ impl TestNamespace {
     pub async fn create_table(self: &Arc<Self>, name: &str) -> Arc<TestTable> {
         let mut repos = self.catalog.catalog.repositories().await;
 
+        let partition_template = self
+            .namespace
+            .partition_template
+            .as_ref()
+            .map(|pt| &pt.0)
+            .unwrap_or(&Default::default())
+            .into();
+
         let table = repos
             .tables()
-            .create_or_get(name, self.namespace.id)
+            .create_or_get(name, &partition_template, self.namespace.id)
             .await
             .unwrap();
 

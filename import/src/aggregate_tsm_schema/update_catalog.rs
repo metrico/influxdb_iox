@@ -87,7 +87,11 @@ async fn create_namespace<R>(name: &str, repos: &mut R) -> Result<Namespace, Upd
 where
     R: RepoCollection + ?Sized,
 {
-    match repos.namespaces().create(name, None).await {
+    match repos
+        .namespaces()
+        .create(name, &Default::default(), None)
+        .await
+    {
         Ok(ns) => Ok(ns),
         Err(iox_catalog::interface::Error::NameExists { .. }) => {
             // presumably it got created in the meantime?
@@ -122,9 +126,15 @@ where
             Some(t) => t.clone(),
             None => {
                 // it doesn't; create it and add a time column
+                let partition_template = iox_schema
+                    .partition_template
+                    .as_ref()
+                    .map(|pt| pt.as_ref())
+                    .unwrap_or(&Default::default())
+                    .into();
                 let mut table = repos
                     .tables()
-                    .create_or_get(measurement_name, iox_schema.id)
+                    .create_or_get(measurement_name, &partition_template, iox_schema.id)
                     .await
                     .map(|t| TableSchema::new_empty_from(&t))?;
                 let time_col = repos
@@ -428,12 +438,12 @@ mod tests {
         // create namespace, table and columns for weather measurement
         let namespace = txn
             .namespaces()
-            .create("1234_5678", None)
+            .create("1234_5678", &Default::default(), None)
             .await
             .expect("namespace created");
         let mut table = txn
             .tables()
-            .create_or_get("weather", namespace.id)
+            .create_or_get("weather", &Default::default(), namespace.id)
             .await
             .map(|t| TableSchema::new_empty_from(&t))
             .expect("table created");
@@ -520,12 +530,12 @@ mod tests {
         // create namespace, table and columns for weather measurement
         let namespace = txn
             .namespaces()
-            .create("1234_5678", None)
+            .create("1234_5678", &Default::default(), None)
             .await
             .expect("namespace created");
         let mut table = txn
             .tables()
-            .create_or_get("weather", namespace.id)
+            .create_or_get("weather", &Default::default(), namespace.id)
             .await
             .map(|t| TableSchema::new_empty_from(&t))
             .expect("table created");
@@ -585,12 +595,12 @@ mod tests {
         // create namespace, table and columns for weather measurement
         let namespace = txn
             .namespaces()
-            .create("1234_5678", None)
+            .create("1234_5678", &Default::default(), None)
             .await
             .expect("namespace created");
         let mut table = txn
             .tables()
-            .create_or_get("weather", namespace.id)
+            .create_or_get("weather", &Default::default(), namespace.id)
             .await
             .map(|t| TableSchema::new_empty_from(&t))
             .expect("table created");

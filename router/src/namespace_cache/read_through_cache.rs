@@ -160,7 +160,7 @@ mod tests {
             max_columns_per_table: iox_catalog::DEFAULT_MAX_COLUMNS_PER_TABLE as usize,
             max_tables: iox_catalog::DEFAULT_MAX_TABLES as usize,
             retention_period_ns: iox_catalog::DEFAULT_RETENTION_PERIOD,
-            partition_template: None,
+            partition_template: Some(Arc::new(Default::default())),
         };
 
         assert_matches!(
@@ -168,7 +168,11 @@ mod tests {
                 .repositories()
                 .await
                 .namespaces()
-                .create(&ns, iox_catalog::DEFAULT_RETENTION_PERIOD,)
+                .create(
+                    &ns,
+                    &Default::default(),
+                    iox_catalog::DEFAULT_RETENTION_PERIOD
+                )
                 .await,
             Ok(_)
         );

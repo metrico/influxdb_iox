@@ -157,12 +157,12 @@ mod tests {
         let mut repos = catalog.repositories().await;
         let namespace = repos
             .namespaces()
-            .create("namespace_parquet_file_test", None)
+            .create("namespace_parquet_file_test", &Default::default(), None)
             .await
             .unwrap();
         let table = repos
             .tables()
-            .create_or_get("test_table", namespace.id)
+            .create_or_get("test_table", &Default::default(), namespace.id)
             .await
             .unwrap();
         let partition = repos
