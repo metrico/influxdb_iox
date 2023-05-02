@@ -115,8 +115,8 @@ license = "MIT OR Apache-2.0"
 [workspace.dependencies]
 arrow = { version = "38.0.0" }
 arrow-flight = { version = "38.0.0" }
-datafusion = { git = "https://github.com/apache/arrow-datafusion.git", rev="aec34205e94728b6975551933e99c1d874806a13", default-features = false }
-datafusion-proto = { git = "https://github.com/apache/arrow-datafusion.git", rev="aec34205e94728b6975551933e99c1d874806a13" }
+datafusion = { git = "https://github.com/apache/arrow-datafusion.git", rev="419adf01f561efee50b9dee84c19fd2ee568d143", default-features = false }
+datafusion-proto = { git = "https://github.com/apache/arrow-datafusion.git", rev="419adf01f561efee50b9dee84c19fd2ee568d143" }
 hashbrown = { version = "0.13.2" }
 parquet = { version = "38.0.0" }
 tonic = { version = "0.9.2", features = ["tls", "tls-webpki-roots"] }

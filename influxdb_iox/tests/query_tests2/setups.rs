@@ -1243,43 +1243,6 @@ pub static SETUPS: Lazy<HashMap<SetupName, SetupSteps>> = Lazy::new(|| {
                 Step::RecordNumParquetFiles,
                 Step::WriteLineProtocol(
                     r#"
-                    m0,tag0=val00 f64=10.1,i64=101i,str="hi" 1667181600000000000
-                    m0,tag0=val00 f64=21.2,i64=211i,str="hi" 1667181610000000000
-                    m0,tag0=val00 f64=11.2,i64=191i,str="lo" 1667181620000000000
-                    m0,tag0=val00 f64=19.2,i64=392i,str="lo" 1667181630000000000
-                    m0,tag0=val01 f64=11.3,i64=211i,str="lo" 1667181600000000000
-                    m0,tag0=val02 f64=10.4,i64=101i,str="lo" 1667181600000000000
-                    m0,tag0=val00,tag1=val10 f64=18.9,i64=211i,str="lo" 1667181610000000000
-                    m1,tag0=val00 f64=100.5,i64=1001i,str="hi" 1667181600000000000
-                    m1,tag0=val00 f64=200.6,i64=2001i,str="lo" 1667181610000000000
-                    m1,tag0=val01 f64=101.7,i64=1011i,str="lo" 1667181600000000000
-                    cpu,host=host1,cpu=cpu-total usage_idle=2.98,usage_system=2.2 1667181600000000000
-                    cpu,host=host1,cpu=cpu-total usage_idle=2.99,usage_system=2.1 1667181610000000000
-                    cpu,host=host1,cpu=cpu0 usage_idle=0.98,usage_system=0.2 1667181600000000000
-                    cpu,host=host1,cpu=cpu0 usage_idle=0.99,usage_system=0.1 1667181610000000000
-                    cpu,host=host1,cpu=cpu1 usage_idle=1.98,usage_system=1.2 1667181600000000000
-                    cpu,host=host1,cpu=cpu1 usage_idle=1.99,usage_system=1.1 1667181610000000000
-                    disk,host=host1,device=disk1s1 bytes_free=1234i,bytes_used=219838i 1667181600000000000
-                    disk,host=host1,device=disk1s1 bytes_free=1239i,bytes_used=219833i 1667181610000000000
-                    disk,host=host1,device=disk1s2 bytes_free=2234i,bytes_used=319838i 1667181600000000000
-                    disk,host=host1,device=disk1s2 bytes_free=2239i,bytes_used=319833i 1667181610000000000
-                    disk,host=host1,device=disk1s5 bytes_free=3234i,bytes_used=419838i 1667181600000000000
-                    disk,host=host1,device=disk1s5 bytes_free=3239i,bytes_used=419833i 1667181610000000000
-                    m2,tag0=val00 f64=0.98 1667181600000000000
-                    m2,tag0=val02 f64=1.98 1667181600000000000
-                    m2,tag0=val01 f64=2.98 1667181600000000000
-                    m2,tag0=val05 f64=3.98 1667181600000000000
-                    m2,tag0=val03 f64=4.98 1667181600000000000
-                    m2,tag0=val09 f64=5.98 1667181600000000000
-                    m2,tag0=val10 f64=6.98 1667181600000000000
-                    m2,tag0=val08 f64=7.98 1667181600000000000
-                    m2,tag0=val07 f64=8.98 1667181600000000000
-                    m2,tag0=val04 f64=9.98 1667181600000000000
-                    m3,tag0=a,tag1=b,tag2=c,tag3=d u64=1u 1667181600000000000
-                    m4,tag.one=foo field.one=1 1667181600000000000
-                    time_test,tt_tag=before_default_cutoff,tt_tag_before_default_cutoff=a tt_field="before_default_cutoff",tt_field_before_default_cutoff=1 631151999999999999
-                    time_test,tt_tag=at_default_cutoff,tt_tag_at_default_cutoff=a tt_field="at_default_cutoff",tt_field_at_default_cutoff=1 631152000000000000
-                    time_test,tt_tag=late,tt_tag_late=1 tt_field="late",tt_field_late=1 1667181600000000000
                     select_test,tag0=a,tag1=a,st_tag=aa,st_tag_aa=x st_field="aa",st_field_aa=1 1667181600000000000
                     select_test,tag0=a,tag1=b,st_tag=ab,st_tag_ab=x st_field="ab",st_field_ab=1 1667181600000000000
                     select_test,tag0=b,tag1=a,st_tag=ba,st_tag_ba=x st_field="ba",st_field_ba=1 1667181600000000000
@@ -1289,7 +1252,7 @@ pub static SETUPS: Lazy<HashMap<SetupName, SetupSteps>> = Lazy::new(|| {
                 ),
                 Step::Persist,
                 Step::WaitForPersisted2 {
-                    expected_increase: 2,
+                    expected_increase: 1,
                 },
             ],
         ),
