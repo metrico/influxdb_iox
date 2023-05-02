@@ -18,6 +18,7 @@ use datafusion::{
     scalar::ScalarValue,
 };
 use object_store::ObjectMeta;
+use observability_deps::tracing::info;
 use schema::{sort::SortKey, Schema};
 use std::{
     collections::{hash_map::Entry, HashMap, HashSet},
@@ -56,6 +57,10 @@ impl ParquetChunkList {
         output_sort_key: Option<&SortKey>,
     ) -> Self {
         let sort_key = combine_sort_key(output_sort_key.cloned(), chunk.sort_key(), chunk.schema());
+        info!(?sort_key, ?output_sort_key,
+              chunk_sort_key=?chunk.sort_key(),
+              schema=?chunk.schema(), "AAL compiting sort key");
+
 
         Self {
             object_store_url,
@@ -70,6 +75,8 @@ impl ParquetChunkList {
         self.chunks.push((meta, Arc::clone(chunk)));
 
         self.sort_key = combine_sort_key(self.sort_key.take(), chunk.sort_key(), chunk.schema());
+        info!(sort_key=?self.sort_key,
+              chunk_sort_key=?chunk.sort_key(), "AAL added new file ");
     }
 }
 
@@ -195,6 +202,8 @@ pub fn chunks_to_physical_nodes(
             sort_key,
         } = chunk_list;
 
+        info!(?sort_key, "AAL creating parquet chunk list");
+
         // ensure that chunks are actually ordered by chunk order
         chunks.sort_by_key(|(_meta, c)| c.order());
 
@@ -234,7 +243,8 @@ pub fn chunks_to_physical_nodes(
         );
 
         // Tell datafusion about the sort key, if any
-        let output_ordering = sort_key.map(|sort_key| arrow_sort_key_exprs(&sort_key, schema));
+        let output_ordering = sort_key.clone().map(|sort_key| arrow_sort_key_exprs(&sort_key, schema));
+        info!(?sort_key, ?output_ordering, "AAL creating final output ordering");
 
         let (table_partition_cols, file_schema, output_ordering) = if has_chunk_order_col {
             let table_partition_cols = vec![(CHUNK_ORDER_COLUMN_NAME.to_owned(), DataType::Int64)];

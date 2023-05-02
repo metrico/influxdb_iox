@@ -190,6 +190,7 @@ impl CatalogDsnConfig {
     ) -> Result<Arc<dyn Catalog>, Error> {
         let catalog = match self.catalog_type_ {
             CatalogType::Postgres => {
+                info!(schema_name=?self.postgres_schema_name, "Creating Postgres DSN");
                 let options = PostgresConnectionOptions {
                     app_name: app_name.to_string(),
                     schema_name: self.postgres_schema_name.clone(),

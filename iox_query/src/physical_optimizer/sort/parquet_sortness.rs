@@ -12,7 +12,7 @@ use datafusion::{
         ExecutionPlan,
     },
 };
-use observability_deps::tracing::warn;
+use observability_deps::tracing::{warn, info};
 
 use crate::config::IoxConfigExt;
 
@@ -54,6 +54,7 @@ impl PhysicalOptimizerRule for ParquetSortness {
                     };
 
                     let base_config = parquet_exec.base_config();
+                    info!(output_ordering=?base_config.output_ordering, "AAL initial ordering input");
                     if base_config.output_ordering.is_none() {
                         // no output ordering requested
                         return Ok(Transformed::No(plan));
@@ -89,6 +90,8 @@ impl PhysicalOptimizerRule for ParquetSortness {
                             .collect(),
                         ..base_config.clone()
                     };
+
+                    info!(output_ordering=?base_config.output_ordering, "new ordering input");
                     let new_parquet_exec =
                         ParquetExec::new(base_config, parquet_exec.predicate().cloned(), None);
                     Ok(Transformed::Yes(Arc::new(new_parquet_exec)))

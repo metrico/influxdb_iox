@@ -24,6 +24,7 @@ use datafusion::{
         ExecutionPlan, PhysicalExpr,
     },
 };
+use observability_deps::tracing::info;
 
 use crate::provider::{DeduplicateExec, RecordBatchesExec};
 
@@ -94,6 +95,7 @@ impl PhysicalOptimizerRule for ProjectionPushdown {
                             .collect::<Result<Vec<_>>>()?,
                         None => column_indices,
                     };
+                    info!(output_ordering=?child_parquet.base_config().output_ordering, "AAL projection pushdown starting output_ordering");
                     let output_ordering = match &child_parquet.base_config().output_ordering {
                         Some(sort_exprs) => {
                             let projected_schema = projection_exec.schema();
@@ -120,6 +122,7 @@ impl PhysicalOptimizerRule for ProjectionPushdown {
                         }
                         None => None,
                     };
+                    info!(?output_ordering, "AAL projection pushdown final output_ordering");
                     let base_config = FileScanConfig {
                         projection: Some(projection),
                         output_ordering,
