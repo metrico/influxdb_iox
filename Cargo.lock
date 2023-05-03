@@ -386,7 +386,7 @@ dependencies = [
  "arrow-flight",
  "chrono",
  "comfy-table",
- "datafusion 23.0.0 (git+https://github.com/apache/arrow-datafusion.git?rev=2787e7a36a6be83d91201df20827d3695f933300)",
+ "datafusion",
  "hashbrown 0.13.2",
  "num-traits",
  "once_cell",
@@ -1012,7 +1012,7 @@ dependencies = [
  "bytes",
  "compactor2_test_utils",
  "data_types",
- "datafusion 23.0.0 (git+https://github.com/apache/arrow-datafusion.git?rev=2787e7a36a6be83d91201df20827d3695f933300)",
+ "datafusion",
  "futures",
  "insta",
  "iox_catalog",
@@ -1044,7 +1044,7 @@ dependencies = [
  "backoff",
  "compactor2",
  "data_types",
- "datafusion 23.0.0 (git+https://github.com/apache/arrow-datafusion.git?rev=2787e7a36a6be83d91201df20827d3695f933300)",
+ "datafusion",
  "datafusion_util",
  "futures",
  "insta",
@@ -1444,62 +1444,13 @@ dependencies = [
  "bzip2",
  "chrono",
  "dashmap",
- "datafusion-common 23.0.0 (git+https://github.com/apache/arrow-datafusion.git?rev=2787e7a36a6be83d91201df20827d3695f933300)",
- "datafusion-execution 23.0.0 (git+https://github.com/apache/arrow-datafusion.git?rev=2787e7a36a6be83d91201df20827d3695f933300)",
- "datafusion-expr 23.0.0 (git+https://github.com/apache/arrow-datafusion.git?rev=2787e7a36a6be83d91201df20827d3695f933300)",
- "datafusion-optimizer 23.0.0 (git+https://github.com/apache/arrow-datafusion.git?rev=2787e7a36a6be83d91201df20827d3695f933300)",
- "datafusion-physical-expr 23.0.0 (git+https://github.com/apache/arrow-datafusion.git?rev=2787e7a36a6be83d91201df20827d3695f933300)",
- "datafusion-row 23.0.0 (git+https://github.com/apache/arrow-datafusion.git?rev=2787e7a36a6be83d91201df20827d3695f933300)",
- "datafusion-sql 23.0.0 (git+https://github.com/apache/arrow-datafusion.git?rev=2787e7a36a6be83d91201df20827d3695f933300)",
- "flate2",
- "futures",
- "glob",
- "hashbrown 0.13.2",
- "indexmap",
- "itertools",
- "lazy_static",
- "log",
- "num_cpus",
- "object_store",
- "parking_lot 0.12.1",
- "parquet",
- "percent-encoding",
- "pin-project-lite",
- "rand",
- "smallvec",
- "sqlparser",
- "tempfile",
- "tokio",
- "tokio-stream",
- "tokio-util",
- "url",
- "uuid",
- "xz2",
- "zstd 0.12.3+zstd.1.5.2",
-]
-
-[[package]]
-name = "datafusion"
-version = "23.0.0"
-source = "git+https://github.com/apache/arrow-datafusion.git?rev=beee1d91303d5eff220fadd08b2c28404c2b3e5a#beee1d91303d5eff220fadd08b2c28404c2b3e5a"
-dependencies = [
- "ahash 0.8.3",
- "arrow",
- "arrow-array",
- "arrow-schema",
- "async-compression",
- "async-trait",
- "bytes",
- "bzip2",
- "chrono",
- "dashmap",
- "datafusion-common 23.0.0 (git+https://github.com/apache/arrow-datafusion.git?rev=beee1d91303d5eff220fadd08b2c28404c2b3e5a)",
- "datafusion-execution 23.0.0 (git+https://github.com/apache/arrow-datafusion.git?rev=beee1d91303d5eff220fadd08b2c28404c2b3e5a)",
- "datafusion-expr 23.0.0 (git+https://github.com/apache/arrow-datafusion.git?rev=beee1d91303d5eff220fadd08b2c28404c2b3e5a)",
- "datafusion-optimizer 23.0.0 (git+https://github.com/apache/arrow-datafusion.git?rev=beee1d91303d5eff220fadd08b2c28404c2b3e5a)",
- "datafusion-physical-expr 23.0.0 (git+https://github.com/apache/arrow-datafusion.git?rev=beee1d91303d5eff220fadd08b2c28404c2b3e5a)",
- "datafusion-row 23.0.0 (git+https://github.com/apache/arrow-datafusion.git?rev=beee1d91303d5eff220fadd08b2c28404c2b3e5a)",
- "datafusion-sql 23.0.0 (git+https://github.com/apache/arrow-datafusion.git?rev=beee1d91303d5eff220fadd08b2c28404c2b3e5a)",
+ "datafusion-common",
+ "datafusion-execution",
+ "datafusion-expr",
+ "datafusion-optimizer",
+ "datafusion-physical-expr",
+ "datafusion-row",
+ "datafusion-sql",
  "flate2",
  "futures",
  "glob",
@@ -1542,44 +1493,13 @@ dependencies = [
 ]
 
 [[package]]
-name = "datafusion-common"
-version = "23.0.0"
-source = "git+https://github.com/apache/arrow-datafusion.git?rev=beee1d91303d5eff220fadd08b2c28404c2b3e5a#beee1d91303d5eff220fadd08b2c28404c2b3e5a"
-dependencies = [
- "arrow",
- "arrow-array",
- "chrono",
- "num_cpus",
- "object_store",
- "parquet",
- "sqlparser",
-]
-
-[[package]]
 name = "datafusion-execution"
 version = "23.0.0"
 source = "git+https://github.com/apache/arrow-datafusion.git?rev=2787e7a36a6be83d91201df20827d3695f933300#2787e7a36a6be83d91201df20827d3695f933300"
 dependencies = [
  "dashmap",
- "datafusion-common 23.0.0 (git+https://github.com/apache/arrow-datafusion.git?rev=2787e7a36a6be83d91201df20827d3695f933300)",
- "datafusion-expr 23.0.0 (git+https://github.com/apache/arrow-datafusion.git?rev=2787e7a36a6be83d91201df20827d3695f933300)",
- "hashbrown 0.13.2",
- "log",
- "object_store",
- "parking_lot 0.12.1",
- "rand",
- "tempfile",
- "url",
-]
-
-[[package]]
-name = "datafusion-execution"
-version = "23.0.0"
-source = "git+https://github.com/apache/arrow-datafusion.git?rev=beee1d91303d5eff220fadd08b2c28404c2b3e5a#beee1d91303d5eff220fadd08b2c28404c2b3e5a"
-dependencies = [
- "dashmap",
- "datafusion-common 23.0.0 (git+https://github.com/apache/arrow-datafusion.git?rev=beee1d91303d5eff220fadd08b2c28404c2b3e5a)",
- "datafusion-expr 23.0.0 (git+https://github.com/apache/arrow-datafusion.git?rev=beee1d91303d5eff220fadd08b2c28404c2b3e5a)",
+ "datafusion-common",
+ "datafusion-expr",
  "hashbrown 0.13.2",
  "log",
  "object_store",
@@ -1596,18 +1516,7 @@ source = "git+https://github.com/apache/arrow-datafusion.git?rev=2787e7a36a6be83
 dependencies = [
  "ahash 0.8.3",
  "arrow",
- "datafusion-common 23.0.0 (git+https://github.com/apache/arrow-datafusion.git?rev=2787e7a36a6be83d91201df20827d3695f933300)",
- "sqlparser",
-]
-
-[[package]]
-name = "datafusion-expr"
-version = "23.0.0"
-source = "git+https://github.com/apache/arrow-datafusion.git?rev=beee1d91303d5eff220fadd08b2c28404c2b3e5a#beee1d91303d5eff220fadd08b2c28404c2b3e5a"
-dependencies = [
- "ahash 0.8.3",
- "arrow",
- "datafusion-common 23.0.0 (git+https://github.com/apache/arrow-datafusion.git?rev=beee1d91303d5eff220fadd08b2c28404c2b3e5a)",
+ "datafusion-common",
  "sqlparser",
 ]
 
@@ -1619,26 +1528,9 @@ dependencies = [
  "arrow",
  "async-trait",
  "chrono",
- "datafusion-common 23.0.0 (git+https://github.com/apache/arrow-datafusion.git?rev=2787e7a36a6be83d91201df20827d3695f933300)",
- "datafusion-expr 23.0.0 (git+https://github.com/apache/arrow-datafusion.git?rev=2787e7a36a6be83d91201df20827d3695f933300)",
- "datafusion-physical-expr 23.0.0 (git+https://github.com/apache/arrow-datafusion.git?rev=2787e7a36a6be83d91201df20827d3695f933300)",
- "hashbrown 0.13.2",
- "itertools",
- "log",
- "regex-syntax 0.7.1",
-]
-
-[[package]]
-name = "datafusion-optimizer"
-version = "23.0.0"
-source = "git+https://github.com/apache/arrow-datafusion.git?rev=beee1d91303d5eff220fadd08b2c28404c2b3e5a#beee1d91303d5eff220fadd08b2c28404c2b3e5a"
-dependencies = [
- "arrow",
- "async-trait",
- "chrono",
- "datafusion-common 23.0.0 (git+https://github.com/apache/arrow-datafusion.git?rev=beee1d91303d5eff220fadd08b2c28404c2b3e5a)",
- "datafusion-expr 23.0.0 (git+https://github.com/apache/arrow-datafusion.git?rev=beee1d91303d5eff220fadd08b2c28404c2b3e5a)",
- "datafusion-physical-expr 23.0.0 (git+https://github.com/apache/arrow-datafusion.git?rev=beee1d91303d5eff220fadd08b2c28404c2b3e5a)",
+ "datafusion-common",
+ "datafusion-expr",
+ "datafusion-physical-expr",
  "hashbrown 0.13.2",
  "itertools",
  "log",
@@ -1658,41 +1550,9 @@ dependencies = [
  "blake2",
  "blake3",
  "chrono",
- "datafusion-common 23.0.0 (git+https://github.com/apache/arrow-datafusion.git?rev=2787e7a36a6be83d91201df20827d3695f933300)",
- "datafusion-expr 23.0.0 (git+https://github.com/apache/arrow-datafusion.git?rev=2787e7a36a6be83d91201df20827d3695f933300)",
- "datafusion-row 23.0.0 (git+https://github.com/apache/arrow-datafusion.git?rev=2787e7a36a6be83d91201df20827d3695f933300)",
- "half 2.2.1",
- "hashbrown 0.13.2",
- "indexmap",
- "itertools",
- "lazy_static",
- "libc",
- "md-5",
- "paste",
- "petgraph",
- "rand",
- "regex",
- "sha2",
- "unicode-segmentation",
- "uuid",
-]
-
-[[package]]
-name = "datafusion-physical-expr"
-version = "23.0.0"
-source = "git+https://github.com/apache/arrow-datafusion.git?rev=beee1d91303d5eff220fadd08b2c28404c2b3e5a#beee1d91303d5eff220fadd08b2c28404c2b3e5a"
-dependencies = [
- "ahash 0.8.3",
- "arrow",
- "arrow-array",
- "arrow-buffer",
- "arrow-schema",
- "blake2",
- "blake3",
- "chrono",
- "datafusion-common 23.0.0 (git+https://github.com/apache/arrow-datafusion.git?rev=beee1d91303d5eff220fadd08b2c28404c2b3e5a)",
- "datafusion-expr 23.0.0 (git+https://github.com/apache/arrow-datafusion.git?rev=beee1d91303d5eff220fadd08b2c28404c2b3e5a)",
- "datafusion-row 23.0.0 (git+https://github.com/apache/arrow-datafusion.git?rev=beee1d91303d5eff220fadd08b2c28404c2b3e5a)",
+ "datafusion-common",
+ "datafusion-expr",
+ "datafusion-row",
  "half 2.2.1",
  "hashbrown 0.13.2",
  "indexmap",
@@ -1716,9 +1576,9 @@ source = "git+https://github.com/apache/arrow-datafusion.git?rev=2787e7a36a6be83
 dependencies = [
  "arrow",
  "chrono",
- "datafusion 23.0.0 (git+https://github.com/apache/arrow-datafusion.git?rev=2787e7a36a6be83d91201df20827d3695f933300)",
- "datafusion-common 23.0.0 (git+https://github.com/apache/arrow-datafusion.git?rev=2787e7a36a6be83d91201df20827d3695f933300)",
- "datafusion-expr 23.0.0 (git+https://github.com/apache/arrow-datafusion.git?rev=2787e7a36a6be83d91201df20827d3695f933300)",
+ "datafusion",
+ "datafusion-common",
+ "datafusion-expr",
  "object_store",
  "prost",
 ]
@@ -1729,18 +1589,7 @@ version = "23.0.0"
 source = "git+https://github.com/apache/arrow-datafusion.git?rev=2787e7a36a6be83d91201df20827d3695f933300#2787e7a36a6be83d91201df20827d3695f933300"
 dependencies = [
  "arrow",
- "datafusion-common 23.0.0 (git+https://github.com/apache/arrow-datafusion.git?rev=2787e7a36a6be83d91201df20827d3695f933300)",
- "paste",
- "rand",
-]
-
-[[package]]
-name = "datafusion-row"
-version = "23.0.0"
-source = "git+https://github.com/apache/arrow-datafusion.git?rev=beee1d91303d5eff220fadd08b2c28404c2b3e5a#beee1d91303d5eff220fadd08b2c28404c2b3e5a"
-dependencies = [
- "arrow",
- "datafusion-common 23.0.0 (git+https://github.com/apache/arrow-datafusion.git?rev=beee1d91303d5eff220fadd08b2c28404c2b3e5a)",
+ "datafusion-common",
  "paste",
  "rand",
 ]
@@ -1752,21 +1601,8 @@ source = "git+https://github.com/apache/arrow-datafusion.git?rev=2787e7a36a6be83
 dependencies = [
  "arrow",
  "arrow-schema",
- "datafusion-common 23.0.0 (git+https://github.com/apache/arrow-datafusion.git?rev=2787e7a36a6be83d91201df20827d3695f933300)",
- "datafusion-expr 23.0.0 (git+https://github.com/apache/arrow-datafusion.git?rev=2787e7a36a6be83d91201df20827d3695f933300)",
- "log",
- "sqlparser",
-]
-
-[[package]]
-name = "datafusion-sql"
-version = "23.0.0"
-source = "git+https://github.com/apache/arrow-datafusion.git?rev=beee1d91303d5eff220fadd08b2c28404c2b3e5a#beee1d91303d5eff220fadd08b2c28404c2b3e5a"
-dependencies = [
- "arrow",
- "arrow-schema",
- "datafusion-common 23.0.0 (git+https://github.com/apache/arrow-datafusion.git?rev=beee1d91303d5eff220fadd08b2c28404c2b3e5a)",
- "datafusion-expr 23.0.0 (git+https://github.com/apache/arrow-datafusion.git?rev=beee1d91303d5eff220fadd08b2c28404c2b3e5a)",
+ "datafusion-common",
+ "datafusion-expr",
  "log",
  "sqlparser",
 ]
@@ -1776,7 +1612,7 @@ name = "datafusion_util"
 version = "0.1.0"
 dependencies = [
  "async-trait",
- "datafusion 23.0.0 (git+https://github.com/apache/arrow-datafusion.git?rev=2787e7a36a6be83d91201df20827d3695f933300)",
+ "datafusion",
  "futures",
  "object_store",
  "observability_deps",
@@ -2017,7 +1853,7 @@ dependencies = [
  "arrow-flight",
  "arrow_util",
  "bytes",
- "datafusion 23.0.0 (git+https://github.com/apache/arrow-datafusion.git?rev=2787e7a36a6be83d91201df20827d3695f933300)",
+ "datafusion",
  "futures",
  "iox_query",
  "observability_deps",
@@ -2200,7 +2036,7 @@ dependencies = [
  "base64 0.21.0",
  "bytes",
  "data_types",
- "datafusion 23.0.0 (git+https://github.com/apache/arrow-datafusion.git?rev=2787e7a36a6be83d91201df20827d3695f933300)",
+ "datafusion",
  "datafusion-proto",
  "observability_deps",
  "pbjson",
@@ -2717,7 +2553,7 @@ dependencies = [
  "compactor2",
  "console-subscriber",
  "data_types",
- "datafusion 23.0.0 (git+https://github.com/apache/arrow-datafusion.git?rev=2787e7a36a6be83d91201df20827d3695f933300)",
+ "datafusion",
  "dotenvy",
  "flate2",
  "futures",
@@ -2857,7 +2693,7 @@ dependencies = [
  "criterion",
  "crossbeam-utils",
  "data_types",
- "datafusion 23.0.0 (git+https://github.com/apache/arrow-datafusion.git?rev=2787e7a36a6be83d91201df20827d3695f933300)",
+ "datafusion",
  "datafusion_util",
  "dml",
  "flatbuffers",
@@ -3044,7 +2880,7 @@ dependencies = [
  "async-trait",
  "chrono",
  "data_types",
- "datafusion 23.0.0 (git+https://github.com/apache/arrow-datafusion.git?rev=2787e7a36a6be83d91201df20827d3695f933300)",
+ "datafusion",
  "datafusion_util",
  "executor",
  "futures",
@@ -3078,7 +2914,7 @@ dependencies = [
  "chrono",
  "chrono-tz",
  "data_types",
- "datafusion 23.0.0 (git+https://github.com/apache/arrow-datafusion.git?rev=2787e7a36a6be83d91201df20827d3695f933300)",
+ "datafusion",
  "datafusion_util",
  "generated_types",
  "influxdb_influxql_parser",
@@ -3103,7 +2939,7 @@ version = "0.1.0"
 dependencies = [
  "arrow",
  "data_types",
- "datafusion 23.0.0 (git+https://github.com/apache/arrow-datafusion.git?rev=2787e7a36a6be83d91201df20827d3695f933300)",
+ "datafusion",
  "datafusion_util",
  "futures",
  "hashbrown 0.13.2",
@@ -3126,7 +2962,7 @@ dependencies = [
  "arrow",
  "bytes",
  "data_types",
- "datafusion 23.0.0 (git+https://github.com/apache/arrow-datafusion.git?rev=2787e7a36a6be83d91201df20827d3695f933300)",
+ "datafusion",
  "datafusion_util",
  "futures",
  "iox_catalog",
@@ -4125,7 +3961,7 @@ dependencies = [
  "base64 0.21.0",
  "bytes",
  "data_types",
- "datafusion 23.0.0 (git+https://github.com/apache/arrow-datafusion.git?rev=2787e7a36a6be83d91201df20827d3695f933300)",
+ "datafusion",
  "datafusion_util",
  "futures",
  "generated_types",
@@ -4151,7 +3987,7 @@ dependencies = [
 name = "parquet_to_line_protocol"
 version = "0.1.0"
 dependencies = [
- "datafusion 23.0.0 (git+https://github.com/apache/arrow-datafusion.git?rev=2787e7a36a6be83d91201df20827d3695f933300)",
+ "datafusion",
  "datafusion_util",
  "futures",
  "influxdb-line-protocol",
@@ -4402,7 +4238,7 @@ dependencies = [
  "arrow",
  "chrono",
  "data_types",
- "datafusion 23.0.0 (git+https://github.com/apache/arrow-datafusion.git?rev=2787e7a36a6be83d91201df20827d3695f933300)",
+ "datafusion",
  "datafusion_util",
  "itertools",
  "observability_deps",
@@ -4591,7 +4427,7 @@ dependencies = [
  "cache_system",
  "client_util",
  "data_types",
- "datafusion 23.0.0 (git+https://github.com/apache/arrow-datafusion.git?rev=2787e7a36a6be83d91201df20827d3695f933300)",
+ "datafusion",
  "datafusion_util",
  "futures",
  "generated_types",
@@ -4637,7 +4473,7 @@ version = "0.1.0"
 dependencies = [
  "arrow",
  "chrono",
- "datafusion 23.0.0 (git+https://github.com/apache/arrow-datafusion.git?rev=2787e7a36a6be83d91201df20827d3695f933300)",
+ "datafusion",
  "datafusion_util",
  "itertools",
  "observability_deps",
@@ -5160,7 +4996,7 @@ version = "0.1.0"
 dependencies = [
  "async-trait",
  "bytes",
- "datafusion 23.0.0 (git+https://github.com/apache/arrow-datafusion.git?rev=2787e7a36a6be83d91201df20827d3695f933300)",
+ "datafusion",
  "flightsql",
  "iox_query",
  "iox_query_influxql",
@@ -5201,7 +5037,7 @@ dependencies = [
  "authz",
  "bytes",
  "data_types",
- "datafusion 23.0.0 (git+https://github.com/apache/arrow-datafusion.git?rev=2787e7a36a6be83d91201df20827d3695f933300)",
+ "datafusion",
  "flightsql",
  "futures",
  "generated_types",
@@ -5228,7 +5064,7 @@ dependencies = [
  "arrow",
  "async-trait",
  "data_types",
- "datafusion 23.0.0 (git+https://github.com/apache/arrow-datafusion.git?rev=2787e7a36a6be83d91201df20827d3695f933300)",
+ "datafusion",
  "datafusion_util",
  "futures",
  "generated_types",
@@ -6904,9 +6740,9 @@ dependencies = [
  "chrono",
  "crossbeam-utils",
  "crypto-common",
- "datafusion 23.0.0 (git+https://github.com/apache/arrow-datafusion.git?rev=beee1d91303d5eff220fadd08b2c28404c2b3e5a)",
- "datafusion-optimizer 23.0.0 (git+https://github.com/apache/arrow-datafusion.git?rev=beee1d91303d5eff220fadd08b2c28404c2b3e5a)",
- "datafusion-physical-expr 23.0.0 (git+https://github.com/apache/arrow-datafusion.git?rev=beee1d91303d5eff220fadd08b2c28404c2b3e5a)",
+ "datafusion",
+ "datafusion-optimizer",
+ "datafusion-physical-expr",
  "digest",
  "either",
  "fixedbitset",
