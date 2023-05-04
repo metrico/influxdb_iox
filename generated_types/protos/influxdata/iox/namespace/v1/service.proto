@@ -36,6 +36,9 @@ message CreateNamespaceRequest {
   // NULL means "infinite retention", and 0 is mapped to NULL. Negative values
   // are rejected.
   optional int64 retention_period_ns = 2;
+
+  // Partitioning scheme to use for tables created in this namespace
+  PartitionTemplate partition_template = 3;
 }
 
 message CreateNamespaceResponse {
@@ -99,4 +102,15 @@ message Namespace {
 
   // The maximum number of columns a table belonging to this namespace may have.
   int32 max_columns_per_table = 5;
+}
+
+message PartitionTemplate {
+  repeated TemplatePart parts = 1;
+}
+
+message TemplatePart {
+  oneof part {
+    string column = 2;
+    string time_format = 3;
+  }
 }
