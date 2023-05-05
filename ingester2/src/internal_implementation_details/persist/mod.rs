@@ -24,7 +24,6 @@ mod tests {
         validate_or_insert_schema,
     };
     use iox_query::exec::Executor;
-    use lazy_static::lazy_static;
     use metric::{Attributes, DurationHistogram, Metric, U64Counter, U64Gauge};
     use object_store::{memory::InMemory, ObjectMeta, ObjectStore};
     use parking_lot::Mutex;
@@ -55,10 +54,6 @@ mod tests {
             ARBITRARY_TABLE_NAME_PROVIDER,
         },
     };
-
-    lazy_static! {
-        static ref EXEC: Arc<Executor> = Arc::new(Executor::new_testing());
-    }
 
     /// Generate a [`PartitionData`] containing one write, and populate the
     /// catalog such that the schema is set (by validating the schema) and the
@@ -182,7 +177,7 @@ mod tests {
             1,
             2,
             Arc::clone(&ingest_state),
-            Arc::clone(&EXEC),
+            Arc::new(Executor::new_testing()),
             storage,
             Arc::clone(&catalog),
             Arc::clone(&completion_observer),
@@ -318,7 +313,7 @@ mod tests {
             1,
             2,
             Arc::clone(&ingest_state),
-            Arc::clone(&EXEC),
+            Arc::new(Executor::new_testing()),
             storage,
             Arc::clone(&catalog),
             Arc::clone(&completion_observer),
