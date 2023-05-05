@@ -268,8 +268,8 @@ mod tests {
         *,
     };
     use crate::test_util::{
-        PartitionDataBuilder, ARBITRARY_NAMESPACE_ID, ARBITRARY_PARTITION_KEY, ARBITRARY_TABLE_ID,
-        ARBITRARY_TABLE_NAME, DEFER_NAMESPACE_NAME_1_SEC, DEFER_TABLE_NAME_1_SEC,
+        defer_namespace_name_1_sec, defer_table_name_1_sec, PartitionDataBuilder,
+        ARBITRARY_NAMESPACE_ID, ARBITRARY_PARTITION_KEY, ARBITRARY_TABLE_ID, ARBITRARY_TABLE_NAME,
     };
 
     #[tokio::test]
@@ -281,9 +281,9 @@ mod tests {
 
         let table = TableData::new(
             ARBITRARY_TABLE_ID,
-            Arc::clone(&*DEFER_TABLE_NAME_1_SEC),
+            defer_table_name_1_sec(),
             ARBITRARY_NAMESPACE_ID,
-            Arc::clone(&*DEFER_NAMESPACE_NAME_1_SEC),
+            defer_namespace_name_1_sec(),
             partition_provider,
             Arc::new(MockPostWriteObserver::default()),
         );

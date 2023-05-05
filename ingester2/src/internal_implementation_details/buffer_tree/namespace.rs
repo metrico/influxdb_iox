@@ -234,9 +234,9 @@ mod tests {
     use crate::{
         deferred_load,
         test_util::{
-            make_write_op, PartitionDataBuilder, ARBITRARY_NAMESPACE_ID, ARBITRARY_NAMESPACE_NAME,
-            ARBITRARY_PARTITION_KEY, ARBITRARY_TABLE_ID, ARBITRARY_TABLE_NAME,
-            ARBITRARY_TABLE_NAME_PROVIDER, DEFER_NAMESPACE_NAME_1_MS,
+            defer_namespace_name_1_ms, make_write_op, PartitionDataBuilder, ARBITRARY_NAMESPACE_ID,
+            ARBITRARY_NAMESPACE_NAME, ARBITRARY_PARTITION_KEY, ARBITRARY_TABLE_ID,
+            ARBITRARY_TABLE_NAME, ARBITRARY_TABLE_NAME_PROVIDER,
         },
     };
 
@@ -252,7 +252,7 @@ mod tests {
 
         let ns = NamespaceData::new(
             ARBITRARY_NAMESPACE_ID,
-            Arc::clone(&*DEFER_NAMESPACE_NAME_1_MS),
+            defer_namespace_name_1_ms(),
             Arc::clone(&*ARBITRARY_TABLE_NAME_PROVIDER),
             partition_provider,
             Arc::new(MockPostWriteObserver::default()),
