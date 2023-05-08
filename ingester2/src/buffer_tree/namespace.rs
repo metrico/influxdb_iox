@@ -142,31 +142,31 @@ where
     async fn apply(&self, op: DmlOperation) -> Result<(), Self::Error> {
         let sequence_number = op.meta().sequence().expect("applying unsequenced op");
 
-        match op {
-            DmlOperation::Write(write) => {
-                // Extract the partition key derived by the router.
-                let partition_key = write.partition_key().clone();
+match op {
+DmlOperation::Write(write) => {
+// Extract the partition key derived by the router.
+let partition_key = write.partition_key().clone();
 
-                for (table_id, b) in write.into_tables() {
-                    // Grab a reference to the table data, or insert a new
-                    // TableData for it.
-                    let table_data = self.tables.get_or_insert_with(&table_id, || {
-                        self.table_count.inc(1);
-                        Arc::new(TableData::new(
-                            table_id,
-                            Arc::new(self.table_name_resolver.for_table(table_id)),
-                            self.namespace_id,
-                            Arc::clone(&self.namespace_name),
-                            Arc::clone(&self.partition_provider),
-                            Arc::clone(&self.post_write_observer),
-                        ))
-                    });
+for (table_id, b) in write.into_tables() {
+// Grab a reference to the table data, or insert a new
+// TableData for it.
+let table_data = self.tables.get_or_insert_with(&table_id, || {
+self.table_count.inc(1);
+Arc::new(TableData::new(
+table_id,
+Arc::new(self.table_name_resolver.for_table(table_id)),
+self.namespace_id,
+Arc::clone(&self.namespace_name),
+Arc::clone(&self.partition_provider),
+Arc::clone(&self.post_write_observer),
+))
+});
 
-                    table_data
-                        .buffer_table_write(sequence_number, b, partition_key.clone())
-                        .await?;
-                }
-            }
+table_data
+.buffer_table_write(sequence_number, b, partition_key.clone())
+.await?;
+}
+}
             DmlOperation::Delete(delete) => {
                 // Deprecated delete support:
                 // https://github.com/influxdata/influxdb_iox/issues/5825
