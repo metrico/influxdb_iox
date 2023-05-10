@@ -38,7 +38,7 @@ message CreateNamespaceRequest {
   optional int64 retention_period_ns = 2;
 
   // Partitioning scheme to use for tables created in this namespace
-  PartitionTemplate partition_template = 3;
+  optional PartitionTemplate partition_template = 3;
 }
 
 message CreateNamespaceResponse {
