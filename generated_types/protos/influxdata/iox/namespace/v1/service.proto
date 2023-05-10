@@ -110,7 +110,7 @@ message PartitionTemplate {
 
 message TemplatePart {
   oneof part {
-    string column = 2;
+    string column_value = 2;
     string time_format = 3;
   }
 }
