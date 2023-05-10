@@ -340,7 +340,7 @@ impl NamespaceRepo for MemTxn {
 
 #[async_trait]
 impl TableRepo for MemTxn {
-    async fn create_or_get(
+    async fn create(
         &mut self,
         name: &str,
         partition_template: &TablePartitionTemplateOverride,
@@ -381,7 +381,12 @@ impl TableRepo for MemTxn {
             .iter()
             .find(|t| t.name == name && t.namespace_id == namespace_id)
         {
-            Some(t) => t,
+            Some(_t) => {
+                return Err(Error::TableNameExists {
+                    name: name.to_string(),
+                    namespace_id,
+                })
+            }
             None => {
                 let table = Table {
                     id: TableId::new(stage.tables.len() as i64 + 1),

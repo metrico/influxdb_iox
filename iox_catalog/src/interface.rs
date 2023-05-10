@@ -39,6 +39,12 @@ pub enum Error {
     #[snafu(display("name {} already exists", name))]
     NameExists { name: String },
 
+    #[snafu(display("A table named {name} already exists in namespace {namespace_id}"))]
+    TableNameExists {
+        name: String,
+        namespace_id: NamespaceId,
+    },
+
     #[snafu(display("unhandled sqlx error: {}", source))]
     SqlxError { source: sqlx::Error },
 
@@ -352,9 +358,9 @@ pub trait NamespaceRepo: Send + Sync {
 /// Functions for working with tables in the catalog
 #[async_trait]
 pub trait TableRepo: Send + Sync {
-    /// Get an existing [`Table`] record from the catalog if it exists. If it doesn't exist, create
-    /// it using the given `partition_template` and `namespace_id`.
-    async fn create_or_get(
+    /// Creates the table in the catalog. If one in the same namespace with the same name already
+    /// exists, an error is returned.
+    async fn create(
         &mut self,
         name: &str,
         partition_template: &TablePartitionTemplateOverride,
@@ -744,7 +750,7 @@ pub(crate) mod test_helpers {
     use crate::{validate_or_insert_schema, DEFAULT_MAX_COLUMNS_PER_TABLE, DEFAULT_MAX_TABLES};
 
     use super::*;
-    use ::test_helpers::{assert_contains, tracing::TracingCapture};
+    use ::test_helpers::{assert_contains, assert_error, tracing::TracingCapture};
     use assert_matches::assert_matches;
     use data_types::{ColumnId, ColumnSet, CompactionLevel, PartitionTemplate, TemplatePart};
     use futures::Future;
@@ -777,7 +783,7 @@ pub(crate) mod test_helpers {
 
         let catalog = clean_state().await;
         test_table(Arc::clone(&catalog)).await;
-        assert_metric_hit(&catalog.metrics(), "table_create_or_get");
+        assert_metric_hit(&catalog.metrics(), "table_create");
 
         let catalog = clean_state().await;
         test_column(Arc::clone(&catalog)).await;
@@ -1166,19 +1172,24 @@ pub(crate) mod test_helpers {
             .unwrap();
         let table_partition = TablePartitionTemplateOverride::from(&namespace_partition);
 
-        // test we can create or get a table
+        // test we can create a table
         let t = repos
             .tables()
-            .create_or_get("test_table", &table_partition, namespace.id)
-            .await
-            .unwrap();
-        let tt = repos
-            .tables()
-            .create_or_get("test_table", &table_partition, namespace.id)
+            .create("test_table", &table_partition, namespace.id)
             .await
             .unwrap();
         assert!(t.id > TableId::new(0));
-        assert_eq!(t, tt);
+
+        // test we get an error if we try to create it again
+        let err = repos
+            .tables()
+            .create("test_table", &table_partition, namespace.id)
+            .await;
+        assert_error!(
+            err,
+            Error::TableNameExists { ref name, namespace_id }
+                if name == "test_table" && namespace_id == namespace.id
+        );
 
         // get by id
         assert_eq!(t, repos.tables().get_by_id(t.id).await.unwrap().unwrap());
@@ -1205,10 +1216,10 @@ pub(crate) mod test_helpers {
         assert_ne!(namespace, namespace2);
         let test_table = repos
             .tables()
-            .create_or_get("test_table", &table_partition, namespace2.id)
+            .create("test_table", &table_partition, namespace2.id)
             .await
             .unwrap();
-        assert_ne!(tt, test_table);
+        assert_ne!(t.id, test_table.id);
         assert_eq!(test_table.namespace_id, namespace2.id);
 
         // create a table with a PartitionTemplate other than the default
@@ -1218,7 +1229,7 @@ pub(crate) mod test_helpers {
         let partitioned_table_name = "test_partitioned_table";
         let test_partitioned_table = repos
             .tables()
-            .create_or_get(
+            .create(
                 partitioned_table_name,
                 &tag_partition_template,
                 namespace2.id,
@@ -1241,20 +1252,10 @@ pub(crate) mod test_helpers {
             .unwrap();
         assert_eq!(test_partitioned_table, lookup_table);
 
-        let recreate_attempt = repos
-            .tables()
-            .create_or_get(partitioned_table_name, &table_partition, namespace2.id)
-            .await
-            .unwrap();
-        assert_eq!(
-            recreate_attempt.partition_template.as_ref().unwrap().0,
-            tag_partition_template
-        );
-
         // test get by namespace and name
         let foo_table = repos
             .tables()
-            .create_or_get("foo", &table_partition, namespace2.id)
+            .create("foo", &table_partition, namespace2.id)
             .await
             .unwrap();
         assert_eq!(
@@ -1303,7 +1304,7 @@ pub(crate) mod test_helpers {
         // All tables should be returned by list(), regardless of namespace
         let mut list = repos.tables().list().await.unwrap();
         list.sort_by_key(|t| t.id);
-        let mut expected = [tt, test_table, foo_table, test_partitioned_table];
+        let mut expected = [t, test_table, foo_table, test_partitioned_table];
         expected.sort_by_key(|t| t.id);
         assert_eq!(&list, &expected);
 
@@ -1315,7 +1316,7 @@ pub(crate) mod test_helpers {
             .expect("namespace should be updateable");
         let err = repos
             .tables()
-            .create_or_get("definitely_unique", &table_partition, latest.id)
+            .create("definitely_unique", &table_partition, latest.id)
             .await
             .expect_err("should error with table create limit error");
         assert!(matches!(
@@ -1349,7 +1350,7 @@ pub(crate) mod test_helpers {
         let table_partition = TablePartitionTemplateOverride::from(&namespace_partition);
         let table = repos
             .tables()
-            .create_or_get("test_table", &table_partition, namespace.id)
+            .create("test_table", &table_partition, namespace.id)
             .await
             .unwrap();
         assert_eq!(table.namespace_id, namespace.id);
@@ -1380,7 +1381,7 @@ pub(crate) mod test_helpers {
         // test that we can create a column of the same name under a different table
         let table2 = repos
             .tables()
-            .create_or_get("test_table_2", &table_partition, namespace.id)
+            .create("test_table_2", &table_partition, namespace.id)
             .await
             .unwrap();
         let ccc = repos
@@ -1451,7 +1452,7 @@ pub(crate) mod test_helpers {
         // test per-namespace column limits are NOT enforced with create_or_get_many_unchecked
         let table3 = repos
             .tables()
-            .create_or_get("test_table_3", &table_partition, namespace.id)
+            .create("test_table_3", &table_partition, namespace.id)
             .await
             .unwrap();
         let mut columns = HashMap::new();
@@ -1484,7 +1485,7 @@ pub(crate) mod test_helpers {
         let table_partition = TablePartitionTemplateOverride::from(&namespace_partition);
         let table = repos
             .tables()
-            .create_or_get("test_table", &table_partition, namespace.id)
+            .create("test_table", &table_partition, namespace.id)
             .await
             .unwrap();
 
@@ -1768,12 +1769,12 @@ pub(crate) mod test_helpers {
         let table_partition = TablePartitionTemplateOverride::from(&namespace_partition);
         let table = repos
             .tables()
-            .create_or_get("test_table", &table_partition, namespace.id)
+            .create("test_table", &table_partition, namespace.id)
             .await
             .unwrap();
         let other_table = repos
             .tables()
-            .create_or_get("other", &table_partition, namespace.id)
+            .create("other", &table_partition, namespace.id)
             .await
             .unwrap();
         let partition = repos
@@ -1953,7 +1954,7 @@ pub(crate) mod test_helpers {
             .unwrap();
         let table2 = repos
             .tables()
-            .create_or_get("test_table2", &table_partition, namespace2.id)
+            .create("test_table2", &table_partition, namespace2.id)
             .await
             .unwrap();
         let partition2 = repos
@@ -2183,12 +2184,12 @@ pub(crate) mod test_helpers {
         let table_partition = TablePartitionTemplateOverride::from(&namespace_partition);
         let table_1 = repos
             .tables()
-            .create_or_get("test_table", &table_partition, namespace_1.id)
+            .create("test_table", &table_partition, namespace_1.id)
             .await
             .unwrap();
         let table_2 = repos
             .tables()
-            .create_or_get("test_table", &table_partition, namespace_2.id)
+            .create("test_table", &table_partition, namespace_2.id)
             .await
             .unwrap();
         let partition_1 = repos
@@ -2264,7 +2265,7 @@ pub(crate) mod test_helpers {
         let table_partition = TablePartitionTemplateOverride::from(&namespace_partition);
         let table = repos
             .tables()
-            .create_or_get(
+            .create(
                 "test_table_for_new_file_between",
                 &table_partition,
                 namespace.id,
@@ -2640,7 +2641,7 @@ pub(crate) mod test_helpers {
         let table_partition = TablePartitionTemplateOverride::from(&namespace_partition);
         let table = repos
             .tables()
-            .create_or_get("test_table", &table_partition, namespace.id)
+            .create("test_table", &table_partition, namespace.id)
             .await
             .unwrap();
 
@@ -2753,7 +2754,7 @@ pub(crate) mod test_helpers {
         let table_partition = TablePartitionTemplateOverride::from(&namespace_partition);
         let table = repos
             .tables()
-            .create_or_get("update_table", &table_partition, namespace.id)
+            .create("update_table", &table_partition, namespace.id)
             .await
             .unwrap();
         let partition = repos
@@ -2845,7 +2846,7 @@ pub(crate) mod test_helpers {
         let table_partition = TablePartitionTemplateOverride::from(&namespace_partition);
         let table_1 = repos
             .tables()
-            .create_or_get("test_table_1", &table_partition, namespace_1.id)
+            .create("test_table_1", &table_partition, namespace_1.id)
             .await
             .unwrap();
         let _c = repos
@@ -2904,7 +2905,7 @@ pub(crate) mod test_helpers {
             .unwrap();
         let table_2 = repos
             .tables()
-            .create_or_get("test_table_2", &table_partition, namespace_2.id)
+            .create("test_table_2", &table_partition, namespace_2.id)
             .await
             .unwrap();
         let _c = repos

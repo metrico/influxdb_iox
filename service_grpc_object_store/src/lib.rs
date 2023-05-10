@@ -117,7 +117,7 @@ mod tests {
                 .unwrap();
             let table = repos
                 .tables()
-                .create_or_get("schema_test_table", &Default::default(), namespace.id)
+                .create("schema_test_table", &Default::default(), namespace.id)
                 .await
                 .unwrap();
             let partition = repos

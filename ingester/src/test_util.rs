@@ -306,7 +306,7 @@ pub(crate) async fn populate_catalog(
         .id;
     let table_id = c
         .tables()
-        .create_or_get(table, &Default::default(), ns_id)
+        .create(table, &Default::default(), ns_id)
         .await
         .unwrap()
         .id;

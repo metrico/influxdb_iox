@@ -228,7 +228,7 @@ impl TestNamespace {
 
         let table = repos
             .tables()
-            .create_or_get(name, &partition_template, self.namespace.id)
+            .create(name, &partition_template, self.namespace.id)
             .await
             .unwrap();
 

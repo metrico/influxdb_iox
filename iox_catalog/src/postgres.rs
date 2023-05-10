@@ -796,7 +796,7 @@ RETURNING id, name, retention_period_ns, max_tables, max_columns_per_table, dele
 
 #[async_trait]
 impl TableRepo for PostgresTxn {
-    async fn create_or_get(
+    async fn create(
         &mut self,
         name: &str,
         partition_template: &TablePartitionTemplateOverride,
@@ -820,8 +820,6 @@ SELECT $1, $2, id FROM (
     WHERE namespace.id = $3
     GROUP BY namespace.max_tables, table_name.namespace_id, namespace.id
 ) AS get_count WHERE count < max_tables
-ON CONFLICT ON CONSTRAINT table_name_unique
-DO UPDATE SET name = table_name.name
 RETURNING *;
         "#,
         )
@@ -836,7 +834,12 @@ RETURNING *;
                 namespace_id,
             },
             _ => {
-                if is_fk_violation(&e) {
+                if is_unique_violation(&e) {
+                    Error::TableNameExists {
+                        name: name.to_string(),
+                        namespace_id,
+                    }
+                } else if is_fk_violation(&e) {
                     Error::ForeignKeyViolation { source: e }
                 } else {
                     Error::SqlxError { source: e }
@@ -1852,7 +1855,7 @@ mod tests {
             .repositories()
             .await
             .tables()
-            .create_or_get("table", &Default::default(), namespace_id)
+            .create("table", &Default::default(), namespace_id)
             .await
             .expect("create table failed")
             .id;
@@ -1990,7 +1993,7 @@ mod tests {
                         .repositories()
                         .await
                         .tables()
-                        .create_or_get("table", &Default::default(), namespace_id)
+                        .create("table", &Default::default(), namespace_id)
                         .await
                         .expect("create table failed")
                         .id;
@@ -2153,7 +2156,7 @@ mod tests {
             .repositories()
             .await
             .tables()
-            .create_or_get("table", &Default::default(), namespace_id)
+            .create("table", &Default::default(), namespace_id)
             .await
             .expect("create table failed")
             .id;

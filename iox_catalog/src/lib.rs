@@ -112,24 +112,33 @@ where
         None => {
             // The table does not exist in the cached schema.
             //
-            // Attempt to create the table in the catalog, or load an existing
-            // table from the catalog to populate the cache.
+            // Attempt to load an existing table from the catalog or create a new table in the
+            // catalog to populate the cache.
 
-            // The partition template to use if the table needs to be created. Use the namespace's
-            // partition template if it's specified, otherwise use the default. Eventually,
-            // namespaces will be required to have a partition template and this fallback won't be
-            // needed.
-            let partition_template = schema
-                .partition_template
-                .as_ref()
-                .map(|n| TablePartitionTemplateOverride::from(n.as_ref()))
-                .unwrap_or_default();
-
-            let mut table = repos
+            let table = match repos
                 .tables()
-                .create_or_get(table_name, &partition_template, schema.id)
-                .await
-                .map(|t| TableSchema::new_empty_from(&t))?;
+                .get_by_namespace_and_name(schema.id, table_name)
+                .await?
+            {
+                Some(table) => table,
+                None => {
+                    // The partition template to use if the table needs to be created. Use the
+                    // namespace's partition template if it's specified, otherwise use the default.
+                    // Eventually, namespaces will be required to have a partition template and
+                    // this fallback won't be needed.
+                    let partition_template = schema
+                        .partition_template
+                        .as_ref()
+                        .map(|n| TablePartitionTemplateOverride::from(n.as_ref()))
+                        .unwrap_or_default();
+
+                    repos
+                        .tables()
+                        .create(table_name, &partition_template, schema.id)
+                        .await?
+                }
+            };
+            let mut table = TableSchema::new_empty_from(&table);
 
             // Always add a time column to all new tables.
             let time_col = repos

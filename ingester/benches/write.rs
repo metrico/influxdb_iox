@@ -56,7 +56,7 @@ async fn init(lp: impl AsRef<str>) -> (TestContext<impl IngesterRpcInterface>, D
                     .repositories()
                     .await
                     .tables()
-                    .create_or_get(table_name.as_str(), &partition_template, ns.id)
+                    .create(table_name.as_str(), &partition_template, ns.id)
                     .await
                     .expect("table should create OK")
                     .id;

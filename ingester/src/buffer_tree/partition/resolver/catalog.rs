@@ -122,7 +122,7 @@ mod tests {
 
             let table = repos
                 .tables()
-                .create_or_get(TABLE_NAME, &Default::default(), ns.id)
+                .create(TABLE_NAME, &Default::default(), ns.id)
                 .await
                 .unwrap();
 

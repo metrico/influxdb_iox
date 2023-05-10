@@ -160,7 +160,7 @@ decorate!(
 decorate!(
     impl_trait = TableRepo,
     methods = [
-        "table_create_or_get" = create_or_get(&mut self, name: &str, partition_template: &TablePartitionTemplateOverride, namespace_id: NamespaceId) -> Result<Table>;
+        "table_create" = create(&mut self, name: &str, partition_template: &TablePartitionTemplateOverride, namespace_id: NamespaceId) -> Result<Table>;
         "table_get_by_id" = get_by_id(&mut self, table_id: TableId) -> Result<Option<Table>>;
         "table_get_by_namespace_and_name" = get_by_namespace_and_name(&mut self, namespace_id: NamespaceId, name: &str) -> Result<Option<Table>>;
         "table_list_by_namespace_id" = list_by_namespace_id(&mut self, namespace_id: NamespaceId) -> Result<Vec<Table>>;

@@ -399,7 +399,7 @@ mod tests {
 
         let table = repos
             .tables()
-            .create_or_get("name", &Default::default(), namespace.id)
+            .create("name", &Default::default(), namespace.id)
             .await
             .unwrap();
         let _column = repos

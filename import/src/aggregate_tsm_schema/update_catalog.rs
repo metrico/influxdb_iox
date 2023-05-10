@@ -134,7 +134,7 @@ where
                     .into();
                 let mut table = repos
                     .tables()
-                    .create_or_get(measurement_name, &partition_template, iox_schema.id)
+                    .create(measurement_name, &partition_template, iox_schema.id)
                     .await
                     .map(|t| TableSchema::new_empty_from(&t))?;
                 let time_col = repos
@@ -443,7 +443,7 @@ mod tests {
             .expect("namespace created");
         let mut table = txn
             .tables()
-            .create_or_get("weather", &Default::default(), namespace.id)
+            .create("weather", &Default::default(), namespace.id)
             .await
             .map(|t| TableSchema::new_empty_from(&t))
             .expect("table created");
@@ -535,7 +535,7 @@ mod tests {
             .expect("namespace created");
         let mut table = txn
             .tables()
-            .create_or_get("weather", &Default::default(), namespace.id)
+            .create("weather", &Default::default(), namespace.id)
             .await
             .map(|t| TableSchema::new_empty_from(&t))
             .expect("table created");
@@ -600,7 +600,7 @@ mod tests {
             .expect("namespace created");
         let mut table = txn
             .tables()
-            .create_or_get("weather", &Default::default(), namespace.id)
+            .create("weather", &Default::default(), namespace.id)
             .await
             .map(|t| TableSchema::new_empty_from(&t))
             .expect("table created");
