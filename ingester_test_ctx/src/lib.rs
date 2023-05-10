@@ -207,7 +207,7 @@ where
             .repositories()
             .await
             .namespaces()
-            .create(name, &Default::default(), retention_period_ns)
+            .create(name, None, retention_period_ns)
             .await
             .expect("failed to create test namespace");
 
@@ -273,7 +273,7 @@ where
                                 .repositories()
                                 .await
                                 .tables()
-                                .create(table_name.as_str(), &Default::default(), namespace_id)
+                                .create(table_name.as_str(), None, namespace_id)
                                 .await
                                 .expect("table should create OK")
                                 .id;

@@ -1,7 +1,7 @@
 use async_trait::async_trait;
 use data_types::{
-    DefaultPartitionTemplate, NamespaceName, NamespaceSchema, PartitionKey, PartitionTemplate,
-    TableId, TablePartitionTemplateOverride,
+    NamespaceName, NamespaceSchema, PartitionKey, PartitionTemplate, TableId,
+    TablePartitionTemplateOverride,
 };
 use hashbrown::HashMap;
 use mutable_batch::{MutableBatch, PartitionWrite, WritePayload};
@@ -44,24 +44,19 @@ impl<T> Partitioned<T> {
     }
 }
 
-/// A [`DmlHandler`] implementation that splits per-table [`MutableBatch`] into
-/// partitioned per-table [`MutableBatch`] instances according to a configured
-/// [`DefaultPartitionTemplate`]. Deletes pass through unmodified.
+/// A [`DmlHandler`] implementation that splits per-table [`MutableBatch`] into partitioned
+/// per-table [`MutableBatch`] instances according to each table's configured partition template.
+/// Deletes pass through unmodified.
 ///
 /// A vector of partitions are returned to the caller, or the first error that
 /// occurs during partitioning.
-#[derive(Debug)]
-pub struct Partitioner {
-    partition_template: Arc<DefaultPartitionTemplate>,
-}
+#[derive(Debug, Default)]
+pub struct Partitioner {}
 
 impl Partitioner {
-    /// Initialise a new [`Partitioner`], splitting writes according to the
-    /// specified [`DefaultPartitionTemplate`].
-    pub fn new(partition_template: DefaultPartitionTemplate) -> Self {
-        Self {
-            partition_template: Arc::new(partition_template),
-        }
+    /// Initialise a new [`Partitioner`].
+    pub fn new() -> Self {
+        Self {}
     }
 }
 
@@ -87,7 +82,6 @@ impl DmlHandler for Partitioner {
         batch: Self::WriteInput,
         _span_ctx: Option<SpanContext>,
     ) -> Result<Self::WriteOutput, Self::WriteError> {
-        let namespace_partition_template = &namespace_schema.partition_template;
         // A collection of partition-keyed, per-table MutableBatch instances.
         let mut partitions: HashMap<PartitionKey, HashMap<_, (String, MutableBatch)>> =
             HashMap::default();
@@ -96,14 +90,8 @@ impl DmlHandler for Partitioner {
             // Partition the table batch according to the configured partition
             // template and write it into the partition-keyed map.
 
-            let partition_template = PartitionTemplate::determine_precedence(
-                table_partition_template.as_ref(),
-                namespace_partition_template.as_ref(),
-                &self.partition_template,
-            );
-
             for (partition_key, partition_payload) in
-                PartitionWrite::partition(&batch, partition_template)
+                PartitionWrite::partition(&batch, &table_partition_template)
             {
                 let partition = partitions.entry(partition_key).or_default();
                 let table_batch = partition

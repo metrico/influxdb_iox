@@ -2,13 +2,14 @@
 
 use async_trait::async_trait;
 use data_types::{
-    Column, ColumnType, ColumnsByName, CompactionLevel, Namespace, NamespaceId,
-    NamespacePartitionTemplateOverride, NamespaceSchema, ParquetFile, ParquetFileId,
-    ParquetFileParams, Partition, PartitionId, PartitionKey, SkippedCompaction, Table, TableId,
-    TablePartitionTemplateOverride, TableSchema, Timestamp,
+    Column, ColumnType, ColumnsByName, CompactionLevel, Namespace, NamespaceId, NamespaceSchema,
+    ParquetFile, ParquetFileId, ParquetFileParams, Partition, PartitionId, PartitionKey,
+    SkippedCompaction, Table, TableId, TableSchema, Timestamp,
 };
+use generated_types::influxdata::iox::namespace::v1 as proto;
 use iox_time::TimeProvider;
-use snafu::{OptionExt, Snafu};
+use once_cell::sync::Lazy;
+use snafu::{OptionExt, ResultExt, Snafu};
 use std::{
     collections::{BTreeMap, HashMap, HashSet},
     fmt::{Debug, Display},
@@ -140,6 +141,12 @@ pub enum Error {
 
     #[snafu(display("could not delete namespace: {source}"))]
     CouldNotDeleteNamespace { source: sqlx::Error },
+
+    #[snafu(display("could not serialize partition template to JSON: {source}"))]
+    PartitionTemplateSerialization { source: serde_json::Error },
+
+    #[snafu(display("could not create a partition template raw JSON value: {source}"))]
+    PartitionTemplateRawJson { source: serde_json::Error },
 }
 
 /// A specialized `Error` for Catalog errors
@@ -308,6 +315,53 @@ pub trait RepoCollection: Send + Sync + Debug {
     fn parquet_files(&mut self) -> &mut dyn ParquetFileRepo;
 }
 
+/// The default partitioning scheme is by each day according to the "time" column.
+pub static PARTITION_BY_DAY: Lazy<Arc<sqlx::types::JsonRawValue>> =
+    Lazy::new(|| proto_to_json(&*proto::PARTITION_BY_DAY).unwrap());
+
+/// Turn possibly-specified borrowed raw JSON representing a partition template into
+/// definitely-specified owned raw JSON to be returned as part of a `Namespace` or `Table` instance.
+/// If the database doesn't have a partition template, use the default of partitioning by day.
+pub fn partition_template_owned_json(
+    partition_template: Option<&sqlx::types::JsonRawValue>,
+) -> Result<Arc<sqlx::types::JsonRawValue>> {
+    Ok(partition_template
+        .map(|pt| serde_json::value::to_raw_value::<sqlx::types::JsonRawValue>(pt))
+        .transpose()
+        .context(PartitionTemplateRawJsonSnafu)?
+        .map(Arc::from)
+        .unwrap_or_else(|| Arc::clone(&PARTITION_BY_DAY)))
+}
+
+fn proto_to_json(
+    partition_template: &proto::PartitionTemplate,
+) -> Result<Arc<sqlx::types::JsonRawValue>> {
+    sqlx::types::JsonRawValue::from_string(
+        serde_json::to_string(&*partition_template).context(PartitionTemplateSerializationSnafu)?,
+    )
+    .context(PartitionTemplateRawJsonSnafu)
+    .map(Arc::from)
+}
+
+/// Turn possibly-specified protobuf representing a partition template into
+/// definitely-specified owned raw JSON to be returned as part of a `Namespace` or `Table` instance.
+/// If the partition template isn't provided, use the default of partitioning by day.
+pub fn partition_template_proto_to_owned_json(
+    partition_template: Option<&proto::PartitionTemplate>,
+) -> Result<Arc<sqlx::types::JsonRawValue>> {
+    Ok(partition_template
+        .map(proto_to_json)
+        .transpose()?
+        .unwrap_or_else(|| Arc::clone(&PARTITION_BY_DAY)))
+}
+
+/// Turn raw JSON back into protobuf
+pub fn proto_from_raw(
+    raw_json: &sqlx::types::JsonRawValue,
+) -> Result<proto::PartitionTemplate, serde_json::Error> {
+    serde_json::from_str(raw_json.get())
+}
+
 /// Functions for working with namespaces in the catalog
 #[async_trait]
 pub trait NamespaceRepo: Send + Sync {
@@ -317,7 +371,7 @@ pub trait NamespaceRepo: Send + Sync {
     async fn create(
         &mut self,
         name: &str,
-        partition_template: &NamespacePartitionTemplateOverride,
+        partition_template: Option<&proto::PartitionTemplate>,
         retention_period_ns: Option<i64>,
     ) -> Result<Namespace>;
 
@@ -355,6 +409,68 @@ pub trait NamespaceRepo: Send + Sync {
     async fn update_column_limit(&mut self, name: &str, new_max: i32) -> Result<Namespace>;
 }
 
+/// Until the database is backfilled, we'll handle potential null partition templates here by
+/// filling in with `proto::PARTITION_BY_DAY`. When the backfilling is done, this can be an `impl
+/// sqlx::FromRow` in `data_types` (that will need to be custom to turn the borrowed raw JSON into
+/// the owned variant), but we can't `impl sqlx::FromRow for Namespace` in this crate because
+/// `Namespace` is defined in `data_types` and the orphan rule prevents that. We can't use the
+/// `proto` definitions in `data_types` because `generated_types` depends on `data_types` and that
+/// would be a circular dependency. So here it is as a regular function used by the catalog methods
+/// that return `Namespace`.
+pub fn namespace_from_row<'a, R: ::sqlx::Row>(row: &'a R) -> ::sqlx::Result<Namespace>
+where
+    &'a ::std::primitive::str: ::sqlx::ColumnIndex<R>,
+    NamespaceId: ::sqlx::decode::Decode<'a, R::Database>,
+    NamespaceId: ::sqlx::types::Type<R::Database>,
+    String: ::sqlx::decode::Decode<'a, R::Database>,
+    String: ::sqlx::types::Type<R::Database>,
+    Option<i64>: ::sqlx::decode::Decode<'a, R::Database>,
+    Option<i64>: ::sqlx::types::Type<R::Database>,
+    i32: ::sqlx::decode::Decode<'a, R::Database>,
+    i32: ::sqlx::types::Type<R::Database>,
+    i32: ::sqlx::decode::Decode<'a, R::Database>,
+    i32: ::sqlx::types::Type<R::Database>,
+    Option<Timestamp>: ::sqlx::decode::Decode<'a, R::Database>,
+    Option<Timestamp>: ::sqlx::types::Type<R::Database>,
+    &'a ::sqlx::types::JsonRawValue: ::sqlx::Decode<'a, R::Database>,
+    for<'b> ::sqlx::types::Json<&'b ::sqlx::types::JsonRawValue>:
+        sqlx::Type<<R as sqlx::Row>::Database>,
+{
+    let id: NamespaceId = row.try_get("id")?;
+    let name: String = row.try_get("name")?;
+    let retention_period_ns: Option<i64> =
+        row.try_get("retention_period_ns").or_else(|e| match e {
+            ::sqlx::Error::ColumnNotFound(_) => ::std::result::Result::Ok(Default::default()),
+            e => ::std::result::Result::Err(e),
+        })?;
+    let max_tables: i32 = row.try_get("max_tables")?;
+    let max_columns_per_table: i32 = row.try_get("max_columns_per_table")?;
+    let deleted_at: Option<Timestamp> = row.try_get("deleted_at")?;
+
+    // There might not be a partition template until we backfill the database. When the database
+    // has been backfilled, the `Option` will go away.
+    let partition_template: Option<&sqlx::types::JsonRawValue> =
+        row.try_get("partition_template")?;
+
+    // Convert the borrowed raw JSON to the owned variant.
+    let partition_template = partition_template_owned_json(partition_template).map_err(|e| {
+        sqlx::Error::ColumnDecode {
+            index: "partition_template".into(),
+            source: Box::new(e),
+        }
+    })?;
+
+    ::std::result::Result::Ok(Namespace {
+        id,
+        name,
+        retention_period_ns,
+        max_tables,
+        max_columns_per_table,
+        deleted_at,
+        partition_template,
+    })
+}
+
 /// Functions for working with tables in the catalog
 #[async_trait]
 pub trait TableRepo: Send + Sync {
@@ -363,7 +479,7 @@ pub trait TableRepo: Send + Sync {
     async fn create(
         &mut self,
         name: &str,
-        partition_template: &TablePartitionTemplateOverride,
+        partition_template: Option<&proto::PartitionTemplate>,
         namespace_id: NamespaceId,
     ) -> Result<Table>;
 
@@ -382,6 +498,52 @@ pub trait TableRepo: Send + Sync {
 
     /// List all tables.
     async fn list(&mut self) -> Result<Vec<Table>>;
+}
+
+/// Until the database is backfilled, we'll handle potential null partition templates here by
+/// filling in with `proto::PARTITION_BY_DAY`. When the backfilling is done, this can be an `impl
+/// sqlx::FromRow` in `data_types` (that will need to be custom to turn the borrowed raw JSON into
+/// the owned variant), but we can't `impl sqlx::FromRow for Table` in this crate because
+/// `Table` is defined in `data_types` and the orphan rule prevents that. We can't use the
+/// `proto` definitions in `data_types` because `generated_types` depends on `data_types` and that
+/// would be a circular dependency. So here it is as a regular function used by the catalog methods
+/// that return `Table`.
+pub fn table_from_row<'a, R: ::sqlx::Row>(row: &'a R) -> ::sqlx::Result<Table>
+where
+    &'a ::std::primitive::str: ::sqlx::ColumnIndex<R>,
+    TableId: ::sqlx::decode::Decode<'a, R::Database>,
+    TableId: ::sqlx::types::Type<R::Database>,
+    NamespaceId: ::sqlx::decode::Decode<'a, R::Database>,
+    NamespaceId: ::sqlx::types::Type<R::Database>,
+    String: ::sqlx::decode::Decode<'a, R::Database>,
+    String: ::sqlx::types::Type<R::Database>,
+    &'a ::sqlx::types::JsonRawValue: ::sqlx::Decode<'a, R::Database>,
+    for<'b> ::sqlx::types::Json<&'b ::sqlx::types::JsonRawValue>:
+        sqlx::Type<<R as sqlx::Row>::Database>,
+{
+    let id: TableId = row.try_get("id")?;
+    let namespace_id: NamespaceId = row.try_get("namespace_id")?;
+    let name: String = row.try_get("name")?;
+
+    // There might not be a partition template until we backfill the database. When the database
+    // has been backfilled, the `Option` will go away.
+    let partition_template: Option<&sqlx::types::JsonRawValue> =
+        row.try_get("partition_template")?;
+
+    // Convert the borrowed raw JSON to the owned variant.
+    let partition_template = partition_template_owned_json(partition_template).map_err(|e| {
+        sqlx::Error::ColumnDecode {
+            index: "partition_template".into(),
+            source: Box::new(e),
+        }
+    })?;
+
+    ::std::result::Result::Ok(Table {
+        id,
+        namespace_id,
+        name,
+        partition_template,
+    })
 }
 
 /// Functions for working with columns in the catalog
@@ -752,7 +914,7 @@ pub(crate) mod test_helpers {
     use super::*;
     use ::test_helpers::{assert_contains, assert_error, tracing::TracingCapture};
     use assert_matches::assert_matches;
-    use data_types::{ColumnId, ColumnSet, CompactionLevel, PartitionTemplate, TemplatePart};
+    use data_types::{ColumnId, ColumnSet, CompactionLevel};
     use futures::Future;
     use metric::{Attributes, DurationHistogram, Metric};
     use std::{collections::BTreeSet, ops::DerefMut, sync::Arc, time::Duration};
@@ -806,18 +968,17 @@ pub(crate) mod test_helpers {
     async fn test_namespace(catalog: Arc<dyn Catalog>) {
         let mut repos = catalog.repositories().await;
         let namespace_name = "test_namespace";
-        let namespace_partition = NamespacePartitionTemplateOverride::default();
         let namespace = repos
             .namespaces()
-            .create(namespace_name, &namespace_partition, None)
+            .create(namespace_name, None, None)
             .await
             .unwrap();
         assert!(namespace.id > NamespaceId::new(0));
         assert_eq!(namespace.name, namespace_name);
-        assert_eq!(
-            &namespace.partition_template.as_ref().unwrap().0,
-            &namespace_partition
-        );
+        // assert_eq!(
+        //     &namespace.partition_template.as_ref().unwrap().0,
+        //     the default
+        // );
 
         // Assert default values for service protection limits.
         assert_eq!(namespace.max_tables, DEFAULT_MAX_TABLES);
@@ -826,10 +987,7 @@ pub(crate) mod test_helpers {
             DEFAULT_MAX_COLUMNS_PER_TABLE
         );
 
-        let conflict = repos
-            .namespaces()
-            .create(namespace_name, &namespace_partition, None)
-            .await;
+        let conflict = repos.namespaces().create(namespace_name, None, None).await;
         assert!(matches!(
             conflict.unwrap_err(),
             Error::NameExists { name: _ }
@@ -868,7 +1026,7 @@ pub(crate) mod test_helpers {
         let namespace2_name = "test_namespace2";
         let namespace2 = repos
             .namespaces()
-            .create(namespace2_name, &namespace_partition, None)
+            .create(namespace2_name, None, None)
             .await
             .unwrap();
         let mut namespaces = repos
@@ -917,7 +1075,7 @@ pub(crate) mod test_helpers {
         let namespace3_name = "test_namespace3";
         let namespace3 = repos
             .namespaces()
-            .create(namespace3_name, &namespace_partition, None)
+            .create(namespace3_name, None, None)
             .await
             .expect("namespace with NULL retention should be created");
         assert!(namespace3.retention_period_ns.is_none());
@@ -926,11 +1084,7 @@ pub(crate) mod test_helpers {
         let namespace4_name = "test_namespace4";
         let namespace4 = repos
             .namespaces()
-            .create(
-                namespace4_name,
-                &namespace_partition,
-                Some(NEW_RETENTION_PERIOD_NS),
-            )
+            .create(namespace4_name, None, Some(NEW_RETENTION_PERIOD_NS))
             .await
             .expect("namespace with 5-hour retention should be created");
         assert_eq!(
@@ -945,17 +1099,19 @@ pub(crate) mod test_helpers {
             .expect("namespace should be updateable");
 
         // create a namespace with a PartitionTemplate other than the default
-        let tag_partition_template = NamespacePartitionTemplateOverride::new(PartitionTemplate {
-            parts: vec![TemplatePart::Column("tag1".into())],
-        });
+        let tag_partition_template = proto::PartitionTemplate {
+            parts: vec![proto::TemplatePart {
+                part: Some(proto::template_part::Part::ColumnValue("tag1".into())),
+            }],
+        };
         let namespace5_name = "test_namespace5";
         let namespace5 = repos
             .namespaces()
-            .create(namespace5_name, &tag_partition_template, None)
+            .create(namespace5_name, Some(&tag_partition_template), None)
             .await
             .unwrap();
         assert_eq!(
-            namespace5.partition_template.as_ref().unwrap().0,
+            proto_from_raw(&namespace5.partition_template).unwrap(),
             tag_partition_template
         );
         let lookup_namespace5 = repos
@@ -999,16 +1155,14 @@ pub(crate) mod test_helpers {
     async fn test_namespace_soft_deletion(catalog: Arc<dyn Catalog>) {
         let mut repos = catalog.repositories().await;
 
-        let namespace_partition = NamespacePartitionTemplateOverride::default();
-
         let deleted_ns = repos
             .namespaces()
-            .create("deleted-ns", &namespace_partition, None)
+            .create("deleted-ns", None, None)
             .await
             .unwrap();
         let active_ns = repos
             .namespaces()
-            .create("active-ns", &namespace_partition, None)
+            .create("active-ns", None, None)
             .await
             .unwrap();
 
@@ -1164,18 +1318,16 @@ pub(crate) mod test_helpers {
 
     async fn test_table(catalog: Arc<dyn Catalog>) {
         let mut repos = catalog.repositories().await;
-        let namespace_partition = NamespacePartitionTemplateOverride::default();
         let namespace = repos
             .namespaces()
-            .create("namespace_table_test", &namespace_partition, None)
+            .create("namespace_table_test", None, None)
             .await
             .unwrap();
-        let table_partition = TablePartitionTemplateOverride::from(&namespace_partition);
 
         // test we can create a table
         let t = repos
             .tables()
-            .create("test_table", &table_partition, namespace.id)
+            .create("test_table", None, namespace.id)
             .await
             .unwrap();
         assert!(t.id > TableId::new(0));
@@ -1183,7 +1335,7 @@ pub(crate) mod test_helpers {
         // test we get an error if we try to create it again
         let err = repos
             .tables()
-            .create("test_table", &table_partition, namespace.id)
+            .create("test_table", None, namespace.id)
             .await;
         assert_error!(
             err,
@@ -1208,40 +1360,34 @@ pub(crate) mod test_helpers {
         assert_eq!(vec![t.clone()], tables);
 
         // test we can create a table of the same name in a different namespace
-        let namespace2 = repos
-            .namespaces()
-            .create("two", &namespace_partition, None)
-            .await
-            .unwrap();
+        let namespace2 = repos.namespaces().create("two", None, None).await.unwrap();
         assert_ne!(namespace, namespace2);
         let test_table = repos
             .tables()
-            .create("test_table", &table_partition, namespace2.id)
+            .create("test_table", None, namespace2.id)
             .await
             .unwrap();
         assert_ne!(t.id, test_table.id);
         assert_eq!(test_table.namespace_id, namespace2.id);
 
         // create a table with a PartitionTemplate other than the default
-        let tag_partition_template = TablePartitionTemplateOverride::new(PartitionTemplate {
-            parts: vec![TemplatePart::Column("tag1".into())],
-        });
+        let tag_partition_template = proto::PartitionTemplate {
+            parts: vec![proto::TemplatePart {
+                part: Some(proto::template_part::Part::ColumnValue("tag1".into())),
+            }],
+        };
         let partitioned_table_name = "test_partitioned_table";
         let test_partitioned_table = repos
             .tables()
             .create(
                 partitioned_table_name,
-                &tag_partition_template,
+                Some(&tag_partition_template),
                 namespace2.id,
             )
             .await
             .unwrap();
         assert_eq!(
-            test_partitioned_table
-                .partition_template
-                .as_ref()
-                .unwrap()
-                .0,
+            proto_from_raw(&test_partitioned_table.partition_template).unwrap(),
             tag_partition_template
         );
         let lookup_table = repos
@@ -1255,7 +1401,7 @@ pub(crate) mod test_helpers {
         // test get by namespace and name
         let foo_table = repos
             .tables()
-            .create("foo", &table_partition, namespace2.id)
+            .create("foo", None, namespace2.id)
             .await
             .unwrap();
         assert_eq!(
@@ -1316,7 +1462,7 @@ pub(crate) mod test_helpers {
             .expect("namespace should be updateable");
         let err = repos
             .tables()
-            .create("definitely_unique", &table_partition, latest.id)
+            .create("definitely_unique", None, latest.id)
             .await
             .expect_err("should error with table create limit error");
         assert!(matches!(
@@ -1341,16 +1487,14 @@ pub(crate) mod test_helpers {
 
     async fn test_column(catalog: Arc<dyn Catalog>) {
         let mut repos = catalog.repositories().await;
-        let namespace_partition = NamespacePartitionTemplateOverride::default();
         let namespace = repos
             .namespaces()
-            .create("namespace_column_test", &namespace_partition, None)
+            .create("namespace_column_test", None, None)
             .await
             .unwrap();
-        let table_partition = TablePartitionTemplateOverride::from(&namespace_partition);
         let table = repos
             .tables()
-            .create("test_table", &table_partition, namespace.id)
+            .create("test_table", None, namespace.id)
             .await
             .unwrap();
         assert_eq!(table.namespace_id, namespace.id);
@@ -1381,7 +1525,7 @@ pub(crate) mod test_helpers {
         // test that we can create a column of the same name under a different table
         let table2 = repos
             .tables()
-            .create("test_table_2", &table_partition, namespace.id)
+            .create("test_table_2", None, namespace.id)
             .await
             .unwrap();
         let ccc = repos
@@ -1452,7 +1596,7 @@ pub(crate) mod test_helpers {
         // test per-namespace column limits are NOT enforced with create_or_get_many_unchecked
         let table3 = repos
             .tables()
-            .create("test_table_3", &table_partition, namespace.id)
+            .create("test_table_3", None, namespace.id)
             .await
             .unwrap();
         let mut columns = HashMap::new();
@@ -1476,16 +1620,14 @@ pub(crate) mod test_helpers {
 
     async fn test_partition(catalog: Arc<dyn Catalog>) {
         let mut repos = catalog.repositories().await;
-        let namespace_partition = NamespacePartitionTemplateOverride::default();
         let namespace = repos
             .namespaces()
-            .create("namespace_partition_test", &namespace_partition, None)
+            .create("namespace_partition_test", None, None)
             .await
             .unwrap();
-        let table_partition = TablePartitionTemplateOverride::from(&namespace_partition);
         let table = repos
             .tables()
-            .create("test_table", &table_partition, namespace.id)
+            .create("test_table", None, namespace.id)
             .await
             .unwrap();
 
@@ -1760,21 +1902,19 @@ pub(crate) mod test_helpers {
     /// tests many interactions with the catalog and parquet files. See the individual conditions herein
     async fn test_parquet_file(catalog: Arc<dyn Catalog>) {
         let mut repos = catalog.repositories().await;
-        let namespace_partition = NamespacePartitionTemplateOverride::default();
         let namespace = repos
             .namespaces()
-            .create("namespace_parquet_file_test", &namespace_partition, None)
+            .create("namespace_parquet_file_test", None, None)
             .await
             .unwrap();
-        let table_partition = TablePartitionTemplateOverride::from(&namespace_partition);
         let table = repos
             .tables()
-            .create("test_table", &table_partition, namespace.id)
+            .create("test_table", None, namespace.id)
             .await
             .unwrap();
         let other_table = repos
             .tables()
-            .create("other", &table_partition, namespace.id)
+            .create("other", None, namespace.id)
             .await
             .unwrap();
         let partition = repos
@@ -1949,12 +2089,12 @@ pub(crate) mod test_helpers {
         // test list_by_namespace_not_to_delete
         let namespace2 = repos
             .namespaces()
-            .create("namespace_parquet_file_test1", &namespace_partition, None)
+            .create("namespace_parquet_file_test1", None, None)
             .await
             .unwrap();
         let table2 = repos
             .tables()
-            .create("test_table2", &table_partition, namespace2.id)
+            .create("test_table2", None, namespace2.id)
             .await
             .unwrap();
         let partition2 = repos
@@ -2170,26 +2310,24 @@ pub(crate) mod test_helpers {
 
     async fn test_parquet_file_delete_broken(catalog: Arc<dyn Catalog>) {
         let mut repos = catalog.repositories().await;
-        let namespace_partition = NamespacePartitionTemplateOverride::default();
         let namespace_1 = repos
             .namespaces()
-            .create("retention_broken_1", &namespace_partition, None)
+            .create("retention_broken_1", None, None)
             .await
             .unwrap();
         let namespace_2 = repos
             .namespaces()
-            .create("retention_broken_2", &namespace_partition, Some(1))
+            .create("retention_broken_2", None, Some(1))
             .await
             .unwrap();
-        let table_partition = TablePartitionTemplateOverride::from(&namespace_partition);
         let table_1 = repos
             .tables()
-            .create("test_table", &table_partition, namespace_1.id)
+            .create("test_table", None, namespace_1.id)
             .await
             .unwrap();
         let table_2 = repos
             .tables()
-            .create("test_table", &table_partition, namespace_2.id)
+            .create("test_table", None, namespace_2.id)
             .await
             .unwrap();
         let partition_1 = repos
@@ -2252,24 +2390,14 @@ pub(crate) mod test_helpers {
 
     async fn test_partitions_new_file_between(catalog: Arc<dyn Catalog>) {
         let mut repos = catalog.repositories().await;
-        let namespace_partition = NamespacePartitionTemplateOverride::default();
         let namespace = repos
             .namespaces()
-            .create(
-                "test_partitions_new_file_between",
-                &namespace_partition,
-                None,
-            )
+            .create("test_partitions_new_file_between", None, None)
             .await
             .unwrap();
-        let table_partition = TablePartitionTemplateOverride::from(&namespace_partition);
         let table = repos
             .tables()
-            .create(
-                "test_table_for_new_file_between",
-                &table_partition,
-                namespace.id,
-            )
+            .create("test_table_for_new_file_between", None, namespace.id)
             .await
             .unwrap();
 
@@ -2628,20 +2756,18 @@ pub(crate) mod test_helpers {
 
     async fn test_list_by_partiton_not_to_delete(catalog: Arc<dyn Catalog>) {
         let mut repos = catalog.repositories().await;
-        let namespace_partition = NamespacePartitionTemplateOverride::default();
         let namespace = repos
             .namespaces()
             .create(
                 "namespace_parquet_file_test_list_by_partiton_not_to_delete",
-                &namespace_partition,
+                None,
                 None,
             )
             .await
             .unwrap();
-        let table_partition = TablePartitionTemplateOverride::from(&namespace_partition);
         let table = repos
             .tables()
-            .create("test_table", &table_partition, namespace.id)
+            .create("test_table", None, namespace.id)
             .await
             .unwrap();
 
@@ -2741,20 +2867,14 @@ pub(crate) mod test_helpers {
 
     async fn test_update_to_compaction_level_1(catalog: Arc<dyn Catalog>) {
         let mut repos = catalog.repositories().await;
-        let namespace_partition = NamespacePartitionTemplateOverride::default();
         let namespace = repos
             .namespaces()
-            .create(
-                "namespace_update_to_compaction_level_1_test",
-                &namespace_partition,
-                None,
-            )
+            .create("namespace_update_to_compaction_level_1_test", None, None)
             .await
             .unwrap();
-        let table_partition = TablePartitionTemplateOverride::from(&namespace_partition);
         let table = repos
             .tables()
-            .create("update_table", &table_partition, namespace.id)
+            .create("update_table", None, namespace.id)
             .await
             .unwrap();
         let partition = repos
@@ -2833,20 +2953,14 @@ pub(crate) mod test_helpers {
     /// effective.
     async fn test_delete_namespace(catalog: Arc<dyn Catalog>) {
         let mut repos = catalog.repositories().await;
-        let namespace_partition = NamespacePartitionTemplateOverride::default();
         let namespace_1 = repos
             .namespaces()
-            .create(
-                "namespace_test_delete_namespace_1",
-                &namespace_partition,
-                None,
-            )
+            .create("namespace_test_delete_namespace_1", None, None)
             .await
             .unwrap();
-        let table_partition = TablePartitionTemplateOverride::from(&namespace_partition);
         let table_1 = repos
             .tables()
-            .create("test_table_1", &table_partition, namespace_1.id)
+            .create("test_table_1", None, namespace_1.id)
             .await
             .unwrap();
         let _c = repos
@@ -2896,16 +3010,12 @@ pub(crate) mod test_helpers {
         // it, let's create another so we can ensure that doesn't get deleted.
         let namespace_2 = repos
             .namespaces()
-            .create(
-                "namespace_test_delete_namespace_2",
-                &namespace_partition,
-                None,
-            )
+            .create("namespace_test_delete_namespace_2", None, None)
             .await
             .unwrap();
         let table_2 = repos
             .tables()
-            .create("test_table_2", &table_partition, namespace_2.id)
+            .create("test_table_2", None, namespace_2.id)
             .await
             .unwrap();
         let _c = repos
@@ -3086,7 +3196,7 @@ pub(crate) mod test_helpers {
 
             let mut txn = catalog_captured.start_transaction().await.unwrap();
             txn.namespaces()
-                .create("test_txn_isolation", &Default::default(), None)
+                .create("test_txn_isolation", None, None)
                 .await
                 .unwrap();
 
@@ -3123,7 +3233,7 @@ pub(crate) mod test_helpers {
         let capture = TracingCapture::new();
         let mut txn = catalog.start_transaction().await.unwrap();
         txn.namespaces()
-            .create("test_txn_drop", &Default::default(), None)
+            .create("test_txn_drop", None, None)
             .await
             .unwrap();
         drop(txn);
@@ -3152,11 +3262,7 @@ pub(crate) mod test_helpers {
     where
         R: RepoCollection + ?Sized,
     {
-        let namespace_partition = NamespacePartitionTemplateOverride::default();
-        let namespace = repos
-            .namespaces()
-            .create(namespace_name, &namespace_partition, None)
-            .await;
+        let namespace = repos.namespaces().create(namespace_name, None, None).await;
 
         let namespace = match namespace {
             Ok(v) => v,

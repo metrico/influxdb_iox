@@ -145,7 +145,7 @@ impl TestCatalog {
         let mut repos = self.catalog.repositories().await;
         let namespace = repos
             .namespaces()
-            .create(name, &Default::default(), retention_period_ns)
+            .create(name, None, retention_period_ns)
             .await
             .unwrap();
 
@@ -218,17 +218,9 @@ impl TestNamespace {
     pub async fn create_table(self: &Arc<Self>, name: &str) -> Arc<TestTable> {
         let mut repos = self.catalog.catalog.repositories().await;
 
-        let partition_template = self
-            .namespace
-            .partition_template
-            .as_ref()
-            .map(|pt| &pt.0)
-            .unwrap_or(&Default::default())
-            .into();
-
         let table = repos
             .tables()
-            .create(name, &partition_template, self.namespace.id)
+            .create(name, None, self.namespace.id)
             .await
             .unwrap();
 
@@ -352,11 +344,13 @@ impl TestTable {
 
     /// Get the TableSchema from the catalog.
     pub async fn catalog_schema(&self) -> TableSchema {
-        TableSchema {
-            id: self.table.id,
-            partition_template: None,
-            columns: self.catalog_columns().await,
+        let mut table_schema = TableSchema::new_empty_from(&self.table);
+
+        for (column_name, column_schema) in self.catalog_columns().await.iter() {
+            table_schema.add_column_schema(column_name.to_owned(), column_schema.to_owned());
         }
+
+        table_schema
     }
 
     /// Get columns from the catalog.

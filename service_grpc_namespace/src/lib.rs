@@ -53,7 +53,7 @@ impl namespace_service_server::NamespaceService for NamespaceService {
         let CreateNamespaceRequest {
             name: namespace_name,
             retention_period_ns,
-            partition_template: _,
+            partition_template,
         } = request.into_inner();
 
         // Ensure the namespace name is consistently processed within IOx - this
@@ -63,14 +63,15 @@ impl namespace_service_server::NamespaceService for NamespaceService {
 
         let retention_period_ns = map_retention_period(retention_period_ns)?;
 
-        // TODO: get PartitionTemplate from the CreateNamespaceRequest
-        let partition_template = Default::default();
-
         debug!(%namespace_name, ?retention_period_ns, "Creating namespace");
 
         let namespace = repos
             .namespaces()
-            .create(&namespace_name, &partition_template, retention_period_ns)
+            .create(
+                &namespace_name,
+                partition_template.as_ref(),
+                retention_period_ns,
+            )
             .await
             .map_err(|e| {
                 warn!(error=%e, %namespace_name, "failed to create namespace");

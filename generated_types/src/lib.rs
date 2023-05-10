@@ -102,6 +102,15 @@ pub mod influxdata {
                     env!("OUT_DIR"),
                     "/influxdata.iox.namespace.v1.serde.rs"
                 ));
+
+                use once_cell::sync::Lazy;
+                /// The default partitioning scheme is by each day according to the "time" column.
+                pub static PARTITION_BY_DAY: Lazy<PartitionTemplate> =
+                    Lazy::new(|| PartitionTemplate {
+                        parts: vec![TemplatePart {
+                            part: Some(template_part::Part::TimeFormat("%Y-%m-%d".to_owned())),
+                        }],
+                    });
             }
         }
 

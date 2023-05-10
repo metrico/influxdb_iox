@@ -2,8 +2,8 @@
 
 use crate::{
     interface::{
-        self, sealed::TransactionFinalize, CasFailure, Catalog, ColumnRepo,
-        ColumnTypeMismatchSnafu, Error, NamespaceRepo, ParquetFileRepo, PartitionRepo,
+        self, namespace_from_row, sealed::TransactionFinalize, table_from_row, CasFailure, Catalog,
+        ColumnRepo, ColumnTypeMismatchSnafu, Error, NamespaceRepo, ParquetFileRepo, PartitionRepo,
         RepoCollection, Result, SoftDeletedRows, TableRepo, Transaction,
         MAX_PARQUET_FILES_SELECTED_ONCE,
     },
@@ -16,11 +16,11 @@ use crate::{
 };
 use async_trait::async_trait;
 use data_types::{
-    Column, ColumnType, CompactionLevel, Namespace, NamespaceId,
-    NamespacePartitionTemplateOverride, ParquetFile, ParquetFileId, ParquetFileParams, Partition,
-    PartitionId, PartitionKey, SkippedCompaction, Table, TableId, TablePartitionTemplateOverride,
+    Column, ColumnType, CompactionLevel, Namespace, NamespaceId, ParquetFile, ParquetFileId,
+    ParquetFileParams, Partition, PartitionId, PartitionKey, SkippedCompaction, Table, TableId,
     Timestamp,
 };
+use generated_types::influxdata::iox::namespace::v1 as proto;
 use iox_time::{SystemProvider, TimeProvider};
 use observability_deps::tracing::{debug, info, warn};
 use snafu::prelude::*;
@@ -582,10 +582,10 @@ impl NamespaceRepo for PostgresTxn {
     async fn create(
         &mut self,
         name: &str,
-        partition_template: &NamespacePartitionTemplateOverride,
+        partition_template: Option<&proto::PartitionTemplate>,
         retention_period_ns: Option<i64>,
     ) -> Result<Namespace> {
-        let rec = sqlx::query_as::<_, Namespace>(
+        let rec = sqlx::query(
             r#"
 INSERT INTO namespace (
     name, topic_id, query_pool_id, retention_period_ns, max_tables, partition_template
@@ -602,7 +602,7 @@ RETURNING id, name, retention_period_ns, max_tables, max_columns_per_table, dele
         .bind(DEFAULT_MAX_TABLES) // $5
         .bind(Some(sqlx::types::Json(partition_template))); // $6
 
-        let rec = rec.fetch_one(&mut self.inner).await.map_err(|e| {
+        let row = rec.fetch_one(&mut self.inner).await.map_err(|e| {
             if is_unique_violation(&e) {
                 Error::NameExists {
                     name: name.to_string(),
@@ -614,6 +614,8 @@ RETURNING id, name, retention_period_ns, max_tables, max_columns_per_table, dele
             }
         })?;
 
+        let rec = namespace_from_row(&row).map_err(|e| Error::SqlxError { source: e })?;
+
         // Ensure the column default values match the code values.
         debug_assert_eq!(rec.max_tables, DEFAULT_MAX_TABLES);
         debug_assert_eq!(rec.max_columns_per_table, DEFAULT_MAX_COLUMNS_PER_TABLE);
@@ -622,7 +624,7 @@ RETURNING id, name, retention_period_ns, max_tables, max_columns_per_table, dele
     }
 
     async fn list(&mut self, deleted: SoftDeletedRows) -> Result<Vec<Namespace>> {
-        let rec = sqlx::query_as::<_, Namespace>(
+        let rows = sqlx::query(
             format!(
                 r#"
 SELECT id, name, retention_period_ns, max_tables, max_columns_per_table, deleted_at,
@@ -638,7 +640,10 @@ WHERE {v};
         .await
         .map_err(|e| Error::SqlxError { source: e })?;
 
-        Ok(rec)
+        rows.iter()
+            .map(|row| namespace_from_row(row))
+            .collect::<Result<Vec<_>, _>>()
+            .map_err(|e| Error::SqlxError { source: e })
     }
 
     async fn get_by_id(
@@ -646,7 +651,7 @@ WHERE {v};
         id: NamespaceId,
         deleted: SoftDeletedRows,
     ) -> Result<Option<Namespace>> {
-        let rec = sqlx::query_as::<_, Namespace>(
+        let row = sqlx::query(
             format!(
                 r#"
 SELECT id, name, retention_period_ns, max_tables, max_columns_per_table, deleted_at,
@@ -662,11 +667,12 @@ WHERE id=$1 AND {v};
         .fetch_one(&mut self.inner)
         .await;
 
-        if let Err(sqlx::Error::RowNotFound) = rec {
+        if let Err(sqlx::Error::RowNotFound) = row {
             return Ok(None);
         }
 
-        let namespace = rec.map_err(|e| Error::SqlxError { source: e })?;
+        let row = row.map_err(|e| Error::SqlxError { source: e })?;
+        let namespace = namespace_from_row(&row).map_err(|e| Error::SqlxError { source: e })?;
 
         Ok(Some(namespace))
     }
@@ -676,7 +682,7 @@ WHERE id=$1 AND {v};
         name: &str,
         deleted: SoftDeletedRows,
     ) -> Result<Option<Namespace>> {
-        let rec = sqlx::query_as::<_, Namespace>(
+        let row = sqlx::query(
             format!(
                 r#"
 SELECT id, name, retention_period_ns, max_tables, max_columns_per_table, deleted_at,
@@ -692,11 +698,12 @@ WHERE name=$1 AND {v};
         .fetch_one(&mut self.inner)
         .await;
 
-        if let Err(sqlx::Error::RowNotFound) = rec {
+        if let Err(sqlx::Error::RowNotFound) = row {
             return Ok(None);
         }
 
-        let namespace = rec.map_err(|e| Error::SqlxError { source: e })?;
+        let row = row.map_err(|e| Error::SqlxError { source: e })?;
+        let namespace = namespace_from_row(&row).map_err(|e| Error::SqlxError { source: e })?;
 
         Ok(Some(namespace))
     }
@@ -715,7 +722,7 @@ WHERE name=$1 AND {v};
     }
 
     async fn update_table_limit(&mut self, name: &str, new_max: i32) -> Result<Namespace> {
-        let rec = sqlx::query_as::<_, Namespace>(
+        let row = sqlx::query(
             r#"
 UPDATE namespace
 SET max_tables = $1
@@ -729,18 +736,20 @@ RETURNING id, name, retention_period_ns, max_tables, max_columns_per_table, dele
         .fetch_one(&mut self.inner)
         .await;
 
-        let namespace = rec.map_err(|e| match e {
+        let row = row.map_err(|e| match e {
             sqlx::Error::RowNotFound => Error::NamespaceNotFoundByName {
                 name: name.to_string(),
             },
             _ => Error::SqlxError { source: e },
         })?;
 
+        let namespace = namespace_from_row(&row).map_err(|e| Error::SqlxError { source: e })?;
+
         Ok(namespace)
     }
 
     async fn update_column_limit(&mut self, name: &str, new_max: i32) -> Result<Namespace> {
-        let rec = sqlx::query_as::<_, Namespace>(
+        let row = sqlx::query(
             r#"
 UPDATE namespace
 SET max_columns_per_table = $1
@@ -754,14 +763,14 @@ RETURNING id, name, retention_period_ns, max_tables, max_columns_per_table, dele
         .fetch_one(&mut self.inner)
         .await;
 
-        let namespace = rec.map_err(|e| match e {
+        let row = row.map_err(|e| match e {
             sqlx::Error::RowNotFound => Error::NamespaceNotFoundByName {
                 name: name.to_string(),
             },
             _ => Error::SqlxError { source: e },
         })?;
 
-        Ok(namespace)
+        namespace_from_row(&row).map_err(|e| Error::SqlxError { source: e })
     }
 
     async fn update_retention_period(
@@ -769,7 +778,7 @@ RETURNING id, name, retention_period_ns, max_tables, max_columns_per_table, dele
         name: &str,
         retention_period_ns: Option<i64>,
     ) -> Result<Namespace> {
-        let rec = sqlx::query_as::<_, Namespace>(
+        let row = sqlx::query(
             r#"
 UPDATE namespace
 SET retention_period_ns = $1
@@ -783,14 +792,14 @@ RETURNING id, name, retention_period_ns, max_tables, max_columns_per_table, dele
         .fetch_one(&mut self.inner)
         .await;
 
-        let namespace = rec.map_err(|e| match e {
+        let row = row.map_err(|e| match e {
             sqlx::Error::RowNotFound => Error::NamespaceNotFoundByName {
                 name: name.to_string(),
             },
             _ => Error::SqlxError { source: e },
         })?;
 
-        Ok(namespace)
+        namespace_from_row(&row).map_err(|e| Error::SqlxError { source: e })
     }
 }
 
@@ -799,7 +808,7 @@ impl TableRepo for PostgresTxn {
     async fn create(
         &mut self,
         name: &str,
-        partition_template: &TablePartitionTemplateOverride,
+        partition_template: Option<&proto::PartitionTemplate>,
         namespace_id: NamespaceId,
     ) -> Result<Table> {
         // A simple insert statement becomes quite complicated in order to avoid checking the table
@@ -811,7 +820,7 @@ impl TableRepo for PostgresTxn {
         // By using SELECT rather than VALUES it will insert zero rows if it finds a null in the
         // subquery, i.e. if count >= max_tables. fetch_one() will return a RowNotFound error if
         // nothing was inserted. Not pretty!
-        let rec = sqlx::query_as::<_, Table>(
+        let row = sqlx::query(
             r#"
 INSERT INTO table_name ( name, partition_template, namespace_id )
 SELECT $1, $2, id FROM (
@@ -847,11 +856,11 @@ RETURNING *;
             }
         })?;
 
-        Ok(rec)
+        table_from_row(&row).map_err(|e| Error::SqlxError { source: e })
     }
 
     async fn get_by_id(&mut self, table_id: TableId) -> Result<Option<Table>> {
-        let rec = sqlx::query_as::<_, Table>(
+        let row = sqlx::query(
             r#"
 SELECT *
 FROM table_name
@@ -862,11 +871,12 @@ WHERE id = $1;
         .fetch_one(&mut self.inner)
         .await;
 
-        if let Err(sqlx::Error::RowNotFound) = rec {
+        if let Err(sqlx::Error::RowNotFound) = row {
             return Ok(None);
         }
 
-        let table = rec.map_err(|e| Error::SqlxError { source: e })?;
+        let row = row.map_err(|e| Error::SqlxError { source: e })?;
+        let table = table_from_row(&row).map_err(|e| Error::SqlxError { source: e })?;
 
         Ok(Some(table))
     }
@@ -876,7 +886,7 @@ WHERE id = $1;
         namespace_id: NamespaceId,
         name: &str,
     ) -> Result<Option<Table>> {
-        let rec = sqlx::query_as::<_, Table>(
+        let row = sqlx::query(
             r#"
 SELECT *
 FROM table_name
@@ -888,17 +898,18 @@ WHERE namespace_id = $1 AND name = $2;
         .fetch_one(&mut self.inner)
         .await;
 
-        if let Err(sqlx::Error::RowNotFound) = rec {
+        if let Err(sqlx::Error::RowNotFound) = row {
             return Ok(None);
         }
 
-        let table = rec.map_err(|e| Error::SqlxError { source: e })?;
+        let row = row.map_err(|e| Error::SqlxError { source: e })?;
+        let table = table_from_row(&row).map_err(|e| Error::SqlxError { source: e })?;
 
         Ok(Some(table))
     }
 
     async fn list_by_namespace_id(&mut self, namespace_id: NamespaceId) -> Result<Vec<Table>> {
-        let rec = sqlx::query_as::<_, Table>(
+        let rows = sqlx::query(
             r#"
 SELECT *
 FROM table_name
@@ -910,16 +921,22 @@ WHERE namespace_id = $1;
         .await
         .map_err(|e| Error::SqlxError { source: e })?;
 
-        Ok(rec)
+        rows.iter()
+            .map(|row| table_from_row(row))
+            .collect::<Result<Vec<_>, _>>()
+            .map_err(|e| Error::SqlxError { source: e })
     }
 
     async fn list(&mut self) -> Result<Vec<Table>> {
-        let rec = sqlx::query_as::<_, Table>("SELECT * FROM table_name;")
+        let rows = sqlx::query("SELECT * FROM table_name;")
             .fetch_all(&mut self.inner)
             .await
             .map_err(|e| Error::SqlxError { source: e })?;
 
-        Ok(rec)
+        rows.iter()
+            .map(|row| table_from_row(row))
+            .collect::<Result<Vec<_>, _>>()
+            .map_err(|e| Error::SqlxError { source: e })
     }
 }
 
@@ -1847,7 +1864,7 @@ mod tests {
             .repositories()
             .await
             .namespaces()
-            .create("ns4", &Default::default(), None)
+            .create("ns4", None, None)
             .await
             .expect("namespace create failed")
             .id;
@@ -1855,7 +1872,7 @@ mod tests {
             .repositories()
             .await
             .tables()
-            .create("table", &Default::default(), namespace_id)
+            .create("table", None, namespace_id)
             .await
             .expect("create table failed")
             .id;
@@ -1985,7 +2002,7 @@ mod tests {
                         .repositories()
                         .await
                         .namespaces()
-                        .create("ns4", &Default::default(), None)
+                        .create("ns4", None, None)
                         .await
                         .expect("namespace create failed")
                         .id;
@@ -1993,7 +2010,7 @@ mod tests {
                         .repositories()
                         .await
                         .tables()
-                        .create("table", &Default::default(), namespace_id)
+                        .create("table", None, namespace_id)
                         .await
                         .expect("create table failed")
                         .id;
@@ -2148,7 +2165,7 @@ mod tests {
             .repositories()
             .await
             .namespaces()
-            .create("ns4", &Default::default(), None)
+            .create("ns4", None, None)
             .await
             .expect("namespace create failed")
             .id;
@@ -2156,7 +2173,7 @@ mod tests {
             .repositories()
             .await
             .tables()
-            .create("table", &Default::default(), namespace_id)
+            .create("table", None, namespace_id)
             .await
             .expect("create table failed")
             .id;

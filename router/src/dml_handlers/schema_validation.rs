@@ -144,12 +144,12 @@ where
 
     // Accepts a map of TableName -> MutableBatch
     type WriteInput = HashMap<String, MutableBatch>;
-    // And returns a map of TableId -> (TableName, OptionalTablePartitionTemplate, MutableBatch)
+    // And returns a map of TableId -> (TableName, TablePartitionTemplate, MutableBatch)
     type WriteOutput = HashMap<
         TableId,
         (
             String,
-            Option<Arc<TablePartitionTemplateOverride>>,
+            TablePartitionTemplateOverride,
             MutableBatch,
         ),
     >;
@@ -292,14 +292,14 @@ where
             }
         };
 
-        // Map the "TableName -> Data" into "TableId -> (TableName, OptionalTablePartitionTemplate,
+        // Map the "TableName -> Data" into "TableId -> (TableName, TablePartitionTemplate,
         // Data)" for downstream handlers.
         let batches = batches
             .into_iter()
             .map(|(name, data)| {
                 let table = latest_schema.tables.get(&name).unwrap();
                 let id = table.id;
-                let table_partition_template = table.partition_template.clone();
+                let table_partition_template = table.partition_template();
 
                 (id, (name, table_partition_template, data))
             })

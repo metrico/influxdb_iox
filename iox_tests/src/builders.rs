@@ -2,6 +2,7 @@ use data_types::{
     ColumnSet, CompactionLevel, NamespaceId, ParquetFile, ParquetFileId, Partition, PartitionId,
     PartitionKey, SkippedCompaction, Table, TableId, Timestamp,
 };
+use std::sync::Arc;
 use uuid::Uuid;
 
 #[derive(Debug, Clone)]
@@ -121,7 +122,7 @@ impl TableBuilder {
                 id: TableId::new(id),
                 namespace_id: NamespaceId::new(0),
                 name: "table".to_string(),
-                partition_template: None,
+                partition_template: Arc::clone(&iox_catalog::interface::PARTITION_BY_DAY),
             },
         }
     }

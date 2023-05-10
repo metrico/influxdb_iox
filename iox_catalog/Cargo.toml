@@ -9,13 +9,16 @@ license.workspace = true
 async-trait = "0.1.68"
 data_types = { path = "../data_types" }
 futures = "0.3"
+generated_types = { path = "../generated_types" }
 iox_time = { version = "0.1.0", path = "../iox_time" }
 log = "0.4"
 metric = { version = "0.1.0", path = "../metric" }
 mutable_batch = { path = "../mutable_batch" }
 observability_deps = { path = "../observability_deps" }
+once_cell = "1"
 parking_lot = { version = "0.12" }
 serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0.96"
 snafu = "0.7"
 sqlx = { version = "0.6", features = ["runtime-tokio-rustls", "postgres", "uuid", "sqlite", "json"] }
 sqlx-hotswap-pool = { path = "../sqlx-hotswap-pool" }

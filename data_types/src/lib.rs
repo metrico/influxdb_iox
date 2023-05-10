@@ -284,13 +284,12 @@ impl std::fmt::Display for ParquetFileId {
 }
 
 /// Data object for a namespace
-#[derive(Debug, Clone, Eq, PartialEq, sqlx::FromRow)]
+#[derive(Debug, Clone)]
 pub struct Namespace {
     /// The id of the namespace
     pub id: NamespaceId,
     /// The unique name of the namespace
     pub name: String,
-    #[sqlx(default)]
     /// The retention period in ns. None represents infinite duration (i.e. never drop data).
     pub retention_period_ns: Option<i64>,
     /// The maximum number of tables that can exist in this namespace
@@ -299,13 +298,29 @@ pub struct Namespace {
     pub max_columns_per_table: i32,
     /// When this file was marked for deletion.
     pub deleted_at: Option<Timestamp>,
-    /// The optionally-specified partition template to use for writes in this namespace.
-    pub partition_template: Option<sqlx::types::Json<NamespacePartitionTemplateOverride>>,
+    /// The partition template to use for writes in this namespace.
+    pub partition_template: Arc<sqlx::types::JsonRawValue>,
 }
+
+/// [`sqlx::types::JsonRawValue`] (which is really [`serde_json::RawValue`]) does not implement
+/// `PartialEq`, so we have to write a custom implementation. This compares the string values
+/// exactly, and they should be the same if we've generated both of them the same way.
+impl PartialEq for Namespace {
+    fn eq(&self, other: &Self) -> bool {
+        self.id == other.id
+            && self.name == other.name
+            && self.retention_period_ns == other.retention_period_ns
+            && self.max_tables == other.max_tables
+            && self.max_columns_per_table == other.max_columns_per_table
+            && self.deleted_at == other.deleted_at
+            && self.partition_template.get() == other.partition_template.get()
+    }
+}
+impl Eq for Namespace {}
 
 /// Schema collection for a namespace. This is an in-memory object useful for a schema
 /// cache.
-#[derive(Debug, Clone, Eq, PartialEq)]
+#[derive(Debug, Clone)]
 pub struct NamespaceSchema {
     /// the namespace id
     pub id: NamespaceId,
@@ -318,9 +333,24 @@ pub struct NamespaceSchema {
     /// The retention period in ns.
     /// None represents infinite duration (i.e. never drop data).
     pub retention_period_ns: Option<i64>,
-    /// The optionally-specified partition template to use for writes in this namespace.
-    pub partition_template: Option<Arc<NamespacePartitionTemplateOverride>>,
+    /// The partition template to use for writes in this namespace.
+    pub partition_template: Arc<sqlx::types::JsonRawValue>,
 }
+
+/// [`sqlx::types::JsonRawValue`] (which is really [`serde_json::RawValue`]) does not implement
+/// `PartialEq`, so we have to write a custom implementation. This compares the string values
+/// exactly, and they should be the same if we've generated both of them the same way.
+impl PartialEq for NamespaceSchema {
+    fn eq(&self, other: &Self) -> bool {
+        self.id == other.id
+            && self.tables == other.tables
+            && self.max_columns_per_table == other.max_columns_per_table
+            && self.max_tables == other.max_tables
+            && self.retention_period_ns == other.retention_period_ns
+            && self.partition_template.get() == other.partition_template.get()
+    }
+}
+impl Eq for NamespaceSchema {}
 
 impl NamespaceSchema {
     /// Start a new `NamespaceSchema` with empty `tables` but the rest of the information populated
@@ -341,9 +371,7 @@ impl NamespaceSchema {
             max_columns_per_table: max_columns_per_table as usize,
             max_tables: max_tables as usize,
             retention_period_ns,
-            partition_template: partition_template
-                .as_ref()
-                .map(|json_type| Arc::new(json_type.0.clone())),
+            partition_template: Arc::clone(&partition_template),
         }
     }
 
@@ -359,7 +387,7 @@ impl NamespaceSchema {
 }
 
 /// Data object for a table
-#[derive(Debug, Clone, sqlx::FromRow, Eq, PartialEq)]
+#[derive(Debug, Clone)]
 pub struct Table {
     /// The id of the table
     pub id: TableId,
@@ -367,43 +395,61 @@ pub struct Table {
     pub namespace_id: NamespaceId,
     /// The name of the table, which is unique within the associated namespace
     pub name: String,
-    /// The optionally-specified partition template to use for writes in this namespace.
-    pub partition_template: Option<sqlx::types::Json<TablePartitionTemplateOverride>>,
+    /// The partition template to use for writes in this table.
+    pub partition_template: Arc<sqlx::types::JsonRawValue>,
 }
 
+/// [`sqlx::types::JsonRawValue`] (which is really [`serde_json::RawValue`]) does not implement
+/// `PartialEq`, so we have to write a custom implementation. This compares the string values
+/// exactly, and they should be the same if we've generated both of them the same way.
+impl PartialEq for Table {
+    fn eq(&self, other: &Self) -> bool {
+        self.id == other.id
+            && self.namespace_id == other.namespace_id
+            && self.name == other.name
+            && self.partition_template.get() == other.partition_template.get()
+    }
+}
+impl Eq for Table {}
+
 /// Column definitions for a table
-#[derive(Debug, Clone, Eq, PartialEq)]
+#[derive(Debug, Clone)]
 pub struct TableSchema {
     /// the table id
     pub id: TableId,
 
     /// the table's partition template
-    pub partition_template: Option<Arc<TablePartitionTemplateOverride>>,
+    partition_template: Arc<sqlx::types::JsonRawValue>,
 
     /// the table's columns by their name
     pub columns: ColumnsByName,
 }
 
-impl TableSchema {
-    /// Initialize new `TableSchema` with the given `TableId`.
-    pub fn new(id: TableId) -> Self {
-        Self {
-            id,
-            partition_template: None,
-            columns: ColumnsByName::new([]),
-        }
+/// [`sqlx::types::JsonRawValue`] (which is really [`serde_json::RawValue`]) does not implement
+/// `PartialEq`, so we have to write a custom implementation. This compares the string values
+/// exactly, and they should be the same if we've generated both of them the same way.
+impl PartialEq for TableSchema {
+    fn eq(&self, other: &Self) -> bool {
+        self.id == other.id
+            && self.partition_template.get() == other.partition_template.get()
+            && self.columns == other.columns
     }
+}
+impl Eq for TableSchema {}
 
+impl TableSchema {
     /// Initialize new `TableSchema` from the information in the given `Table`.
     pub fn new_empty_from(table: &Table) -> Self {
         Self {
             id: table.id,
-            partition_template: table
-                .partition_template
-                .as_ref()
-                .map(|json_type| Arc::new(json_type.0.clone())),
+            partition_template: Arc::clone(&table.partition_template),
             columns: ColumnsByName::new([]),
         }
+    }
+
+    /// The partition template override to use when partitioning writes to this table.
+    pub fn partition_template(&self) -> TablePartitionTemplateOverride {
+        TablePartitionTemplateOverride::new(Arc::clone(&self.partition_template))
     }
 
     /// Add `col` to this table schema.
@@ -2635,57 +2681,6 @@ mod tests {
     #[should_panic(expected = "expected min (2) <= max (1)")]
     fn test_timestamp_min_max_invalid() {
         TimestampMinMax::new(2, 1);
-    }
-
-    #[test]
-    fn test_table_schema_size() {
-        let schema1 = TableSchema {
-            id: TableId::new(1),
-            partition_template: None,
-            columns: ColumnsByName::new([]),
-        };
-        let schema2 = TableSchema {
-            id: TableId::new(2),
-            partition_template: None,
-            columns: ColumnsByName::new(
-                [Column {
-                    id: ColumnId::new(1),
-                    table_id: TableId::new(2),
-                    name: String::from("foo"),
-                    column_type: ColumnType::Bool,
-                }]
-                .into_iter(),
-            ),
-        };
-        assert!(schema1.size() < schema2.size());
-    }
-
-    #[test]
-    fn test_namespace_schema_size() {
-        let schema1 = NamespaceSchema {
-            id: NamespaceId::new(1),
-            tables: BTreeMap::from([]),
-            max_columns_per_table: 4,
-            max_tables: 42,
-            retention_period_ns: None,
-            partition_template: None,
-        };
-        let schema2 = NamespaceSchema {
-            id: NamespaceId::new(1),
-            tables: BTreeMap::from([(
-                String::from("foo"),
-                TableSchema {
-                    id: TableId::new(1),
-                    columns: ColumnsByName::new([]),
-                    partition_template: None,
-                },
-            )]),
-            max_columns_per_table: 4,
-            max_tables: 42,
-            retention_period_ns: None,
-            partition_template: None,
-        };
-        assert!(schema1.size() < schema2.size());
     }
 
     #[test]

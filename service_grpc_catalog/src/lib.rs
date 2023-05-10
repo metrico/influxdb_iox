@@ -214,12 +214,12 @@ mod tests {
             let mut repos = catalog.repositories().await;
             let namespace = repos
                 .namespaces()
-                .create("catalog_partition_test", &Default::default(), None)
+                .create("catalog_partition_test", None, None)
                 .await
                 .unwrap();
             let table = repos
                 .tables()
-                .create("schema_test_table", &Default::default(), namespace.id)
+                .create("schema_test_table", None, namespace.id)
                 .await
                 .unwrap();
             let partition = repos
@@ -277,12 +277,12 @@ mod tests {
             let mut repos = catalog.repositories().await;
             let namespace = repos
                 .namespaces()
-                .create("catalog_partition_test", &Default::default(), None)
+                .create("catalog_partition_test", None, None)
                 .await
                 .unwrap();
             let table = repos
                 .tables()
-                .create("schema_test_table", &Default::default(), namespace.id)
+                .create("schema_test_table", None, namespace.id)
                 .await
                 .unwrap();
             partition1 = repos

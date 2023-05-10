@@ -95,12 +95,12 @@ mod tests {
             let mut repos = catalog.repositories().await;
             let namespace = repos
                 .namespaces()
-                .create("namespace_schema_test", &Default::default(), None)
+                .create("namespace_schema_test", None, None)
                 .await
                 .unwrap();
             let table = repos
                 .tables()
-                .create("schema_test_table", &Default::default(), namespace.id)
+                .create("schema_test_table", None, namespace.id)
                 .await
                 .unwrap();
             repos

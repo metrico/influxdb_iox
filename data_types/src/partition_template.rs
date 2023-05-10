@@ -3,29 +3,23 @@ use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 
 /// A partition template specified by a namespace record.
-#[derive(Debug, Eq, PartialEq, Clone, Serialize, Deserialize)]
-pub struct NamespacePartitionTemplateOverride(PartitionTemplate);
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct NamespacePartitionTemplateOverride(Arc<sqlx::types::JsonRawValue>);
 
 impl NamespacePartitionTemplateOverride {
     /// Create a new, immutable override for a namespace's partition template.
-    pub fn new(partition_template: PartitionTemplate) -> Self {
+    pub fn new(partition_template: Arc<sqlx::types::JsonRawValue>) -> Self {
         Self(partition_template)
     }
 }
 
-impl Default for NamespacePartitionTemplateOverride {
-    fn default() -> Self {
-        Self(PARTITION_BY_DAY.clone())
-    }
-}
-
 /// A partition template specified by a table record.
-#[derive(Debug, Eq, PartialEq, Clone, Serialize, Deserialize)]
-pub struct TablePartitionTemplateOverride(PartitionTemplate);
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TablePartitionTemplateOverride(Arc<sqlx::types::JsonRawValue>);
 
 impl TablePartitionTemplateOverride {
     /// Create a new, immutable override for a table's partition template.
-    pub fn new(partition_template: PartitionTemplate) -> Self {
+    pub fn new(partition_template: Arc<sqlx::types::JsonRawValue>) -> Self {
         Self(partition_template)
     }
 }
@@ -34,23 +28,7 @@ impl TablePartitionTemplateOverride {
 /// override has been specified during creation.
 impl From<&NamespacePartitionTemplateOverride> for TablePartitionTemplateOverride {
     fn from(namespace: &NamespacePartitionTemplateOverride) -> Self {
-        Self(namespace.0.clone())
-    }
-}
-
-impl Default for TablePartitionTemplateOverride {
-    fn default() -> Self {
-        Self(PARTITION_BY_DAY.clone())
-    }
-}
-
-/// A partition template specified as the default to be used in the absence of any overrides.
-#[derive(Debug, Eq, PartialEq, Clone, Copy)]
-pub struct DefaultPartitionTemplate(&'static PartitionTemplate);
-
-impl Default for DefaultPartitionTemplate {
-    fn default() -> Self {
-        Self(&PARTITION_BY_DAY)
+        Self(Arc::clone(&namespace.0))
     }
 }
 
@@ -69,22 +47,6 @@ pub static PARTITION_BY_DAY: Lazy<PartitionTemplate> = Lazy::new(|| PartitionTem
 #[allow(missing_docs)]
 pub struct PartitionTemplate {
     pub parts: Vec<TemplatePart>,
-}
-
-impl PartitionTemplate {
-    /// If the table has a partition template, use that. Otherwise, if the namespace has a
-    /// partition template, use that. If neither the table nor the namespace has a template,
-    /// use the default template.
-    pub fn determine_precedence<'a>(
-        table: Option<&'a Arc<TablePartitionTemplateOverride>>,
-        namespace: Option<&'a Arc<NamespacePartitionTemplateOverride>>,
-        default: &'a DefaultPartitionTemplate,
-    ) -> &'a PartitionTemplate {
-        table
-            .map(|t| &t.0)
-            .or(namespace.map(|n| &n.0))
-            .unwrap_or(default.0)
-    }
 }
 
 /// `TemplatePart` specifies what part of a row should be used to compute this
