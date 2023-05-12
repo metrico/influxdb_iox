@@ -348,7 +348,7 @@ pub fn partition_template_deserialized(
         .map(|pt| serde_json::from_str::<proto::PartitionTemplate>(pt.get()))
         .transpose()
         .context(PartitionTemplateDeserializationSnafu)?;
-    partition_template_proto_deserialized(partition_template_proto.as_ref())
+    partition_template_proto_deserialized(partition_template_proto)
 }
 
 /// Deserialize possibly-specified borrowed proto representing a partition templaet into the
@@ -356,11 +356,13 @@ pub fn partition_template_deserialized(
 /// If the database doesn't have a partition template for this table, use the default of
 /// partitioning by day.
 pub fn partition_template_proto_deserialized(
-    partition_template: Option<&proto::PartitionTemplate>,
-) -> Result<PartitionTemplate> {
-    Ok(PartitionTemplate::from(
-        partition_template.unwrap_or_else(|| &proto::PARTITION_BY_DAY),
-    ))
+    partition_template: Option<proto::PartitionTemplate>,
+) -> Result<Option<PartitionTemplate>> {
+
+    partition_template
+        .map(PartitionTemplate::try_from)
+        .map_err(PartitionTemplateDeserializationSnafu)?
+        .unwrap_or_else(data_types::PARTITION_BY_DAY)
 }
 
 fn proto_to_json(

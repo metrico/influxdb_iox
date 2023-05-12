@@ -26,18 +26,18 @@ pub struct TablePartitionTemplateOverride(
     /// When a table is retrieved from the catalog and its data cached in a [`TableSchema`], the
     /// data will be used to partition writes, so we need to deserialize and save the
     /// [`PartitionTemplate`].
-    PartitionTemplate,
+    Option<PartitionTemplate>,
 );
 
 impl TablePartitionTemplateOverride {
     /// Create a new, immutable override for a table's partition template.
-    pub fn new(partition_template: PartitionTemplate) -> Self {
+    pub fn new(partition_template: Option<PartitionTemplate>) -> Self {
         Self(partition_template)
     }
 
     /// Read access to the inner [`PartitionTemplate`].
     pub fn inner(&self) -> &PartitionTemplate {
-        &self.0
+        self.0.as_ref().unwrap_or(&PARTITION_BY_DAY)
     }
 }
 

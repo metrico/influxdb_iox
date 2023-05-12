@@ -254,6 +254,8 @@ pub mod compactor;
 pub mod delete_predicate;
 #[cfg(any(feature = "data_types_conversions", test))]
 pub mod ingester;
+#[cfg(any(feature = "data_types_conversions", test))]
+pub mod partition_template;
 
 pub use prost::{DecodeError, EncodeError};
 
