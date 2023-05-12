@@ -145,14 +145,7 @@ where
     // Accepts a map of TableName -> MutableBatch
     type WriteInput = HashMap<String, MutableBatch>;
     // And returns a map of TableId -> (TableName, TablePartitionTemplate, MutableBatch)
-    type WriteOutput = HashMap<
-        TableId,
-        (
-            String,
-            TablePartitionTemplateOverride,
-            MutableBatch,
-        ),
-    >;
+    type WriteOutput = HashMap<TableId, (String, TablePartitionTemplateOverride, MutableBatch)>;
 
     /// Validate the schema of all the writes in `batches`.
     ///

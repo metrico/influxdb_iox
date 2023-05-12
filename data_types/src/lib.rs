@@ -387,7 +387,7 @@ impl NamespaceSchema {
 }
 
 /// Data object for a table
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Table {
     /// The id of the table
     pub id: TableId,
@@ -396,46 +396,21 @@ pub struct Table {
     /// The name of the table, which is unique within the associated namespace
     pub name: String,
     /// The partition template to use for writes in this table.
-    pub partition_template: Arc<sqlx::types::JsonRawValue>,
+    pub partition_template: Arc<TablePartitionTemplateOverride>,
 }
-
-/// [`sqlx::types::JsonRawValue`] (which is really [`serde_json::RawValue`]) does not implement
-/// `PartialEq`, so we have to write a custom implementation. This compares the string values
-/// exactly, and they should be the same if we've generated both of them the same way.
-impl PartialEq for Table {
-    fn eq(&self, other: &Self) -> bool {
-        self.id == other.id
-            && self.namespace_id == other.namespace_id
-            && self.name == other.name
-            && self.partition_template.get() == other.partition_template.get()
-    }
-}
-impl Eq for Table {}
 
 /// Column definitions for a table
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct TableSchema {
     /// the table id
     pub id: TableId,
 
     /// the table's partition template
-    partition_template: Arc<sqlx::types::JsonRawValue>,
+    partition_template: Arc<TablePartitionTemplateOverride>,
 
     /// the table's columns by their name
     pub columns: ColumnsByName,
 }
-
-/// [`sqlx::types::JsonRawValue`] (which is really [`serde_json::RawValue`]) does not implement
-/// `PartialEq`, so we have to write a custom implementation. This compares the string values
-/// exactly, and they should be the same if we've generated both of them the same way.
-impl PartialEq for TableSchema {
-    fn eq(&self, other: &Self) -> bool {
-        self.id == other.id
-            && self.partition_template.get() == other.partition_template.get()
-            && self.columns == other.columns
-    }
-}
-impl Eq for TableSchema {}
 
 impl TableSchema {
     /// Initialize new `TableSchema` from the information in the given `Table`.
@@ -448,8 +423,8 @@ impl TableSchema {
     }
 
     /// The partition template override to use when partitioning writes to this table.
-    pub fn partition_template(&self) -> TablePartitionTemplateOverride {
-        TablePartitionTemplateOverride::new(Arc::clone(&self.partition_template))
+    pub fn partition_template(&self) -> &PartitionTemplate {
+        self.partition_template.inner()
     }
 
     /// Add `col` to this table schema.

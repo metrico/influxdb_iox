@@ -4,7 +4,8 @@ use async_trait::async_trait;
 use data_types::{
     Column, ColumnType, ColumnsByName, CompactionLevel, Namespace, NamespaceId, NamespaceSchema,
     ParquetFile, ParquetFileId, ParquetFileParams, Partition, PartitionId, PartitionKey,
-    SkippedCompaction, Table, TableId, TableSchema, Timestamp,
+    PartitionTemplate, SkippedCompaction, Table, TableId, TablePartitionTemplateOverride,
+    TableSchema, Timestamp,
 };
 use generated_types::influxdata::iox::namespace::v1 as proto;
 use iox_time::TimeProvider;
@@ -144,6 +145,9 @@ pub enum Error {
 
     #[snafu(display("could not serialize partition template to JSON: {source}"))]
     PartitionTemplateSerialization { source: serde_json::Error },
+
+    #[snafu(display("could not deserialize partition template to proto: {source}"))]
+    PartitionTemplateDeserialization { source: serde_json::Error },
 
     #[snafu(display("could not create a partition template raw JSON value: {source}"))]
     PartitionTemplateRawJson { source: serde_json::Error },
@@ -331,6 +335,32 @@ pub fn partition_template_owned_json(
         .context(PartitionTemplateRawJsonSnafu)?
         .map(Arc::from)
         .unwrap_or_else(|| Arc::clone(&PARTITION_BY_DAY)))
+}
+
+/// Deserialize possibly-specified borrowed raw JSON representing a partition template into
+/// the [`data_types::PartitionTemplate`] type to be used when partitioning a table's writes.
+/// If the database doesn't have a partition template for this table, use the default of
+/// partitioning by day.
+pub fn partition_template_deserialized(
+    partition_template: Option<&sqlx::types::JsonRawValue>,
+) -> Result<PartitionTemplate> {
+    let partition_template_proto = partition_template
+        .map(|pt| serde_json::from_str::<proto::PartitionTemplate>(pt.get()))
+        .transpose()
+        .context(PartitionTemplateDeserializationSnafu)?;
+    partition_template_proto_deserialized(partition_template_proto.as_ref())
+}
+
+/// Deserialize possibly-specified borrowed proto representing a partition templaet into the
+/// [`data_types::PartitionTemplate`] type to be used when partitioning a table's writes.
+/// If the database doesn't have a partition template for this table, use the default of
+/// partitioning by day.
+pub fn partition_template_proto_deserialized(
+    partition_template: Option<&proto::PartitionTemplate>,
+) -> Result<PartitionTemplate> {
+    Ok(PartitionTemplate::from(
+        partition_template.unwrap_or_else(|| &proto::PARTITION_BY_DAY),
+    ))
 }
 
 fn proto_to_json(
@@ -530,13 +560,15 @@ where
     let partition_template: Option<&sqlx::types::JsonRawValue> =
         row.try_get("partition_template")?;
 
-    // Convert the borrowed raw JSON to the owned variant.
-    let partition_template = partition_template_owned_json(partition_template).map_err(|e| {
+    // Deserialize the borrowed raw JSON to the application type.
+    let partition_template = partition_template_deserialized(partition_template).map_err(|e| {
         sqlx::Error::ColumnDecode {
             index: "partition_template".into(),
             source: Box::new(e),
         }
     })?;
+
+    let partition_template = Arc::new(TablePartitionTemplateOverride::new(partition_template));
 
     ::std::result::Result::Ok(Table {
         id,
@@ -1371,24 +1403,25 @@ pub(crate) mod test_helpers {
         assert_eq!(test_table.namespace_id, namespace2.id);
 
         // create a table with a PartitionTemplate other than the default
-        let tag_partition_template = proto::PartitionTemplate {
+        let tag_partition_template_proto = proto::PartitionTemplate {
             parts: vec![proto::TemplatePart {
                 part: Some(proto::template_part::Part::ColumnValue("tag1".into())),
             }],
         };
+        let tag_partition_template = PartitionTemplate::from(&tag_partition_template_proto);
         let partitioned_table_name = "test_partitioned_table";
         let test_partitioned_table = repos
             .tables()
             .create(
                 partitioned_table_name,
-                Some(&tag_partition_template),
+                Some(&tag_partition_template_proto),
                 namespace2.id,
             )
             .await
             .unwrap();
         assert_eq!(
-            proto_from_raw(&test_partitioned_table.partition_template).unwrap(),
-            tag_partition_template
+            test_partitioned_table.partition_template.inner(),
+            &tag_partition_template
         );
         let lookup_table = repos
             .tables()

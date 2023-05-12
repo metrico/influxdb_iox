@@ -3,10 +3,10 @@
 
 use crate::{
     interface::{
-        partition_template_proto_to_owned_json, sealed::TransactionFinalize, CasFailure, Catalog,
-        ColumnRepo, ColumnTypeMismatchSnafu, Error, NamespaceRepo, ParquetFileRepo, PartitionRepo,
-        RepoCollection, Result, SoftDeletedRows, TableRepo, Transaction,
-        MAX_PARQUET_FILES_SELECTED_ONCE,
+        partition_template_proto_deserialized, partition_template_proto_to_owned_json,
+        sealed::TransactionFinalize, CasFailure, Catalog, ColumnRepo, ColumnTypeMismatchSnafu,
+        Error, NamespaceRepo, ParquetFileRepo, PartitionRepo, RepoCollection, Result,
+        SoftDeletedRows, TableRepo, Transaction, MAX_PARQUET_FILES_SELECTED_ONCE,
     },
     metrics::MetricDecorator,
     DEFAULT_MAX_COLUMNS_PER_TABLE, DEFAULT_MAX_TABLES,
@@ -15,7 +15,7 @@ use async_trait::async_trait;
 use data_types::{
     Column, ColumnId, ColumnType, CompactionLevel, Namespace, NamespaceId, ParquetFile,
     ParquetFileId, ParquetFileParams, Partition, PartitionId, PartitionKey, SkippedCompaction,
-    Table, TableId, Timestamp,
+    Table, TableId, TablePartitionTemplateOverride, Timestamp,
 };
 use generated_types::influxdata::iox::namespace::v1 as proto;
 use iox_time::{SystemProvider, TimeProvider};
@@ -389,11 +389,14 @@ impl TableRepo for MemTxn {
                 })
             }
             None => {
+                let partition_template = Arc::new(TablePartitionTemplateOverride::new(
+                    partition_template_proto_deserialized(partition_template)?,
+                ));
                 let table = Table {
                     id: TableId::new(stage.tables.len() as i64 + 1),
                     namespace_id,
                     name: name.to_string(),
-                    partition_template: partition_template_proto_to_owned_json(partition_template)?,
+                    partition_template,
                 };
                 stage.tables.push(table);
                 stage.tables.last().unwrap()

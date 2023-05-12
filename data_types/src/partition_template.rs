@@ -4,7 +4,14 @@ use std::sync::Arc;
 
 /// A partition template specified by a namespace record.
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct NamespacePartitionTemplateOverride(Arc<sqlx::types::JsonRawValue>);
+pub struct NamespacePartitionTemplateOverride(
+    /// A namespace's partition template is copied to a table when that table is created in the
+    /// namespace and a custom table override hasn't been specified. The namespace partition
+    /// template will never be used to partition writes (only the table partition template will
+    /// be), so the namespace partition template never needs to be deserialized into the
+    /// [`PartitionTemplate`] type that [`mutable_batch::PartitionWrite::partition`] needs.
+    Arc<sqlx::types::JsonRawValue>,
+);
 
 impl NamespacePartitionTemplateOverride {
     /// Create a new, immutable override for a namespace's partition template.
@@ -13,22 +20,24 @@ impl NamespacePartitionTemplateOverride {
     }
 }
 
-/// A partition template specified by a table record.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct TablePartitionTemplateOverride(Arc<sqlx::types::JsonRawValue>);
+/// A partition template specified by a table record, used when partitioning writes for that table.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct TablePartitionTemplateOverride(
+    /// When a table is retrieved from the catalog and its data cached in a [`TableSchema`], the
+    /// data will be used to partition writes, so we need to deserialize and save the
+    /// [`PartitionTemplate`].
+    PartitionTemplate,
+);
 
 impl TablePartitionTemplateOverride {
     /// Create a new, immutable override for a table's partition template.
-    pub fn new(partition_template: Arc<sqlx::types::JsonRawValue>) -> Self {
+    pub fn new(partition_template: PartitionTemplate) -> Self {
         Self(partition_template)
     }
-}
 
-/// This is used when setting a new table's override to the namespace's override because no table
-/// override has been specified during creation.
-impl From<&NamespacePartitionTemplateOverride> for TablePartitionTemplateOverride {
-    fn from(namespace: &NamespacePartitionTemplateOverride) -> Self {
-        Self(Arc::clone(&namespace.0))
+    /// Read access to the inner [`PartitionTemplate`].
+    pub fn inner(&self) -> &PartitionTemplate {
+        &self.0
     }
 }
 
