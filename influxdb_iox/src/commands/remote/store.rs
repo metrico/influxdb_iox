@@ -1,7 +1,7 @@
 //! This module implements the `remote store` CLI subcommand
 
 use futures::StreamExt;
-use import_export::file::RemoteExporter;
+use import_export::file::{ExportObserver, ExportedParquetFileInfo, RemoteExporter};
 use influxdb_iox_client::{connection::Connection, store};
 use std::path::PathBuf;
 use thiserror::Error;
@@ -91,7 +91,8 @@ pub async fn command(connection: Connection, config: Config) -> Result<()> {
             partition_id,
             output_directory,
         }) => {
-            let mut exporter = RemoteExporter::new(connection);
+            let mut exporter =
+                RemoteExporter::new(connection).with_observer(Box::new(PrintingObserver::new()));
             if let Some(partition_id) = partition_id {
                 exporter = exporter.with_partition_filter(partition_id);
             }
@@ -99,5 +100,48 @@ pub async fn command(connection: Connection, config: Config) -> Result<()> {
                 .export_table(output_directory, namespace, table)
                 .await?)
         }
+    }
+}
+
+#[derive(Default, Debug)]
+struct PrintingObserver {}
+
+impl PrintingObserver {
+    fn new() -> Self {
+        Default::default()
+    }
+}
+
+impl ExportObserver for PrintingObserver {
+    fn files_found(&self, num_parquet_files: usize) {
+        println!("found {num_parquet_files} Parquet files, exporting...");
+    }
+
+    fn file_exists(&self, file: &ExportedParquetFileInfo) {
+        let ExportedParquetFileInfo {
+            index,
+            num_parquet_files,
+            filename,
+        } = file;
+        println!(
+            "skipping file {} of {num_parquet_files} ({filename} already exists with expected file size)",
+            index + 1
+        );
+    }
+
+    fn file_downloading(&self, file: &ExportedParquetFileInfo) {
+        let ExportedParquetFileInfo {
+            index,
+            num_parquet_files,
+            filename,
+        } = file;
+        println!(
+            "downloading file {} of {num_parquet_files} ({filename})...",
+            index + 1
+        );
+    }
+
+    fn done(&self) {
+        println!("Done.");
     }
 }

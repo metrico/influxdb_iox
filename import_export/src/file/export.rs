@@ -5,7 +5,10 @@ use influxdb_iox_client::{
     store,
 };
 use observability_deps::tracing::{debug, info};
-use std::path::{Path, PathBuf};
+use std::{
+    fmt::Debug,
+    path::{Path, PathBuf},
+};
 use thiserror::Error;
 use tokio::{
     fs::{self, File, OpenOptions},
@@ -27,6 +30,32 @@ pub enum ExportError {
 
 type Result<T, E = ExportError> = std::result::Result<T, E>;
 
+/// Represents a parquet file that is being exported
+#[derive(Debug)]
+pub struct ExportedParquetFileInfo {
+    /// the file is index/num_parquet_files
+    pub index: usize,
+    /// the total number of parquet files
+    pub num_parquet_files: usize,
+    /// The filename that the file is being downloaded to
+    pub filename: String,
+}
+
+/// Used to receive notifications f events during the exporting of data
+pub trait ExportObserver: Debug + Send {
+    /// Called when some number of parquet files are found to export
+    fn files_found(&self, num_parquet_files: usize);
+
+    /// Called when a file is skipped because it already exists
+    fn file_exists(&self, file: &ExportedParquetFileInfo);
+
+    /// Called when a file begins downloading
+    fn file_downloading(&self, file: &ExportedParquetFileInfo);
+
+    /// Called when the export is complete
+    fn done(&self);
+}
+
 /// Exports data from a remote IOx instance to local files.
 ///
 /// Data is read using the clients in [`influxdb_iox_client`] (rather
@@ -39,6 +68,9 @@ pub struct RemoteExporter {
     /// Optional partition filter. If `Some(partition_id)`, only these
     /// files with that `partition_id` are downloaded.
     partition_filter: Option<i64>,
+
+    /// Observer to report events to
+    observer: Box<dyn ExportObserver>,
 }
 
 impl RemoteExporter {
@@ -47,6 +79,7 @@ impl RemoteExporter {
             catalog_client: catalog::Client::new(connection.clone()),
             store_client: store::Client::new(connection),
             partition_filter: None,
+            observer: Box::new(NoOpObserver::new()),
         }
     }
 
@@ -54,8 +87,13 @@ impl RemoteExporter {
     /// partition id should be exported.
     pub fn with_partition_filter(mut self, partition_id: i64) -> Self {
         info!(partition_id, "Filtering by partition");
-
         self.partition_filter = Some(partition_id);
+        self
+    }
+
+    /// Register an [`ExportObserver`] to receive events
+    pub fn with_observer(mut self, observer: Box<dyn ExportObserver>) -> Self {
+        self.observer = observer;
         self
     }
 
@@ -91,7 +129,7 @@ impl RemoteExporter {
         }
 
         let num_parquet_files = parquet_files.len();
-        println!("found {num_parquet_files} Parquet files, exporting...");
+        self.observer.files_found(num_parquet_files);
         let indexed_parquet_file_metadata = parquet_files.into_iter().enumerate();
 
         for (index, parquet_file) in indexed_parquet_file_metadata {
@@ -111,7 +149,7 @@ impl RemoteExporter {
                 );
             }
         }
-        println!("Done.");
+        self.observer.done();
 
         Ok(())
     }
@@ -196,34 +234,30 @@ impl RemoteExporter {
         }
 
         let filename = format!("{uuid}.{partition_id}.parquet");
-        let file_path = output_directory.join(&filename);
+        let file_info = ExportedParquetFileInfo {
+            filename,
+            index,
+            num_parquet_files,
+        };
+        let file_path = output_directory.join(&file_info.filename);
 
         if fs::metadata(&file_path)
             .await
             .map_or(false, |metadata| metadata.len() == file_size_bytes)
         {
-            println!(
-                "skipping file {} of {num_parquet_files} ({filename} already exists with expected file size)",
-                index + 1
-            );
+            self.observer.file_exists(&file_info);
         } else {
-            // scope to close files
-            {
-                println!(
-                    "downloading file {} of {num_parquet_files} ({filename})...",
-                    index + 1
-                );
-                let mut response = self
-                    .store_client
-                    .get_parquet_file_by_object_store_id(uuid.clone())
-                    .await?
-                    .map_ok(|res| res.data)
-                    .map_err(|err| io::Error::new(io::ErrorKind::Other, err))
-                    .into_async_read()
-                    .compat();
-                let mut file = File::create(&file_path).await?;
-                io::copy(&mut response, &mut file).await?;
-            }
+            self.observer.file_downloading(&file_info);
+            let mut response = self
+                .store_client
+                .get_parquet_file_by_object_store_id(uuid.clone())
+                .await?
+                .map_ok(|res| res.data)
+                .map_err(|err| io::Error::new(io::ErrorKind::Other, err))
+                .into_async_read()
+                .compat();
+            let mut file = File::create(&file_path).await?;
+            io::copy(&mut response, &mut file).await?;
         }
 
         Ok(())
@@ -242,4 +276,23 @@ async fn write_string_to_file(contents: &str, path: &Path) -> Result<()> {
     file.write_all(contents.as_bytes()).await?;
 
     Ok(())
+}
+
+#[derive(Default, Debug)]
+struct NoOpObserver {}
+
+impl NoOpObserver {
+    pub fn new() -> Self {
+        Default::default()
+    }
+}
+
+impl ExportObserver for NoOpObserver {
+    fn files_found(&self, _num_parquet_files: usize) {}
+
+    fn file_exists(&self, _file: &ExportedParquetFileInfo) {}
+
+    fn file_downloading(&self, _file: &ExportedParquetFileInfo) {}
+
+    fn done(&self) {}
 }
