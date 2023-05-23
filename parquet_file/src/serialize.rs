@@ -4,19 +4,24 @@
 
 use std::{io::Write, sync::Arc};
 
-use datafusion::{error::DataFusionError, physical_plan::SendableRecordBatchStream};
+use datafusion::{
+    error::DataFusionError, execution::memory_pool::MemoryPool,
+    physical_plan::SendableRecordBatchStream,
+};
 use datafusion_util::config::BATCH_SIZE;
 use futures::{pin_mut, TryStreamExt};
 use observability_deps::tracing::{debug, trace, warn};
 use parquet::{
-    arrow::ArrowWriter,
     basic::Compression,
     errors::ParquetError,
     file::{metadata::KeyValue, properties::WriterProperties},
 };
 use thiserror::Error;
 
-use crate::metadata::{IoxMetadata, METADATA_KEY};
+use crate::{
+    metadata::{IoxMetadata, METADATA_KEY},
+    writer::TrackedMemoryArrowWriter,
+};
 
 /// Parquet row group write size
 pub const ROW_GROUP_WRITE_SIZE: usize = 1024 * 1024;
@@ -44,7 +49,7 @@ pub enum CodecError {
     #[error("no rows to serialise")]
     NoRows,
 
-    /// An arrow error during the plan execution.
+    /// A DataFusion error during the plan execution.
     #[error(transparent)]
     DataFusion(#[from] DataFusionError),
 
@@ -59,6 +64,10 @@ pub enum CodecError {
     /// Attempting to clone a handle to the provided write sink failed.
     #[error("failed to obtain writer handle clone: {0}")]
     CloneSink(std::io::Error),
+
+    /// Could not allocate sufficient memory
+    #[error("failed to allocate buffer while writing parquet: {0}")]
+    OutOfMemory(DataFusionError),
 }
 
 impl From<CodecError> for DataFusionError {
@@ -70,6 +79,16 @@ impl From<CodecError> for DataFusionError {
             | CodecError::CloneSink(_)) => Self::External(Box::new(e)),
             CodecError::Writer(e) => Self::ParquetError(e),
             CodecError::DataFusion(e) => e,
+            CodecError::OutOfMemory(e) => e,
+        }
+    }
+}
+
+impl From<crate::writer::Error> for CodecError {
+    fn from(value: crate::writer::Error) -> Self {
+        match value {
+            crate::writer::Error::Writer(e) => Self::Writer(e),
+            crate::writer::Error::OutOfMemory(e) => Self::OutOfMemory(e),
         }
     }
 }
@@ -104,6 +123,7 @@ impl From<CodecError> for DataFusionError {
 pub async fn to_parquet<W>(
     batches: SendableRecordBatchStream,
     meta: &IoxMetadata,
+    pool: Arc<dyn MemoryPool>,
     sink: W,
 ) -> Result<parquet::format::FileMetaData, CodecError>
 where
@@ -123,15 +143,15 @@ where
 
     // Construct the arrow serializer with the metadata as part of the parquet
     // file properties.
-    let mut writer = ArrowWriter::try_new(sink, Arc::clone(&schema), Some(props))?;
+    let mut writer = TrackedMemoryArrowWriter::try_new(sink, Arc::clone(&schema), props, pool)?;
 
     let mut num_batches = 0;
     while let Some(batch) = stream.try_next().await? {
-        writer.write(&batch)?;
+        writer.write(batch)?;
         num_batches += 1;
     }
 
-    let writer_meta = writer.close().map_err(CodecError::from)?;
+    let writer_meta = writer.close()?;
     if writer_meta.num_rows == 0 {
         // throw warning if all input batches are empty
         warn!("parquet serialisation encoded 0 rows");
@@ -154,6 +174,7 @@ where
 pub async fn to_parquet_bytes(
     batches: SendableRecordBatchStream,
     meta: &IoxMetadata,
+    pool: Arc<dyn MemoryPool>,
 ) -> Result<(Vec<u8>, parquet::format::FileMetaData), CodecError> {
     let mut bytes = vec![];
 
@@ -165,7 +186,7 @@ pub async fn to_parquet_bytes(
     );
 
     // Serialize the record batches into the in-memory buffer
-    let meta = to_parquet(batches, meta, &mut bytes).await?;
+    let meta = to_parquet(batches, meta, pool, &mut bytes).await?;
     bytes.shrink_to_fit();
 
     trace!(?partition_id, ?meta, "generated parquet file metadata");
@@ -173,9 +194,9 @@ pub async fn to_parquet_bytes(
     Ok((bytes, meta))
 }
 
-/// Helper to construct [`WriterProperties`] for the [`ArrowWriter`],
-/// serialising the given [`IoxMetadata`] and embedding it as a key=value
-/// property keyed by [`METADATA_KEY`].
+/// Helper to construct [`WriterProperties`] , serialising the given
+/// [`IoxMetadata`] and embedding it as a key=value property keyed by
+/// [`METADATA_KEY`].
 fn writer_props(meta: &IoxMetadata) -> Result<WriterProperties, prost::EncodeError> {
     let builder = WriterProperties::builder()
         .set_key_value_metadata(Some(vec![KeyValue {
@@ -199,7 +220,7 @@ mod tests {
     use bytes::Bytes;
     use data_types::{CompactionLevel, NamespaceId, PartitionId, TableId};
     use datafusion::parquet::arrow::arrow_reader::ParquetRecordBatchReaderBuilder;
-    use datafusion_util::MemoryStream;
+    use datafusion_util::{unbounded_memory_pool, MemoryStream};
     use iox_time::Time;
     use std::sync::Arc;
 
@@ -222,7 +243,7 @@ mod tests {
         let batch = RecordBatch::try_from_iter([("a", to_string_array(&["value"]))]).unwrap();
         let stream = Box::pin(MemoryStream::new(vec![batch.clone()]));
 
-        let (bytes, _file_meta) = to_parquet_bytes(stream, &meta)
+        let (bytes, _file_meta) = to_parquet_bytes(stream, &meta, unbounded_memory_pool())
             .await
             .expect("should serialize");
 
