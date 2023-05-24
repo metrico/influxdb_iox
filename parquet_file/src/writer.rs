@@ -11,6 +11,12 @@ use parquet::{arrow::ArrowWriter, errors::ParquetError, file::properties::Writer
 use thiserror::Error;
 
 /// Default max buffer size. See [`TrackedMemoryArrowWriter::with_max_buffer_size`] for more details
+///
+/// Note that this limit was introduced to limit the compactor's
+/// memory usage when writing large parquet files. Changing this
+/// setting will increase the amount of memory used for buffering in
+/// the compactor and could lead to out of memory errors if the memory
+/// pool is not sufficiently large.
 pub const MAX_BUFFER_SIZE: usize = 512 * 1024 * 1024; // 512 MB
 
 /// Default allocation increment size. See [`TrackedMemoryArrowWriter::with_min_allocation_increment`] for more details
