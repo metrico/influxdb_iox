@@ -229,11 +229,15 @@ impl<W: Write + Send> TrackedMemoryArrowWriter<W> {
         );
 
         while let Some(batch) = self.buffer.pop_front() {
+            self.buffer_rows -= batch.num_rows();
+            self.buffer_size -= batch.get_array_memory_size();
             self.inner.write(&batch)?;
         }
         self.inner.flush()?;
-        self.buffer_rows = 0;
-        self.buffer_size = 0;
+
+        assert_eq!(self.buffer_rows, 0);
+        assert_eq!(self.buffer_size, 0);
+
         // Note don't return the reservation once the data is
         // flushed. Instead the writer holds on to the reservation as
         // the expectation is we will be getting more data to buffer
@@ -342,6 +346,47 @@ mod test {
     }
 
     #[tokio::test]
+    async fn test_pool_flush_error() {
+        let props = WriterProperties::builder()
+            .set_max_row_group_size(TEST_MAX_ROW_GROUP_SIZE)
+            .build();
+
+        let pool = memory_pool(MEMORY_NEEDED_FOR_100_ROWS);
+        let mut writer =
+            TrackedMemoryArrowWriter::try_new(vec![], batch().schema(), props, Arc::clone(&pool))
+                .unwrap()
+                .with_min_allocation_increment(TEST_INCREMENT_SIZE);
+
+        // manually put in a bad batch whose schema doesn't match (and thus will cause flush to fail)
+        let bad_batch = bad_batch();
+        writer.buffer_rows += bad_batch.num_rows();
+        writer.buffer_size += bad_batch.get_array_memory_size();
+        writer.buffer.push_front(bad_batch);
+        assert_invariants(&writer);
+
+        // feed 8 batches to force  (right before row group max)
+        for _ in 0..9 {
+            writer.write(batch()).unwrap();
+        }
+        assert_invariants(&writer);
+
+        // feed in the final batch that forces a flush
+        let e = writer.write(batch()).unwrap_err();
+        assert_eq!(
+            e.to_string(),
+            "failed to write parquet file: Arrow: Record batch schema does not match writer schema"
+        );
+        assert_invariants(&writer);
+
+        // verify we can write more data (and flush) and the tracking
+        // is still consistent
+        for _ in 0..20 {
+            writer.write(batch()).unwrap();
+        }
+        assert_invariants(&writer);
+    }
+
+    #[tokio::test]
     async fn test_pool_oom() {
         let props = WriterProperties::builder()
             .set_max_row_group_size(TEST_MAX_ROW_GROUP_SIZE)
@@ -406,6 +451,10 @@ mod test {
 
     fn batch() -> RecordBatch {
         RecordBatch::try_from_iter([("a", string_array(10))]).unwrap()
+    }
+
+    fn bad_batch() -> RecordBatch {
+        RecordBatch::try_from_iter([("ab", string_array(10))]).unwrap()
     }
 
     /// Makes a string array with `count` entries
