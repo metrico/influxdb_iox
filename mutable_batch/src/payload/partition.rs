@@ -69,6 +69,59 @@ impl<'a> Template<'a> {
     }
 }
 
+enum FilledTemplate<'a> {
+    TagKeyValue {
+        key: &'a str,
+        value: &'a str,
+    },
+    MissingTag {
+        key: &'a str,
+    },
+    TimeFormat {
+        nanos: i64,
+        format_items: StrftimeItems<'a>,
+    },
+}
+
+impl<'a> FilledTemplate<'a> {
+    /// Renders this template to `out` for the values it contains
+    fn fmt_row<W: std::fmt::Write>(&self, out: &mut W) -> std::fmt::Result {
+        match self {
+            FilledTemplate::TagKeyValue { key, value } => {
+                out.write_str(key)?;
+                out.write_char('_')?;
+                out.write_str(value)
+            }
+            FilledTemplate::MissingTag { key } => out.write_str(key),
+            FilledTemplate::TimeFormat {
+                nanos,
+                format_items,
+            } => {
+                let formatted = Utc
+                    .timestamp_nanos(*nanos)
+                    .format_with_items(format_items.clone());
+                write!(out, "{formatted}")
+            }
+        }
+    }
+}
+
+fn partition_key<'a>(
+    filled_template_parts: impl Iterator<Item = FilledTemplate<'a>>,
+    len: usize,
+) -> String {
+    let mut string = String::new();
+    for (part_idx, part) in filled_template_parts.enumerate() {
+        part.fmt_row(&mut string)
+            .expect("string writing is infallible");
+
+        if part_idx + 1 != len {
+            string.push('-');
+        }
+    }
+    string
+}
+
 /// Returns an iterator of partition keys for the given table batch
 fn partition_keys<'a>(
     batch: &'a MutableBatch,
