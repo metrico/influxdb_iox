@@ -50,6 +50,9 @@ pub enum CodecError {
     NoRows,
 
     /// A DataFusion error during the plan execution.
+    ///
+    /// Of note: a ResourcesExhaused error likely means the buffer
+    /// used for parquet data became too large.
     #[error(transparent)]
     DataFusion(#[from] DataFusionError),
 
@@ -64,10 +67,6 @@ pub enum CodecError {
     /// Attempting to clone a handle to the provided write sink failed.
     #[error("failed to obtain writer handle clone: {0}")]
     CloneSink(std::io::Error),
-
-    /// Could not allocate sufficient memory
-    #[error("failed to allocate buffer while writing parquet: {0}")]
-    OutOfMemory(DataFusionError),
 }
 
 impl From<CodecError> for DataFusionError {
@@ -79,7 +78,6 @@ impl From<CodecError> for DataFusionError {
             | CodecError::CloneSink(_)) => Self::External(Box::new(e)),
             CodecError::Writer(e) => Self::ParquetError(e),
             CodecError::DataFusion(e) => e,
-            CodecError::OutOfMemory(e) => e,
         }
     }
 }
@@ -88,7 +86,7 @@ impl From<crate::writer::Error> for CodecError {
     fn from(value: crate::writer::Error) -> Self {
         match value {
             crate::writer::Error::Writer(e) => Self::Writer(e),
-            crate::writer::Error::OutOfMemory(e) => Self::OutOfMemory(e),
+            crate::writer::Error::OutOfMemory(e) => Self::DataFusion(e),
         }
     }
 }
