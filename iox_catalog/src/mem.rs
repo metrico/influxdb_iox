@@ -13,15 +13,15 @@ use crate::{
 use async_trait::async_trait;
 use data_types::{
     Column, ColumnId, ColumnType, CompactionLevel, Namespace, NamespaceId, NamespaceName,
-    ParquetFile, ParquetFileId, ParquetFileParams, Partition, PartitionId, PartitionKey,
-    SkippedCompaction, Table, TableId, Timestamp,
+    NamespacePartitionTemplateOverride, ParquetFile, ParquetFileId, ParquetFileParams, Partition,
+    PartitionId, PartitionKey, SkippedCompaction, Table, TableId, TablePartitionTemplateOverride,
+    Timestamp,
 };
 use iox_time::{SystemProvider, TimeProvider};
 use snafu::ensure;
 use sqlx::types::Uuid;
 use std::{
     collections::{HashMap, HashSet},
-    convert::TryFrom,
     fmt::{Display, Formatter},
     sync::Arc,
 };
@@ -105,6 +105,7 @@ impl Catalog for MemCatalog {
         ))
     }
 
+    #[cfg(test)]
     fn metrics(&self) -> Arc<metric::Registry> {
         Arc::clone(&self.metrics)
     }
@@ -142,6 +143,7 @@ impl NamespaceRepo for MemTxn {
     async fn create(
         &mut self,
         name: &NamespaceName,
+        partition_template: Option<NamespacePartitionTemplateOverride>,
         retention_period_ns: Option<i64>,
     ) -> Result<Namespace> {
         let stage = self.stage();
@@ -159,6 +161,7 @@ impl NamespaceRepo for MemTxn {
             max_columns_per_table: DEFAULT_MAX_COLUMNS_PER_TABLE,
             retention_period_ns,
             deleted_at: None,
+            partition_template: partition_template.unwrap_or_default(),
         };
         stage.namespaces.push(namespace);
         Ok(stage.namespaces.last().unwrap().clone())
@@ -259,7 +262,12 @@ impl NamespaceRepo for MemTxn {
 
 #[async_trait]
 impl TableRepo for MemTxn {
-    async fn create_or_get(&mut self, name: &str, namespace_id: NamespaceId) -> Result<Table> {
+    async fn create(
+        &mut self,
+        name: &str,
+        partition_template: TablePartitionTemplateOverride,
+        namespace_id: NamespaceId,
+    ) -> Result<Table> {
         let stage = self.stage();
 
         // this block is just to ensure the mem impl correctly creates TableCreateLimitError in
@@ -295,12 +303,18 @@ impl TableRepo for MemTxn {
             .iter()
             .find(|t| t.name == name && t.namespace_id == namespace_id)
         {
-            Some(t) => t,
+            Some(_t) => {
+                return Err(Error::TableNameExists {
+                    name: name.to_string(),
+                    namespace_id,
+                })
+            }
             None => {
                 let table = Table {
                     id: TableId::new(stage.tables.len() as i64 + 1),
                     namespace_id,
                     name: name.to_string(),
+                    partition_template,
                 };
                 stage.tables.push(table);
                 stage.tables.last().unwrap()
@@ -701,6 +715,12 @@ impl ParquetFileRepo for MemTxn {
         create_parquet_file(self.stage(), parquet_file_params).await
     }
 
+    async fn list_all(&mut self) -> Result<Vec<ParquetFile>> {
+        let stage = self.stage();
+
+        Ok(stage.parquet_files.clone())
+    }
+
     async fn flag_for_delete(&mut self, id: ParquetFileId) -> Result<()> {
         let marked_at = Timestamp::from(self.time_provider.now());
         flag_for_delete(self.stage(), id, marked_at).await
@@ -769,18 +789,6 @@ impl ParquetFileRepo for MemTxn {
         Ok(parquet_files)
     }
 
-    async fn list_by_table(&mut self, table_id: TableId) -> Result<Vec<ParquetFile>> {
-        let stage = self.stage();
-
-        let parquet_files: Vec<_> = stage
-            .parquet_files
-            .iter()
-            .filter(|f| table_id == f.table_id)
-            .cloned()
-            .collect();
-        Ok(parquet_files)
-    }
-
     async fn delete_old_ids_only(&mut self, older_than: Timestamp) -> Result<Vec<ParquetFileId>> {
         let stage = self.stage();
 
@@ -812,31 +820,6 @@ impl ParquetFileRepo for MemTxn {
             .collect())
     }
 
-    async fn update_compaction_level(
-        &mut self,
-        parquet_file_ids: &[ParquetFileId],
-        compaction_level: CompactionLevel,
-    ) -> Result<Vec<ParquetFileId>> {
-        update_compaction_level(self.stage(), parquet_file_ids, compaction_level).await
-    }
-
-    async fn exist(&mut self, id: ParquetFileId) -> Result<bool> {
-        let stage = self.stage();
-
-        Ok(stage.parquet_files.iter().any(|f| f.id == id))
-    }
-
-    async fn count(&mut self) -> Result<i64> {
-        let stage = self.stage();
-
-        let count = stage.parquet_files.len();
-        let count_i64 = i64::try_from(count);
-        if count_i64.is_err() {
-            return Err(Error::InvalidValue { value: count });
-        }
-        Ok(count_i64.unwrap())
-    }
-
     async fn get_by_object_store_id(
         &mut self,
         object_store_id: Uuid,
@@ -852,20 +835,13 @@ impl ParquetFileRepo for MemTxn {
 
     async fn create_upgrade_delete(
         &mut self,
-        _partition_id: PartitionId,
-        delete: &[ParquetFile],
-        upgrade: &[ParquetFile],
+        delete: &[ParquetFileId],
+        upgrade: &[ParquetFileId],
         create: &[ParquetFileParams],
         target_level: CompactionLevel,
     ) -> Result<Vec<ParquetFileId>> {
-        let mut delete_set = HashSet::new();
-        let mut upgrade_set = HashSet::new();
-        for d in delete {
-            delete_set.insert(d.id.get());
-        }
-        for u in upgrade {
-            upgrade_set.insert(u.id.get());
-        }
+        let delete_set = delete.iter().copied().collect::<HashSet<_>>();
+        let upgrade_set = upgrade.iter().copied().collect::<HashSet<_>>();
 
         assert!(
             delete_set.is_disjoint(&upgrade_set),
@@ -874,14 +850,12 @@ impl ParquetFileRepo for MemTxn {
 
         let mut stage = self.inner.clone();
 
-        let upgrade = upgrade.iter().map(|f| f.id).collect::<Vec<_>>();
-
-        for file in delete {
+        for id in delete {
             let marked_at = Timestamp::from(self.time_provider.now());
-            flag_for_delete(&mut stage, file.id, marked_at).await?;
+            flag_for_delete(&mut stage, *id, marked_at).await?;
         }
 
-        update_compaction_level(&mut stage, &upgrade, target_level).await?;
+        update_compaction_level(&mut stage, upgrade, target_level).await?;
 
         let mut ids = Vec::with_capacity(create.len());
         for file in create {
