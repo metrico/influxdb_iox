@@ -30,57 +30,13 @@ pub fn partition_batch<'a>(
 enum Template<'a> {
     TagValue(&'a Column, &'a str),
     MissingTag(&'a str),
-    TimeFormat(&'a [i64], StrftimeItems<'a>),
-}
-
-impl<'a> Template<'a> {
-    /// Renders this template to `out` for the row `idx`
-    fn fmt_row<W: std::fmt::Write>(&self, out: &mut W, idx: usize) -> std::fmt::Result {
-        match self {
-            Template::TagValue(col, col_name) if col.valid.get(idx) => {
-                out.write_str(col_name)?;
-                out.write_char('_')?;
-                match &col.data {
-                    ColumnData::F64(col_data, _) => write!(out, "{}", col_data[idx]),
-                    ColumnData::I64(col_data, _) => write!(out, "{}", col_data[idx]),
-                    ColumnData::U64(col_data, _) => write!(out, "{}", col_data[idx]),
-                    ColumnData::String(col_data, _) => {
-                        write!(out, "{}", col_data.get(idx).unwrap())
-                    }
-                    ColumnData::Bool(col_data, _) => match col_data.get(idx) {
-                        true => out.write_str("true"),
-                        false => out.write_str("false"),
-                    },
-                    ColumnData::Tag(col_data, dictionary, _) => {
-                        out.write_str(dictionary.lookup_id(col_data[idx]).unwrap())
-                    }
-                }
-            }
-            Template::TagValue(_, col_name) | Template::MissingTag(col_name) => {
-                out.write_str(col_name)
-            }
-            Template::TimeFormat(t, format) => {
-                let formatted = Utc
-                    .timestamp_nanos(t[idx])
-                    .format_with_items(format.clone());
-                write!(out, "{formatted}")
-            }
-        }
-    }
+    TimeFormat(&'a [i64], &'a str),
 }
 
 enum FilledTemplate<'a> {
-    TagKeyValue {
-        key: &'a str,
-        value: &'a str,
-    },
-    MissingTag {
-        key: &'a str,
-    },
-    TimeFormat {
-        nanos: i64,
-        format_items: StrftimeItems<'a>,
-    },
+    TagKeyValue { key: &'a str, value: &'a str },
+    MissingTag { key: &'a str },
+    TimeFormat { nanos: i64, fmt: &'a str },
 }
 
 impl<'a> FilledTemplate<'a> {
@@ -93,13 +49,10 @@ impl<'a> FilledTemplate<'a> {
                 out.write_str(value)
             }
             FilledTemplate::MissingTag { key } => out.write_str(key),
-            FilledTemplate::TimeFormat {
-                nanos,
-                format_items,
-            } => {
+            FilledTemplate::TimeFormat { nanos, fmt } => {
                 let formatted = Utc
                     .timestamp_nanos(*nanos)
-                    .format_with_items(format_items.clone());
+                    .format_with_items(StrftimeItems::new(fmt));
                 write!(out, "{formatted}")
             }
         }
@@ -145,21 +98,30 @@ fn partition_keys<'a>(
                     ),
                 },
             ),
-            TemplatePart::TimeFormat(fmt) => Template::TimeFormat(time, StrftimeItems::new(fmt)),
+            TemplatePart::TimeFormat(fmt) => Template::TimeFormat(time, fmt),
         })
         .collect();
 
     (0..batch.row_count).map(move |idx| {
-        let mut string = String::new();
-        for (col_idx, col) in cols.iter().enumerate() {
-            col.fmt_row(&mut string, idx)
-                .expect("string writing is infallible");
-
-            if col_idx + 1 != cols.len() {
-                string.push('-');
+        let resolved_columns = cols.iter().map(|part| match part {
+            Template::TagValue(col, col_name) if col.valid.get(idx) => {
+                let value = match &col.data {
+                    ColumnData::Tag(col_data, dictionary, _) => {
+                        dictionary.lookup_id(col_data[idx]).unwrap()
+                    }
+                    _ => unreachable!("Template::TagValue only contains tag columns"),
+                };
+                FilledTemplate::TagKeyValue {
+                    key: col_name,
+                    value,
+                }
             }
-        }
-        string
+            Template::TagValue(_, col_name) | Template::MissingTag(col_name) => {
+                FilledTemplate::MissingTag { key: col_name }
+            }
+            Template::TimeFormat(t, fmt) => FilledTemplate::TimeFormat { nanos: t[idx], fmt },
+        });
+        partition_key(resolved_columns, cols.len())
     })
 }
 
