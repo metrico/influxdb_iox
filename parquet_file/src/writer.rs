@@ -179,9 +179,9 @@ impl<W: Write + Send> TrackedMemoryArrowWriter<W> {
         {
             self.flush()?;
         }
+        self.try_grow_reservation(batch_size)?;
         self.buffer_rows += batch_rows;
         self.buffer_size += batch_size;
-        self.ensure_reservation()?;
 
         // add batch to queue
         self.buffer.push_back(batch);
@@ -190,28 +190,31 @@ impl<W: Write + Send> TrackedMemoryArrowWriter<W> {
 
     /// Ensures that our reservation with the memory pool is
     /// sufficiently large for the amount of data that is currently
-    /// buffered. If not, attempts to grow the reservation to match
-    /// what is currently buffered.
-    pub fn ensure_reservation(&mut self) -> Result<()> {
-        if self.reservation.size() < self.buffer_size {
-            let increment =
-                (self.buffer_size - self.reservation.size()).max(self.min_allocation_increment);
+    /// buffered + `batch_size`. If not, attempts to grow the
+    /// reservation to be sufficiently sized.
+    pub fn try_grow_reservation(&mut self, batch_size: usize) -> Result<()> {
+        let target_size = self.buffer_size + batch_size;
 
-            debug!(
-                increment,
-                rows = self.buffer_rows,
-                max_buffer_rows = self.max_buffer_rows,
-                buffer_size = self.buffer_size,
-                max_buffer_size = self.max_buffer_size,
-                "Attemping to reserve additional space"
-            );
-
-            self.reservation
-                .try_grow(increment)
-                .map_err(Error::OutOfMemory)?
+        if self.reservation.size() >= target_size {
+            return Ok(());
         }
 
-        Ok(())
+        let increment = (target_size - self.reservation.size()).max(self.min_allocation_increment);
+
+        debug!(
+            increment,
+            batch_size,
+            target_size,
+            rows = self.buffer_rows,
+            max_buffer_rows = self.max_buffer_rows,
+            buffer_size = self.buffer_size,
+            max_buffer_size = self.max_buffer_size,
+            "Attemping to reserve additional space"
+        );
+
+        self.reservation
+            .try_grow(increment)
+            .map_err(Error::OutOfMemory)
     }
 
     /// flushes all buffered [`RecordBatch`] to the underlying writer.
@@ -361,6 +364,9 @@ mod test {
                 Ok(_) => continue,
                 Err(Error::OutOfMemory(e)) => {
                     assert_eq!("Resources exhausted: Failed to allocate additional 1000 bytes for IOx ParquetWriter (TrackedMemoryArrowWriter) with 2000 bytes already allocated - maximum available is 0", e.to_string());
+
+                    // Verify that the tracked memory is consistent with the actual contents of the buffer
+                    assert_invariants(&writer);
                     return;
                 }
                 Err(e) => {
@@ -411,5 +417,19 @@ mod test {
     /// make a MemoryPool with the specified max size
     fn memory_pool(max_size: usize) -> Arc<dyn MemoryPool> {
         Arc::new(GreedyMemoryPool::new(max_size))
+    }
+
+    /// Verify that the tracked memory is consistent with the actual
+    ///  buffered contents
+    fn assert_invariants<W: Write + Send>(writer: &TrackedMemoryArrowWriter<W>) {
+        let mut expected_buffer_size = 0;
+        let mut expected_buffer_rows = 0;
+
+        for batch in &writer.buffer {
+            expected_buffer_size += batch.get_array_memory_size();
+            expected_buffer_rows += batch.num_rows();
+        }
+        assert_eq!(expected_buffer_size, writer.buffer_size);
+        assert_eq!(expected_buffer_rows, writer.buffer_rows);
     }
 }
