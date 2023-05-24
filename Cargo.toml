@@ -9,6 +9,7 @@ members = [
     "client_util",
     "compactor_test_utils",
     "compactor",
+    "compactor_scheduler_grpc",
     "data_types",
     "datafusion_util",
     "dml",

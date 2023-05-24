@@ -1008,6 +1008,24 @@ dependencies = [
 ]
 
 [[package]]
+name = "compactor_scheduler_grpc"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "data_types",
+ "futures",
+ "generated_types",
+ "iox_catalog",
+ "iox_time",
+ "metric",
+ "object_store",
+ "observability_deps",
+ "tokio",
+ "tonic",
+ "workspace-hack",
+]
+
+[[package]]
 name = "compactor_test_utils"
 version = "0.1.0"
 dependencies = [
@@ -2502,6 +2520,7 @@ dependencies = [
  "clap_blocks",
  "comfy-table",
  "compactor",
+ "compactor_scheduler_grpc",
  "console-subscriber",
  "data_types",
  "datafusion",

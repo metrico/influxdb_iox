@@ -1,0 +1,42 @@
+syntax = "proto3";
+package influxdata.iox.compactor_scheduler.v1;
+
+service CompactorSchedulerService {
+  // Get a compaction job to work on
+  rpc GetJob(GetCompactionJobRequest) returns (ListCompactionJobResponse);
+
+  // report status of a compaction job
+  rpc ReportJobStatus(ReportJobStatusRequest) returns (ReportJobStatusResponse);
+}
+
+message GetCompactionJobRequest {}
+
+message ListCompactionJobResponse {
+  // A list of compaction jobs
+  repeated CompactionJob compaction_jobs = 1;
+}
+
+message CompactionJob {
+  // The ID of the partition for which compaction is to be peformed
+  int64 partition_id = 1;
+
+  // Timestamp in nanoseconds since the epoch of when compaction must be completed.
+  int64 timeout = 2;
+
+  // The maximum number of input files per compaction job
+  int32 input_file_limit = 3;
+
+  // concurrency limit
+
+  // done criteria
+}
+
+
+message ReportJobStatusRequest {
+  int64 partition_id = 1;
+
+  // The status code, which should be an enum value.
+  int32 code = 2;
+}
+
+message ReportJobStatusResponse { }

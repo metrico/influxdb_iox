@@ -79,6 +79,19 @@ pub mod influxdata {
             }
         }
 
+        pub mod compactor_scheduler {
+            pub mod v1 {
+                include!(concat!(
+                    env!("OUT_DIR"),
+                    "/influxdata.iox.compactor_scheduler.v1.rs"
+                ));
+                include!(concat!(
+                    env!("OUT_DIR"),
+                    "/influxdata.iox.compactor_scheduler.v1.serde.rs"
+                ));
+            }
+        }
+
         pub mod delete {
             pub mod v1 {
                 include!(concat!(env!("OUT_DIR"), "/influxdata.iox.delete.v1.rs"));
