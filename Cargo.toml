@@ -129,6 +129,16 @@ tonic-reflection = { version = "0.9.2" }
 [patch.crates-io]
 # Temporary until released - https://github.com/apache/arrow-rs/pull/4280
 parquet = { git = "https://github.com/tustvold/arrow-rs", rev = "2ce3ecc85e5c3172f612af82c5257bf2a9e6d738" }
+arrow = { git = "https://github.com/tustvold/arrow-rs", rev = "2ce3ecc85e5c3172f612af82c5257bf2a9e6d738" }
+arrow-array = { git = "https://github.com/tustvold/arrow-rs", rev = "2ce3ecc85e5c3172f612af82c5257bf2a9e6d738" }
+arrow-buffer = { git = "https://github.com/tustvold/arrow-rs", rev = "2ce3ecc85e5c3172f612af82c5257bf2a9e6d738" }
+arrow-cast = { git = "https://github.com/tustvold/arrow-rs", rev = "2ce3ecc85e5c3172f612af82c5257bf2a9e6d738" }
+arrow-data = { git = "https://github.com/tustvold/arrow-rs", rev = "2ce3ecc85e5c3172f612af82c5257bf2a9e6d738" }
+arrow-ord = { git = "https://github.com/tustvold/arrow-rs", rev = "2ce3ecc85e5c3172f612af82c5257bf2a9e6d738" }
+arrow-ipc = { git = "https://github.com/tustvold/arrow-rs", rev = "2ce3ecc85e5c3172f612af82c5257bf2a9e6d738" }
+arrow-schema = { git = "https://github.com/tustvold/arrow-rs", rev = "2ce3ecc85e5c3172f612af82c5257bf2a9e6d738" }
+arrow-select = { git = "https://github.com/tustvold/arrow-rs", rev = "2ce3ecc85e5c3172f612af82c5257bf2a9e6d738" }
+arrow-string = { git = "https://github.com/tustvold/arrow-rs", rev = "2ce3ecc85e5c3172f612af82c5257bf2a9e6d738" }
 
 # This profile optimizes for runtime performance and small binary size at the expense of longer
 # build times. It's most suitable for final release builds.
