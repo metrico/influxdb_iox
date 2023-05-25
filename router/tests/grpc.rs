@@ -1,8 +1,15 @@
 use std::time::Duration;
 
 use assert_matches::assert_matches;
-use generated_types::influxdata::iox::namespace::v1::{
-    namespace_service_server::NamespaceService, *,
+use data_types::NamespaceId;
+use generated_types::influxdata::{
+    iox::{
+        ingester::v1::WriteRequest,
+        namespace::v1::{namespace_service_server::NamespaceService, *},
+        partition_template::v1::*,
+        table::v1::{table_service_server::TableService, *},
+    },
+    pbdata::v1::DatabaseBatch,
 };
 use hyper::StatusCode;
 use iox_catalog::interface::{Error as CatalogError, SoftDeletedRows};
@@ -79,6 +86,7 @@ async fn test_namespace_create() {
     let req = CreateNamespaceRequest {
         name: "bananas_test".to_string(),
         retention_period_ns: Some(RETENTION),
+        partition_template: None,
     };
     let got = ctx
         .grpc_delegate()
@@ -151,6 +159,7 @@ async fn test_namespace_delete() {
     let req = CreateNamespaceRequest {
         name: "bananas_test".to_string(),
         retention_period_ns: Some(RETENTION),
+        partition_template: None,
     };
     let got = ctx
         .grpc_delegate()
@@ -280,6 +289,7 @@ async fn test_create_namespace_0_retention_period() {
     let req = CreateNamespaceRequest {
         name: "bananas_test".to_string(),
         retention_period_ns: Some(0), // A zero!
+        partition_template: None,
     };
     let got = ctx
         .grpc_delegate()
@@ -344,6 +354,7 @@ async fn test_create_namespace_negative_retention_period() {
     let req = CreateNamespaceRequest {
         name: "bananas_test".to_string(),
         retention_period_ns: Some(-42),
+        partition_template: None,
     };
     let err = ctx
         .grpc_delegate()
@@ -407,6 +418,7 @@ async fn test_update_namespace_0_retention_period() {
         .create_namespace(Request::new(CreateNamespaceRequest {
             name: "bananas_test".to_string(),
             retention_period_ns: Some(42),
+            partition_template: None,
         }))
         .await
         .expect("failed to create namespace")
@@ -512,6 +524,7 @@ async fn test_update_namespace_negative_retention_period() {
         .create_namespace(Request::new(CreateNamespaceRequest {
             name: "bananas_test".to_string(),
             retention_period_ns: Some(42),
+            partition_template: None,
         }))
         .await
         .expect("failed to create namespace")
@@ -781,6 +794,7 @@ async fn test_update_namespace_limit_0_max_tables_max_columns() {
         .create_namespace(Request::new(CreateNamespaceRequest {
             name: "bananas_test".to_string(),
             retention_period_ns: Some(0),
+            partition_template: None,
         }))
         .await
         .expect("failed to create namespace")
@@ -839,4 +853,338 @@ async fn test_update_namespace_limit_0_max_tables_max_columns() {
             assert!(ns.deleted_at.is_none());
         });
     }
+}
+
+/// Ensure invoking the gRPC TableService to create a table populates
+/// the catalog.
+#[tokio::test]
+async fn test_table_create() {
+    // Initialise a TestContext without a namespace autocreation policy.
+    let ctx = TestContextBuilder::default().build().await;
+
+    // Explicitly create the namespace.
+    let req = CreateNamespaceRequest {
+        name: "bananas_test".to_string(),
+        retention_period_ns: None,
+        partition_template: None,
+    };
+    let namespace = ctx
+        .grpc_delegate()
+        .namespace_service()
+        .create_namespace(Request::new(req))
+        .await
+        .unwrap()
+        .into_inner()
+        .namespace
+        .unwrap();
+
+    // Explicitly create the table.
+    let req = CreateTableRequest {
+        name: "plantains".to_string(),
+        namespace: "bananas_test".to_string(),
+        partition_template: None,
+    };
+    let got = ctx
+        .grpc_delegate()
+        .table_service()
+        .create_table(Request::new(req))
+        .await
+        .unwrap()
+        .into_inner()
+        .table
+        .unwrap();
+
+    assert_eq!(got.name, "plantains");
+    assert_eq!(got.id, 1);
+
+    // The catalog should contain the table.
+    {
+        let db_list = ctx
+            .catalog()
+            .repositories()
+            .await
+            .tables()
+            .list_by_namespace_id(NamespaceId::new(namespace.id))
+            .await
+            .unwrap();
+        assert_matches!(db_list.as_slice(), [table] => {
+            assert_eq!(table.id.get(), got.id);
+            assert_eq!(table.name, got.name);
+        });
+    }
+
+    let lp = "plantains,tag1=A,tag2=B val=42i 1685026200000000000".to_string();
+
+    // Writing should succeed and should use the default partition template because no partition
+    // template was set on either the namespace or the table.
+    let response = ctx.write_lp("bananas", "test", lp).await.unwrap();
+    assert_eq!(response.status(), StatusCode::NO_CONTENT);
+
+    let writes = ctx.write_calls();
+    assert_eq!(writes.len(), 1);
+    assert_matches!(
+        writes.as_slice(),
+        [
+            WriteRequest {
+                payload: Some(DatabaseBatch {
+                    table_batches,
+                    partition_key,
+                    ..
+                }),
+            },
+        ] => {
+        let table_id = ctx.table_id("bananas_test", "plantains").await.get();
+        assert_eq!(table_batches.len(), 1);
+        assert_eq!(table_batches[0].table_id, table_id);
+        assert_eq!(partition_key, "2023-05-25");
+    })
+}
+
+#[tokio::test]
+async fn test_namespace_partition_template_implicit_table_creation() {
+    // Initialise a TestContext without a namespace autocreation policy.
+    let ctx = TestContextBuilder::default().build().await;
+
+    // Explicitly create a namespace with a custom partition template.
+    let req = CreateNamespaceRequest {
+        name: "bananas_test".to_string(),
+        retention_period_ns: None,
+        partition_template: Some(PartitionTemplate {
+            parts: vec![TemplatePart {
+                part: Some(template_part::Part::TagValue("tag1".into())),
+            }],
+        }),
+    };
+    ctx.grpc_delegate()
+        .namespace_service()
+        .create_namespace(Request::new(req))
+        .await
+        .unwrap()
+        .into_inner()
+        .namespace
+        .unwrap();
+
+    // Write, which implicitly creates the table with the namespace's custom partition template
+    let lp = "plantains,tag1=A,tag2=B val=42i".to_string();
+    let response = ctx.write_lp("bananas", "test", lp).await.unwrap();
+    assert_eq!(response.status(), StatusCode::NO_CONTENT);
+
+    // Check the ingester observed the correct write that uses the namespace's template.
+    let writes = ctx.write_calls();
+    assert_eq!(writes.len(), 1);
+    assert_matches!(
+        writes.as_slice(),
+        [
+            WriteRequest {
+                payload: Some(DatabaseBatch {
+                    table_batches,
+                    partition_key,
+                    ..
+                }),
+            },
+        ] => {
+        let table_id = ctx.table_id("bananas_test", "plantains").await.get();
+        assert_eq!(table_batches.len(), 1);
+        assert_eq!(table_batches[0].table_id, table_id);
+        assert_eq!(partition_key, "tag1_A");
+    });
+}
+
+#[tokio::test]
+async fn test_namespace_partition_template_explicit_table_creation_without_partition_template() {
+    // Initialise a TestContext without a namespace autocreation policy.
+    let ctx = TestContextBuilder::default().build().await;
+
+    // Explicitly create a namespace with a custom partition template.
+    let req = CreateNamespaceRequest {
+        name: "bananas_test".to_string(),
+        retention_period_ns: None,
+        partition_template: Some(PartitionTemplate {
+            parts: vec![TemplatePart {
+                part: Some(template_part::Part::TagValue("tag1".into())),
+            }],
+        }),
+    };
+    ctx.grpc_delegate()
+        .namespace_service()
+        .create_namespace(Request::new(req))
+        .await
+        .unwrap()
+        .into_inner()
+        .namespace
+        .unwrap();
+
+    // Explicitly create a table *without* a custom partition template.
+    let req = CreateTableRequest {
+        name: "plantains".to_string(),
+        namespace: "bananas_test".to_string(),
+        partition_template: None,
+    };
+    ctx.grpc_delegate()
+        .table_service()
+        .create_table(Request::new(req))
+        .await
+        .unwrap()
+        .into_inner()
+        .table
+        .unwrap();
+
+    // Write to the just-created table
+    let lp = "plantains,tag1=A,tag2=B val=42i".to_string();
+    let response = ctx.write_lp("bananas", "test", lp).await.unwrap();
+    assert_eq!(response.status(), StatusCode::NO_CONTENT);
+
+    // Check the ingester observed the correct write that uses the namespace's template.
+    let writes = ctx.write_calls();
+    assert_eq!(writes.len(), 1);
+    assert_matches!(
+        writes.as_slice(),
+        [
+            WriteRequest {
+                payload: Some(DatabaseBatch {
+                    table_batches,
+                    partition_key,
+                    ..
+                }),
+            },
+        ] => {
+        let table_id = ctx.table_id("bananas_test", "plantains").await.get();
+        assert_eq!(table_batches.len(), 1);
+        assert_eq!(table_batches[0].table_id, table_id);
+        assert_eq!(partition_key, "tag1_A");
+    });
+}
+
+#[tokio::test]
+async fn test_namespace_partition_template_explicit_table_creation_with_partition_template() {
+    // Initialise a TestContext without a namespace autocreation policy.
+    let ctx = TestContextBuilder::default().build().await;
+
+    // Explicitly create a namespace with a custom partition template.
+    let req = CreateNamespaceRequest {
+        name: "bananas_test".to_string(),
+        retention_period_ns: None,
+        partition_template: Some(PartitionTemplate {
+            parts: vec![TemplatePart {
+                part: Some(template_part::Part::TagValue("tag1".into())),
+            }],
+        }),
+    };
+    ctx.grpc_delegate()
+        .namespace_service()
+        .create_namespace(Request::new(req))
+        .await
+        .unwrap()
+        .into_inner()
+        .namespace
+        .unwrap();
+
+    // Explicitly create a table with a *different* custom partition template.
+    let req = CreateTableRequest {
+        name: "plantains".to_string(),
+        namespace: "bananas_test".to_string(),
+        partition_template: Some(PartitionTemplate {
+            parts: vec![TemplatePart {
+                part: Some(template_part::Part::TagValue("tag2".into())),
+            }],
+        }),
+    };
+    ctx.grpc_delegate()
+        .table_service()
+        .create_table(Request::new(req))
+        .await
+        .unwrap()
+        .into_inner()
+        .table
+        .unwrap();
+
+    // Write to the just-created table
+    let lp = "plantains,tag1=A,tag2=B val=42i".to_string();
+    let response = ctx.write_lp("bananas", "test", lp).await.unwrap();
+    assert_eq!(response.status(), StatusCode::NO_CONTENT);
+
+    // Check the ingester observed the correct write that uses the table's template.
+    let writes = ctx.write_calls();
+    assert_eq!(writes.len(), 1);
+    assert_matches!(
+        writes.as_slice(),
+        [
+            WriteRequest {
+                payload: Some(DatabaseBatch {
+                    table_batches,
+                    partition_key,
+                    ..
+                }),
+            },
+        ] => {
+        let table_id = ctx.table_id("bananas_test", "plantains").await.get();
+        assert_eq!(table_batches.len(), 1);
+        assert_eq!(table_batches[0].table_id, table_id);
+        assert_eq!(partition_key, "tag2_B");
+    });
+}
+
+#[tokio::test]
+async fn test_namespace_without_partition_template_table_with_partition_template() {
+    // Initialise a TestContext without a namespace autocreation policy.
+    let ctx = TestContextBuilder::default().build().await;
+
+    // Explicitly create a namespace _without_ a custom partition template.
+    let req = CreateNamespaceRequest {
+        name: "bananas_test".to_string(),
+        retention_period_ns: None,
+        partition_template: None,
+    };
+    ctx.grpc_delegate()
+        .namespace_service()
+        .create_namespace(Request::new(req))
+        .await
+        .unwrap()
+        .into_inner()
+        .namespace
+        .unwrap();
+
+    // Explicitly create a table _with_ a custom partition template.
+    let req = CreateTableRequest {
+        name: "plantains".to_string(),
+        namespace: "bananas_test".to_string(),
+        partition_template: Some(PartitionTemplate {
+            parts: vec![TemplatePart {
+                part: Some(template_part::Part::TagValue("tag2".into())),
+            }],
+        }),
+    };
+    ctx.grpc_delegate()
+        .table_service()
+        .create_table(Request::new(req))
+        .await
+        .unwrap()
+        .into_inner()
+        .table
+        .unwrap();
+
+    // Write to the just-created table
+    let lp = "plantains,tag1=A,tag2=B val=42i".to_string();
+    let response = ctx.write_lp("bananas", "test", lp).await.unwrap();
+    assert_eq!(response.status(), StatusCode::NO_CONTENT);
+
+    // Check the ingester observed the correct write that uses the table's template.
+    let writes = ctx.write_calls();
+    assert_eq!(writes.len(), 1);
+    assert_matches!(
+        writes.as_slice(),
+        [
+            WriteRequest {
+                payload: Some(DatabaseBatch {
+                    table_batches,
+                    partition_key,
+                    ..
+                }),
+            },
+        ] => {
+        let table_id = ctx.table_id("bananas_test", "plantains").await.get();
+        assert_eq!(table_batches.len(), 1);
+        assert_eq!(table_batches[0].table_id, table_id);
+        assert_eq!(partition_key, "tag2_B");
+    });
 }

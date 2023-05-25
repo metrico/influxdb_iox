@@ -148,7 +148,7 @@ impl TestCatalog {
         let namespace_name = NamespaceName::new(name).unwrap();
         let namespace = repos
             .namespaces()
-            .create(&namespace_name, retention_period_ns)
+            .create(&namespace_name, None, retention_period_ns)
             .await
             .unwrap();
 
@@ -177,17 +177,6 @@ impl TestCatalog {
             .await
             .parquet_files()
             .list_by_table_not_to_delete(table_id)
-            .await
-            .unwrap()
-    }
-
-    /// List all files including the soft deleted ones
-    pub async fn list_by_table(self: &Arc<Self>, table_id: TableId) -> Vec<ParquetFile> {
-        self.catalog
-            .repositories()
-            .await
-            .parquet_files()
-            .list_by_table(table_id)
             .await
             .unwrap()
     }
@@ -345,7 +334,7 @@ impl TestTable {
     pub async fn catalog_schema(&self) -> TableSchema {
         TableSchema {
             id: self.table.id,
-            partition_template: None,
+            partition_template: Default::default(),
             columns: self.catalog_columns().await,
         }
     }

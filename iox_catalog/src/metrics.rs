@@ -6,9 +6,10 @@ use crate::interface::{
 };
 use async_trait::async_trait;
 use data_types::{
-    Column, ColumnType, CompactionLevel, Namespace, NamespaceId, NamespaceName, ParquetFile,
-    ParquetFileId, ParquetFileParams, Partition, PartitionId, PartitionKey, SkippedCompaction,
-    Table, TableId, Timestamp,
+    Column, ColumnType, CompactionLevel, Namespace, NamespaceId, NamespaceName,
+    NamespacePartitionTemplateOverride, ParquetFile, ParquetFileId, ParquetFileParams, Partition,
+    PartitionId, PartitionKey, SkippedCompaction, Table, TableId, TablePartitionTemplateOverride,
+    Timestamp,
 };
 use iox_time::{SystemProvider, TimeProvider};
 use metric::{DurationHistogram, Metric};
@@ -131,7 +132,7 @@ macro_rules! decorate {
 decorate!(
     impl_trait = NamespaceRepo,
     methods = [
-        "namespace_create" = create(&mut self, name: &NamespaceName, retention_period_ns: Option<i64>) -> Result<Namespace>;
+        "namespace_create" = create(&mut self, name: &NamespaceName, partition_template: Option<NamespacePartitionTemplateOverride>, retention_period_ns: Option<i64>) -> Result<Namespace>;
         "namespace_update_retention_period" = update_retention_period(&mut self, name: &str, retention_period_ns: Option<i64>) -> Result<Namespace>;
         "namespace_list" = list(&mut self, deleted: SoftDeletedRows) -> Result<Vec<Namespace>>;
         "namespace_get_by_id" = get_by_id(&mut self, id: NamespaceId, deleted: SoftDeletedRows) -> Result<Option<Namespace>>;
@@ -145,7 +146,7 @@ decorate!(
 decorate!(
     impl_trait = TableRepo,
     methods = [
-        "table_create_or_get" = create_or_get(&mut self, name: &str, namespace_id: NamespaceId) -> Result<Table>;
+        "table_create" = create(&mut self, name: &str, partition_template: TablePartitionTemplateOverride, namespace_id: NamespaceId) -> Result<Table>;
         "table_get_by_id" = get_by_id(&mut self, table_id: TableId) -> Result<Option<Table>>;
         "table_get_by_namespace_and_name" = get_by_namespace_and_name(&mut self, namespace_id: NamespaceId, name: &str) -> Result<Option<Table>>;
         "table_list_by_namespace_id" = list_by_namespace_id(&mut self, namespace_id: NamespaceId) -> Result<Vec<Table>>;
@@ -184,18 +185,15 @@ decorate!(
 decorate!(
     impl_trait = ParquetFileRepo,
     methods = [
-        "parquet_create" = create( &mut self, parquet_file_params: ParquetFileParams) -> Result<ParquetFile>;
+        "parquet_create" = create(&mut self, parquet_file_params: ParquetFileParams) -> Result<ParquetFile>;
+        "parquet_list_all" = list_all(&mut self) -> Result<Vec<ParquetFile>>;
         "parquet_flag_for_delete" = flag_for_delete(&mut self, id: ParquetFileId) -> Result<()>;
         "parquet_flag_for_delete_by_retention" = flag_for_delete_by_retention(&mut self) -> Result<Vec<ParquetFileId>>;
         "parquet_list_by_namespace_not_to_delete" = list_by_namespace_not_to_delete(&mut self, namespace_id: NamespaceId) -> Result<Vec<ParquetFile>>;
         "parquet_list_by_table_not_to_delete" = list_by_table_not_to_delete(&mut self, table_id: TableId) -> Result<Vec<ParquetFile>>;
-        "parquet_list_by_table" = list_by_table(&mut self, table_id: TableId) -> Result<Vec<ParquetFile>>;
         "parquet_delete_old_ids_only" = delete_old_ids_only(&mut self, older_than: Timestamp) -> Result<Vec<ParquetFileId>>;
         "parquet_list_by_partition_not_to_delete" = list_by_partition_not_to_delete(&mut self, partition_id: PartitionId) -> Result<Vec<ParquetFile>>;
-        "parquet_update_compaction_level" = update_compaction_level(&mut self, parquet_file_ids: &[ParquetFileId], compaction_level: CompactionLevel) -> Result<Vec<ParquetFileId>>;
-        "parquet_exist" = exist(&mut self, id: ParquetFileId) -> Result<bool>;
-        "parquet_count" = count(&mut self) -> Result<i64>;
         "parquet_get_by_object_store_id" = get_by_object_store_id(&mut self, object_store_id: Uuid) -> Result<Option<ParquetFile>>;
-        "parquet_create_upgrade_delete" = create_upgrade_delete(&mut self, _partition_id: PartitionId, delete: &[ParquetFile], upgrade: &[ParquetFile], create: &[ParquetFileParams], target_level: CompactionLevel) -> Result<Vec<ParquetFileId>>;
+        "parquet_create_upgrade_delete" = create_upgrade_delete(&mut self, delete: &[ParquetFileId], upgrade: &[ParquetFileId], create: &[ParquetFileParams], target_level: CompactionLevel) -> Result<Vec<ParquetFileId>>;
     ]
 );

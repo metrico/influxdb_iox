@@ -3,8 +3,9 @@
 use async_trait::async_trait;
 use data_types::{
     Column, ColumnType, ColumnsByName, CompactionLevel, Namespace, NamespaceId, NamespaceName,
-    NamespaceSchema, ParquetFile, ParquetFileId, ParquetFileParams, Partition, PartitionId,
-    PartitionKey, SkippedCompaction, Table, TableId, TableSchema, Timestamp,
+    NamespacePartitionTemplateOverride, NamespaceSchema, ParquetFile, ParquetFileId,
+    ParquetFileParams, Partition, PartitionId, PartitionKey, SkippedCompaction, Table, TableId,
+    TablePartitionTemplateOverride, TableSchema, Timestamp,
 };
 use iox_time::TimeProvider;
 use snafu::{OptionExt, Snafu};
@@ -40,6 +41,12 @@ pub enum Error {
 
     #[snafu(display("name {} already exists", name))]
     NameExists { name: String },
+
+    #[snafu(display("A table named {name} already exists in namespace {namespace_id}"))]
+    TableNameExists {
+        name: String,
+        namespace_id: NamespaceId,
+    },
 
     #[snafu(display("unhandled sqlx error: {}", source))]
     SqlxError { source: sqlx::Error },
@@ -200,7 +207,8 @@ pub trait Catalog: Send + Sync + Debug + Display {
     /// Accesses the repositories without a transaction scope.
     async fn repositories(&self) -> Box<dyn RepoCollection>;
 
-    /// Gets metric registry associated with this catalog.
+    /// Gets metric registry associated with this catalog for testing purposes.
+    #[cfg(test)]
     fn metrics(&self) -> Arc<metric::Registry>;
 
     /// Gets the time provider associated with this catalog.
@@ -246,6 +254,7 @@ pub trait NamespaceRepo: Send + Sync {
     async fn create(
         &mut self,
         name: &NamespaceName,
+        partition_template: Option<NamespacePartitionTemplateOverride>,
         retention_period_ns: Option<i64>,
     ) -> Result<Namespace>;
 
@@ -286,8 +295,14 @@ pub trait NamespaceRepo: Send + Sync {
 /// Functions for working with tables in the catalog
 #[async_trait]
 pub trait TableRepo: Send + Sync {
-    /// Creates the table in the catalog or get the existing record by name.
-    async fn create_or_get(&mut self, name: &str, namespace_id: NamespaceId) -> Result<Table>;
+    /// Creates the table in the catalog. If one in the same namespace with the same name already
+    /// exists, an error is returned.
+    async fn create(
+        &mut self,
+        name: &str,
+        partition_template: TablePartitionTemplateOverride,
+        namespace_id: NamespaceId,
+    ) -> Result<Table>;
 
     /// get table by ID
     async fn get_by_id(&mut self, table_id: TableId) -> Result<Option<Table>>;
@@ -426,6 +441,13 @@ pub trait ParquetFileRepo: Send + Sync {
     /// create the parquet file
     async fn create(&mut self, parquet_file_params: ParquetFileParams) -> Result<ParquetFile>;
 
+    /// List all parquet files in implementation-defined, non-deterministic order.
+    ///
+    /// This includes files that were marked for deletion.
+    ///
+    /// This is mostly useful for testing and will likely not succeed in production.
+    async fn list_all(&mut self) -> Result<Vec<ParquetFile>>;
+
     /// Flag the parquet file for deletion
     async fn flag_for_delete(&mut self, id: ParquetFileId) -> Result<()>;
 
@@ -443,10 +465,6 @@ pub trait ParquetFileRepo: Send + Sync {
     /// [`to_delete`](ParquetFile::to_delete).
     async fn list_by_table_not_to_delete(&mut self, table_id: TableId) -> Result<Vec<ParquetFile>>;
 
-    /// List all parquet files within a given table including those marked as [`to_delete`](ParquetFile::to_delete).
-    /// This is for debug purpose
-    async fn list_by_table(&mut self, table_id: TableId) -> Result<Vec<ParquetFile>>;
-
     /// Delete parquet files that were marked to be deleted earlier than the specified time.
     ///
     /// Returns the deleted IDs only.
@@ -462,21 +480,6 @@ pub trait ParquetFileRepo: Send + Sync {
         partition_id: PartitionId,
     ) -> Result<Vec<ParquetFile>>;
 
-    /// Update the compaction level of the specified parquet files to
-    /// the specified [`CompactionLevel`].
-    /// Returns the IDs of the files that were successfully updated.
-    async fn update_compaction_level(
-        &mut self,
-        parquet_file_ids: &[ParquetFileId],
-        compaction_level: CompactionLevel,
-    ) -> Result<Vec<ParquetFileId>>;
-
-    /// Verify if the parquet file exists by selecting its id
-    async fn exist(&mut self, id: ParquetFileId) -> Result<bool>;
-
-    /// Return count
-    async fn count(&mut self) -> Result<i64>;
-
     /// Return the parquet file with the given object store id
     async fn get_by_object_store_id(
         &mut self,
@@ -484,11 +487,12 @@ pub trait ParquetFileRepo: Send + Sync {
     ) -> Result<Option<ParquetFile>>;
 
     /// Commit deletions, upgrades and creations in a single transaction.
+    ///
+    /// Returns IDs of created files.
     async fn create_upgrade_delete(
         &mut self,
-        _partition_id: PartitionId,
-        delete: &[ParquetFile],
-        upgrade: &[ParquetFile],
+        delete: &[ParquetFileId],
+        upgrade: &[ParquetFileId],
         create: &[ParquetFileParams],
         target_level: CompactionLevel,
     ) -> Result<Vec<ParquetFileId>>;
@@ -685,9 +689,11 @@ pub(crate) mod test_helpers {
     };
 
     use super::*;
+    use ::test_helpers::assert_error;
     use assert_matches::assert_matches;
     use data_types::{ColumnId, ColumnSet, CompactionLevel};
     use futures::Future;
+    use generated_types::influxdata::iox::partition_template::v1 as proto;
     use metric::{Attributes, DurationHistogram, Metric};
     use std::{collections::BTreeSet, ops::DerefMut, sync::Arc, time::Duration};
 
@@ -715,7 +721,7 @@ pub(crate) mod test_helpers {
 
         let catalog = clean_state().await;
         test_table(Arc::clone(&catalog)).await;
-        assert_metric_hit(&catalog.metrics(), "table_create_or_get");
+        assert_metric_hit(&catalog.metrics(), "table_create");
 
         let catalog = clean_state().await;
         test_column(Arc::clone(&catalog)).await;
@@ -740,11 +746,22 @@ pub(crate) mod test_helpers {
         let namespace_name = NamespaceName::new("test_namespace").unwrap();
         let namespace = repos
             .namespaces()
-            .create(&namespace_name, None)
+            .create(&namespace_name, None, None)
             .await
             .unwrap();
         assert!(namespace.id > NamespaceId::new(0));
         assert_eq!(namespace.name, namespace_name.as_str());
+        assert_eq!(
+            namespace.partition_template,
+            NamespacePartitionTemplateOverride::default()
+        );
+        let lookup_namespace = repos
+            .namespaces()
+            .get_by_name(&namespace_name, SoftDeletedRows::ExcludeDeleted)
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(namespace, lookup_namespace);
 
         // Assert default values for service protection limits.
         assert_eq!(namespace.max_tables, DEFAULT_MAX_TABLES);
@@ -753,7 +770,7 @@ pub(crate) mod test_helpers {
             DEFAULT_MAX_COLUMNS_PER_TABLE
         );
 
-        let conflict = repos.namespaces().create(&namespace_name, None).await;
+        let conflict = repos.namespaces().create(&namespace_name, None, None).await;
         assert!(matches!(
             conflict.unwrap_err(),
             Error::NameExists { name: _ }
@@ -840,7 +857,7 @@ pub(crate) mod test_helpers {
         let namespace4_name = NamespaceName::new("test_namespace4").unwrap();
         let namespace4 = repos
             .namespaces()
-            .create(&namespace4_name, Some(NEW_RETENTION_PERIOD_NS))
+            .create(&namespace4_name, None, Some(NEW_RETENTION_PERIOD_NS))
             .await
             .expect("namespace with 5-hour retention should be created");
         assert_eq!(
@@ -853,6 +870,28 @@ pub(crate) mod test_helpers {
             .update_retention_period(&namespace4_name, None)
             .await
             .expect("namespace should be updateable");
+
+        // create a namespace with a PartitionTemplate other than the default
+        let tag_partition_template =
+            NamespacePartitionTemplateOverride::from(proto::PartitionTemplate {
+                parts: vec![proto::TemplatePart {
+                    part: Some(proto::template_part::Part::TagValue("tag1".into())),
+                }],
+            });
+        let namespace5_name = NamespaceName::new("test_namespace5").unwrap();
+        let namespace5 = repos
+            .namespaces()
+            .create(&namespace5_name, Some(tag_partition_template.clone()), None)
+            .await
+            .unwrap();
+        assert_eq!(namespace5.partition_template, tag_partition_template);
+        let lookup_namespace5 = repos
+            .namespaces()
+            .get_by_name(&namespace5_name, SoftDeletedRows::ExcludeDeleted)
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(namespace5, lookup_namespace5);
 
         // remove namespace to avoid it from affecting later tests
         repos
@@ -1044,11 +1083,28 @@ pub(crate) mod test_helpers {
         let mut repos = catalog.repositories().await;
         let namespace = arbitrary_namespace(&mut *repos, "namespace_table_test").await;
 
-        // test we can create or get a table
+        // test we can create a table
         let t = arbitrary_table(&mut *repos, "test_table", &namespace).await;
-        let tt = arbitrary_table(&mut *repos, "test_table", &namespace).await;
         assert!(t.id > TableId::new(0));
-        assert_eq!(t, tt);
+        assert_eq!(
+            t.partition_template,
+            TablePartitionTemplateOverride::default()
+        );
+
+        // test we get an error if we try to create it again
+        let err = repos
+            .tables()
+            .create(
+                "test_table",
+                TablePartitionTemplateOverride::new(None, &namespace.partition_template),
+                namespace.id,
+            )
+            .await;
+        assert_error!(
+            err,
+            Error::TableNameExists { ref name, namespace_id }
+                if name == "test_table" && namespace_id == namespace.id
+        );
 
         // get by id
         assert_eq!(t, repos.tables().get_by_id(t.id).await.unwrap().unwrap());
@@ -1070,7 +1126,7 @@ pub(crate) mod test_helpers {
         let namespace2 = arbitrary_namespace(&mut *repos, "two").await;
         assert_ne!(namespace, namespace2);
         let test_table = arbitrary_table(&mut *repos, "test_table", &namespace2).await;
-        assert_ne!(tt, test_table);
+        assert_ne!(t.id, test_table.id);
         assert_eq!(test_table.namespace_id, namespace2.id);
 
         // test get by namespace and name
@@ -1119,8 +1175,11 @@ pub(crate) mod test_helpers {
         );
 
         // All tables should be returned by list(), regardless of namespace
-        let list = repos.tables().list().await.unwrap();
-        assert_eq!(list.as_slice(), [tt, test_table, foo_table]);
+        let mut list = repos.tables().list().await.unwrap();
+        list.sort_by_key(|t| t.id);
+        let mut expected = [t, test_table, foo_table];
+        expected.sort_by_key(|t| t.id);
+        assert_eq!(&list, &expected);
 
         // test per-namespace table limits
         let latest = repos
@@ -1130,7 +1189,11 @@ pub(crate) mod test_helpers {
             .expect("namespace should be updateable");
         let err = repos
             .tables()
-            .create_or_get("definitely_unique", latest.id)
+            .create(
+                "definitely_unique",
+                TablePartitionTemplateOverride::new(None, &latest.partition_template),
+                latest.id,
+            )
             .await
             .expect_err("should error with table create limit error");
         assert!(matches!(
@@ -1140,6 +1203,67 @@ pub(crate) mod test_helpers {
                 namespace_id: _
             }
         ));
+
+        // Create a table with a partition template other than the default
+        let custom_table_template = TablePartitionTemplateOverride::new(
+            Some(proto::PartitionTemplate {
+                parts: vec![proto::TemplatePart {
+                    part: Some(proto::template_part::Part::TagValue("tag1".into())),
+                }],
+            }),
+            &namespace.partition_template,
+        );
+        let templated = repos
+            .tables()
+            .create(
+                "use_a_template",
+                custom_table_template.clone(),
+                namespace2.id,
+            )
+            .await
+            .unwrap();
+        assert_eq!(templated.partition_template, custom_table_template);
+        let lookup_templated = repos
+            .tables()
+            .get_by_namespace_and_name(namespace2.id, "use_a_template")
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(templated, lookup_templated);
+
+        // Create a namespace with a partition template other than the default
+        let custom_namespace_template =
+            NamespacePartitionTemplateOverride::from(proto::PartitionTemplate {
+                parts: vec![proto::TemplatePart {
+                    part: Some(proto::template_part::Part::TimeFormat("year-%Y".into())),
+                }],
+            });
+        let custom_namespace_name = NamespaceName::new("custom_namespace").unwrap();
+        let custom_namespace = repos
+            .namespaces()
+            .create(
+                &custom_namespace_name,
+                Some(custom_namespace_template.clone()),
+                None,
+            )
+            .await
+            .unwrap();
+        // Create a table without specifying the partition template
+        let custom_table_template =
+            TablePartitionTemplateOverride::new(None, &custom_namespace.partition_template);
+        let table_templated_by_namespace = repos
+            .tables()
+            .create(
+                "use_namespace_template",
+                custom_table_template,
+                custom_namespace.id,
+            )
+            .await
+            .unwrap();
+        assert_eq!(
+            table_templated_by_namespace.partition_template,
+            TablePartitionTemplateOverride::new(None, &custom_namespace_template)
+        );
 
         repos
             .namespaces()
@@ -1610,8 +1734,6 @@ pub(crate) mod test_helpers {
         let non_exist_id = ParquetFileId::new(other_file.id.get() + 10);
         // make sure exists_id != non_exist_id
         assert_ne!(exist_id, non_exist_id);
-        assert!(repos.parquet_files().exist(exist_id).await.unwrap());
-        assert!(!repos.parquet_files().exist(non_exist_id).await.unwrap());
 
         // verify that to_delete is initially set to null and the file does not get deleted
         assert!(parquet_file.to_delete.is_none());
@@ -1624,16 +1746,11 @@ pub(crate) mod test_helpers {
             .await
             .unwrap();
         assert!(deleted.is_empty());
-        assert!(repos.parquet_files().exist(parquet_file.id).await.unwrap());
 
-        // test list_by_table that includes soft-deleted file
+        // test list_all that includes soft-deleted file
         // at this time the file is not soft-deleted yet and will be included in the returned list
-        let files = repos
-            .parquet_files()
-            .list_by_table(parquet_file.table_id)
-            .await
-            .unwrap();
-        assert_eq!(files.len(), 1);
+        let files = repos.parquet_files().list_all().await.unwrap();
+        assert_eq!(files.len(), 2);
 
         // verify to_delete can be updated to a timestamp
         repos
@@ -1642,16 +1759,15 @@ pub(crate) mod test_helpers {
             .await
             .unwrap();
 
-        // test list_by_table that includes soft-deleted file
+        // test list_all that includes soft-deleted file
         // at this time the file is soft-deleted and will be included in the returned list
-        let files = repos
-            .parquet_files()
-            .list_by_table(parquet_file.table_id)
-            .await
+        let files = repos.parquet_files().list_all().await.unwrap();
+        assert_eq!(files.len(), 2);
+        let marked_deleted = files
+            .iter()
+            .find(|f| f.to_delete.is_some())
+            .cloned()
             .unwrap();
-        assert_eq!(files.len(), 1);
-        let marked_deleted = files.first().unwrap();
-        assert!(marked_deleted.to_delete.is_some());
 
         // File is not deleted if it was marked to be deleted after the specified time
         let before_deleted = Timestamp::new(
@@ -1663,17 +1779,12 @@ pub(crate) mod test_helpers {
             .await
             .unwrap();
         assert!(deleted.is_empty());
-        assert!(repos.parquet_files().exist(parquet_file.id).await.unwrap());
 
-        // test list_by_table that includes soft-deleted file
+        // test list_all that includes soft-deleted file
         // at this time the file is not actually hard deleted yet and stay as soft deleted
         // and will be returned in the list
-        let files = repos
-            .parquet_files()
-            .list_by_table(parquet_file.table_id)
-            .await
-            .unwrap();
-        assert_eq!(files.len(), 1);
+        let files = repos.parquet_files().list_all().await.unwrap();
+        assert_eq!(files.len(), 2);
 
         // File is deleted if it was marked to be deleted before the specified time
         let deleted = repos
@@ -1683,16 +1794,11 @@ pub(crate) mod test_helpers {
             .unwrap();
         assert_eq!(deleted.len(), 1);
         assert_eq!(marked_deleted.id, deleted[0]);
-        assert!(!repos.parquet_files().exist(parquet_file.id).await.unwrap());
 
-        // test list_by_table that includes soft-deleted file
+        // test list_all that includes soft-deleted file
         // at this time the file is hard deleted -> the returned list is empty
-        let files = repos
-            .parquet_files()
-            .list_by_table(parquet_file.table_id)
-            .await
-            .unwrap();
-        assert_eq!(files.len(), 0);
+        let files = repos.parquet_files().list_all().await.unwrap();
+        assert_eq!(files.len(), 1);
 
         // test list_by_table_not_to_delete
         let files = repos
@@ -1708,15 +1814,9 @@ pub(crate) mod test_helpers {
             .unwrap();
         assert_eq!(files, vec![other_file.clone()]);
 
-        // test list_by_table
-        println!("parquet_file.table_id = {}", parquet_file.table_id);
-        let files = repos
-            .parquet_files()
-            // .list_by_table(parquet_file.table_id) // todo: tables of deleted files
-            .list_by_table(other_file.table_id)
-            .await
-            .unwrap();
-        assert_eq!(files.len(), 1);
+        // test list_all
+        let files = repos.parquet_files().list_all().await.unwrap();
+        assert_eq!(vec![other_file.clone()], files);
 
         // test list_by_namespace_not_to_delete
         let namespace2 = arbitrary_namespace(&mut *repos, "namespace_parquet_file_test1").await;
@@ -1941,9 +2041,8 @@ pub(crate) mod test_helpers {
         let cud = repos
             .parquet_files()
             .create_upgrade_delete(
-                f4.partition_id,
-                &[f5.clone()],
-                &[f1.clone()],
+                &[f5.id],
+                &[f1.id],
                 &[f6_params.clone()],
                 CompactionLevel::Final,
             )
@@ -1980,9 +2079,8 @@ pub(crate) mod test_helpers {
         let cud = repos
             .parquet_files()
             .create_upgrade_delete(
-                f4.partition_id,
-                &[f5],
-                &[f2],
+                &[f5.id],
+                &[f2.id],
                 &[f6_params.clone()],
                 CompactionLevel::Final,
             )
@@ -2009,7 +2107,11 @@ pub(crate) mod test_helpers {
         let namespace_1 = arbitrary_namespace(&mut *repos, "retention_broken_1").await;
         let namespace_2 = repos
             .namespaces()
-            .create(&NamespaceName::new("retention_broken_2").unwrap(), Some(1))
+            .create(
+                &NamespaceName::new("retention_broken_2").unwrap(),
+                None,
+                Some(1),
+            )
             .await
             .unwrap();
         let table_1 = arbitrary_table(&mut *repos, "test_table", &namespace_1).await;
@@ -2499,7 +2601,12 @@ pub(crate) mod test_helpers {
             .unwrap();
         repos
             .parquet_files()
-            .update_compaction_level(&[level1_file.id], CompactionLevel::FileNonOverlapped)
+            .create_upgrade_delete(
+                &[],
+                &[level1_file.id],
+                &[],
+                CompactionLevel::FileNonOverlapped,
+            )
             .await
             .unwrap();
         level1_file.compaction_level = CompactionLevel::FileNonOverlapped;
@@ -2582,15 +2689,17 @@ pub(crate) mod test_helpers {
 
         // Make parquet_file compaction level 1, attempt to mark the nonexistent file; operation
         // should succeed
-        let updated = repos
+        let created = repos
             .parquet_files()
-            .update_compaction_level(
+            .create_upgrade_delete(
+                &[],
                 &[parquet_file.id, nonexistent_parquet_file_id],
+                &[],
                 CompactionLevel::FileNonOverlapped,
             )
             .await
             .unwrap();
-        assert_eq!(updated, vec![parquet_file.id]);
+        assert_eq!(created, vec![]);
 
         // remove namespace to avoid it from affecting later tests
         repos
@@ -2644,7 +2753,7 @@ pub(crate) mod test_helpers {
             column_set: ColumnSet::new([ColumnId::new(1), ColumnId::new(2)]),
             max_l0_created_at: Timestamp::new(1),
         };
-        let p1_n1 = repos
+        repos
             .parquet_files()
             .create(parquet_file_params.clone())
             .await
@@ -2655,7 +2764,7 @@ pub(crate) mod test_helpers {
             max_time: Timestamp::new(300),
             ..parquet_file_params
         };
-        let p2_n1 = repos
+        repos
             .parquet_files()
             .create(parquet_file_params_2.clone())
             .await
@@ -2692,7 +2801,7 @@ pub(crate) mod test_helpers {
             column_set: ColumnSet::new([ColumnId::new(1), ColumnId::new(2)]),
             max_l0_created_at: Timestamp::new(1),
         };
-        let p1_n2 = repos
+        repos
             .parquet_files()
             .create(parquet_file_params.clone())
             .await
@@ -2703,7 +2812,7 @@ pub(crate) mod test_helpers {
             max_time: Timestamp::new(300),
             ..parquet_file_params
         };
-        let p2_n2 = repos
+        repos
             .parquet_files()
             .create(parquet_file_params_2.clone())
             .await
@@ -2773,16 +2882,6 @@ pub(crate) mod test_helpers {
             .await
             .expect("fetching partition by id should succeed")
             .is_some());
-        assert!(repos
-            .parquet_files()
-            .exist(p1_n1.id)
-            .await
-            .expect("parquet file exists check should succeed"));
-        assert!(repos
-            .parquet_files()
-            .exist(p2_n1.id)
-            .await
-            .expect("parquet file exists check should succeed"));
 
         // assert that the namespace, table, column, and parquet files for namespace_2 are still
         // there
@@ -2822,16 +2921,6 @@ pub(crate) mod test_helpers {
             .await
             .expect("fetching partition by id should succeed")
             .is_some());
-        assert!(repos
-            .parquet_files()
-            .exist(p1_n2.id)
-            .await
-            .expect("parquet file exists check should succeed"));
-        assert!(repos
-            .parquet_files()
-            .exist(p2_n2.id)
-            .await
-            .expect("parquet file exists check should succeed"));
     }
 
     /// Upsert a namespace called `namespace_name` and write `lines` to it.
@@ -2845,7 +2934,7 @@ pub(crate) mod test_helpers {
     {
         let namespace = repos
             .namespaces()
-            .create(&NamespaceName::new(namespace_name).unwrap(), None)
+            .create(&NamespaceName::new(namespace_name).unwrap(), None, None)
             .await;
 
         let namespace = match namespace {
