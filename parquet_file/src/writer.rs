@@ -92,6 +92,7 @@ pub struct TrackedMemoryArrowWriter<W: Write + Send> {
 }
 
 // ArrowWriter doesn't implement Debug
+// Can remove when https://github.com/apache/arrow-rs/pull/4278 is available
 impl<W: Write + Send> Debug for TrackedMemoryArrowWriter<W> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("TrackedMemoryArrowWriter<W>")
