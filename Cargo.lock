@@ -150,7 +150,7 @@ checksum = "8da52d66c7071e2e3fa2a1e5c6d088fec47b593032b254f5e980de8ea54454d6"
 [[package]]
 name = "arrow"
 version = "40.0.0"
-source = "git+https://github.com/tustvold/arrow-rs?rev=2ce3ecc85e5c3172f612af82c5257bf2a9e6d738#2ce3ecc85e5c3172f612af82c5257bf2a9e6d738"
+source = "git+https://github.com/alamb/arrow-rs?rev=90ebaacb6#90ebaacb6d361c5d47701cb4a637fc461fc52e69"
 dependencies = [
  "ahash 0.8.3",
  "arrow-arith",
@@ -171,7 +171,7 @@ dependencies = [
 [[package]]
 name = "arrow-arith"
 version = "40.0.0"
-source = "git+https://github.com/tustvold/arrow-rs?rev=2ce3ecc85e5c3172f612af82c5257bf2a9e6d738#2ce3ecc85e5c3172f612af82c5257bf2a9e6d738"
+source = "git+https://github.com/alamb/arrow-rs?rev=90ebaacb6#90ebaacb6d361c5d47701cb4a637fc461fc52e69"
 dependencies = [
  "arrow-array",
  "arrow-buffer",
@@ -185,7 +185,7 @@ dependencies = [
 [[package]]
 name = "arrow-array"
 version = "40.0.0"
-source = "git+https://github.com/tustvold/arrow-rs?rev=2ce3ecc85e5c3172f612af82c5257bf2a9e6d738#2ce3ecc85e5c3172f612af82c5257bf2a9e6d738"
+source = "git+https://github.com/alamb/arrow-rs?rev=90ebaacb6#90ebaacb6d361c5d47701cb4a637fc461fc52e69"
 dependencies = [
  "ahash 0.8.3",
  "arrow-buffer",
@@ -201,7 +201,7 @@ dependencies = [
 [[package]]
 name = "arrow-buffer"
 version = "40.0.0"
-source = "git+https://github.com/tustvold/arrow-rs?rev=2ce3ecc85e5c3172f612af82c5257bf2a9e6d738#2ce3ecc85e5c3172f612af82c5257bf2a9e6d738"
+source = "git+https://github.com/alamb/arrow-rs?rev=90ebaacb6#90ebaacb6d361c5d47701cb4a637fc461fc52e69"
 dependencies = [
  "half 2.2.1",
  "num",
@@ -210,7 +210,7 @@ dependencies = [
 [[package]]
 name = "arrow-cast"
 version = "40.0.0"
-source = "git+https://github.com/tustvold/arrow-rs?rev=2ce3ecc85e5c3172f612af82c5257bf2a9e6d738#2ce3ecc85e5c3172f612af82c5257bf2a9e6d738"
+source = "git+https://github.com/alamb/arrow-rs?rev=90ebaacb6#90ebaacb6d361c5d47701cb4a637fc461fc52e69"
 dependencies = [
  "arrow-array",
  "arrow-buffer",
@@ -226,7 +226,7 @@ dependencies = [
 [[package]]
 name = "arrow-csv"
 version = "40.0.0"
-source = "git+https://github.com/tustvold/arrow-rs?rev=2ce3ecc85e5c3172f612af82c5257bf2a9e6d738#2ce3ecc85e5c3172f612af82c5257bf2a9e6d738"
+source = "git+https://github.com/alamb/arrow-rs?rev=90ebaacb6#90ebaacb6d361c5d47701cb4a637fc461fc52e69"
 dependencies = [
  "arrow-array",
  "arrow-buffer",
@@ -244,7 +244,7 @@ dependencies = [
 [[package]]
 name = "arrow-data"
 version = "40.0.0"
-source = "git+https://github.com/tustvold/arrow-rs?rev=2ce3ecc85e5c3172f612af82c5257bf2a9e6d738#2ce3ecc85e5c3172f612af82c5257bf2a9e6d738"
+source = "git+https://github.com/alamb/arrow-rs?rev=90ebaacb6#90ebaacb6d361c5d47701cb4a637fc461fc52e69"
 dependencies = [
  "arrow-buffer",
  "arrow-schema",
@@ -275,7 +275,7 @@ dependencies = [
 [[package]]
 name = "arrow-ipc"
 version = "40.0.0"
-source = "git+https://github.com/tustvold/arrow-rs?rev=2ce3ecc85e5c3172f612af82c5257bf2a9e6d738#2ce3ecc85e5c3172f612af82c5257bf2a9e6d738"
+source = "git+https://github.com/alamb/arrow-rs?rev=90ebaacb6#90ebaacb6d361c5d47701cb4a637fc461fc52e69"
 dependencies = [
  "arrow-array",
  "arrow-buffer",
@@ -288,7 +288,7 @@ dependencies = [
 [[package]]
 name = "arrow-json"
 version = "40.0.0"
-source = "git+https://github.com/tustvold/arrow-rs?rev=2ce3ecc85e5c3172f612af82c5257bf2a9e6d738#2ce3ecc85e5c3172f612af82c5257bf2a9e6d738"
+source = "git+https://github.com/alamb/arrow-rs?rev=90ebaacb6#90ebaacb6d361c5d47701cb4a637fc461fc52e69"
 dependencies = [
  "arrow-array",
  "arrow-buffer",
@@ -307,7 +307,7 @@ dependencies = [
 [[package]]
 name = "arrow-ord"
 version = "40.0.0"
-source = "git+https://github.com/tustvold/arrow-rs?rev=2ce3ecc85e5c3172f612af82c5257bf2a9e6d738#2ce3ecc85e5c3172f612af82c5257bf2a9e6d738"
+source = "git+https://github.com/alamb/arrow-rs?rev=90ebaacb6#90ebaacb6d361c5d47701cb4a637fc461fc52e69"
 dependencies = [
  "arrow-array",
  "arrow-buffer",
@@ -321,7 +321,7 @@ dependencies = [
 [[package]]
 name = "arrow-row"
 version = "40.0.0"
-source = "git+https://github.com/tustvold/arrow-rs?rev=2ce3ecc85e5c3172f612af82c5257bf2a9e6d738#2ce3ecc85e5c3172f612af82c5257bf2a9e6d738"
+source = "git+https://github.com/alamb/arrow-rs?rev=90ebaacb6#90ebaacb6d361c5d47701cb4a637fc461fc52e69"
 dependencies = [
  "ahash 0.8.3",
  "arrow-array",
@@ -335,12 +335,12 @@ dependencies = [
 [[package]]
 name = "arrow-schema"
 version = "40.0.0"
-source = "git+https://github.com/tustvold/arrow-rs?rev=2ce3ecc85e5c3172f612af82c5257bf2a9e6d738#2ce3ecc85e5c3172f612af82c5257bf2a9e6d738"
+source = "git+https://github.com/alamb/arrow-rs?rev=90ebaacb6#90ebaacb6d361c5d47701cb4a637fc461fc52e69"
 
 [[package]]
 name = "arrow-select"
 version = "40.0.0"
-source = "git+https://github.com/tustvold/arrow-rs?rev=2ce3ecc85e5c3172f612af82c5257bf2a9e6d738#2ce3ecc85e5c3172f612af82c5257bf2a9e6d738"
+source = "git+https://github.com/alamb/arrow-rs?rev=90ebaacb6#90ebaacb6d361c5d47701cb4a637fc461fc52e69"
 dependencies = [
  "arrow-array",
  "arrow-buffer",
@@ -352,7 +352,7 @@ dependencies = [
 [[package]]
 name = "arrow-string"
 version = "40.0.0"
-source = "git+https://github.com/tustvold/arrow-rs?rev=2ce3ecc85e5c3172f612af82c5257bf2a9e6d738#2ce3ecc85e5c3172f612af82c5257bf2a9e6d738"
+source = "git+https://github.com/alamb/arrow-rs?rev=90ebaacb6#90ebaacb6d361c5d47701cb4a637fc461fc52e69"
 dependencies = [
  "arrow-array",
  "arrow-buffer",
@@ -876,7 +876,7 @@ dependencies = [
  "humantime",
  "iox_catalog",
  "metric",
- "object_store 0.5.6",
+ "object_store",
  "observability_deps",
  "snafu",
  "tempfile",
@@ -992,7 +992,7 @@ dependencies = [
  "iox_time",
  "itertools",
  "metric",
- "object_store 0.5.6",
+ "object_store",
  "observability_deps",
  "parquet_file",
  "predicate",
@@ -1023,7 +1023,7 @@ dependencies = [
  "iox_query",
  "iox_tests",
  "iox_time",
- "object_store 0.5.6",
+ "object_store",
  "observability_deps",
  "parquet_file",
  "schema",
@@ -1408,7 +1408,7 @@ dependencies = [
  "lazy_static",
  "log",
  "num_cpus",
- "object_store 0.5.6",
+ "object_store",
  "parking_lot 0.12.1",
  "parquet",
  "percent-encoding",
@@ -1435,7 +1435,7 @@ dependencies = [
  "arrow-array",
  "chrono",
  "num_cpus",
- "object_store 0.5.6",
+ "object_store",
  "parquet",
  "sqlparser",
 ]
@@ -1450,7 +1450,7 @@ dependencies = [
  "datafusion-expr",
  "hashbrown 0.13.2",
  "log",
- "object_store 0.5.6",
+ "object_store",
  "parking_lot 0.12.1",
  "rand 0.8.5",
  "tempfile",
@@ -1527,7 +1527,7 @@ dependencies = [
  "datafusion",
  "datafusion-common",
  "datafusion-expr",
- "object_store 0.5.6",
+ "object_store",
  "prost",
 ]
 
@@ -1562,7 +1562,7 @@ dependencies = [
  "async-trait",
  "datafusion",
  "futures",
- "object_store 0.5.6",
+ "object_store",
  "observability_deps",
  "pin-project",
  "schema",
@@ -1977,7 +1977,7 @@ dependencies = [
  "humantime",
  "iox_catalog",
  "metric",
- "object_store 0.5.6",
+ "object_store",
  "observability_deps",
  "once_cell",
  "parquet_file",
@@ -2533,7 +2533,7 @@ dependencies = [
  "metric",
  "nu-ansi-term 0.47.0",
  "num_cpus",
- "object_store 0.5.6",
+ "object_store",
  "object_store_metrics",
  "observability_deps",
  "once_cell",
@@ -2663,7 +2663,7 @@ dependencies = [
  "mutable_batch",
  "mutable_batch_lp",
  "mutable_batch_pb",
- "object_store 0.5.6",
+ "object_store",
  "observability_deps",
  "once_cell",
  "parking_lot 0.12.1",
@@ -2729,7 +2729,7 @@ dependencies = [
  "metric",
  "mutable_batch_lp",
  "mutable_batch_pb",
- "object_store 0.5.6",
+ "object_store",
  "observability_deps",
  "parquet_file",
  "prost",
@@ -2871,7 +2871,7 @@ dependencies = [
  "indexmap",
  "insta",
  "itertools",
- "object_store 0.5.6",
+ "object_store",
  "observability_deps",
  "once_cell",
  "parking_lot 0.12.1",
@@ -2948,7 +2948,7 @@ dependencies = [
  "iox_time",
  "metric",
  "mutable_batch_lp",
- "object_store 0.5.6",
+ "object_store",
  "observability_deps",
  "parquet_file",
  "schema",
@@ -3087,7 +3087,7 @@ dependencies = [
  "iox_time",
  "ioxd_common",
  "metric",
- "object_store 0.5.6",
+ "object_store",
  "querier",
  "service_grpc_flight",
  "service_grpc_influxrpc",
@@ -3113,7 +3113,7 @@ dependencies = [
  "ioxd_common",
  "metric",
  "mutable_batch",
- "object_store 0.5.6",
+ "object_store",
  "router",
  "thiserror",
  "tokio",
@@ -3825,27 +3825,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "object_store"
-version = "0.6.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "bbabcd9ba37423eeedc78f4a5801ee78e784e77f9e6c2b66a7c426b6ec04c53f"
-dependencies = [
- "async-trait",
- "bytes",
- "chrono",
- "futures",
- "humantime",
- "itertools",
- "parking_lot 0.12.1",
- "percent-encoding",
- "snafu",
- "tokio",
- "tracing",
- "url",
- "walkdir",
-]
-
-[[package]]
 name = "object_store_metrics"
 version = "0.1.0"
 dependencies = [
@@ -3854,7 +3833,7 @@ dependencies = [
  "futures",
  "iox_time",
  "metric",
- "object_store 0.5.6",
+ "object_store",
  "pin-project",
  "snafu",
  "tokio",
@@ -3978,7 +3957,7 @@ dependencies = [
 [[package]]
 name = "parquet"
 version = "40.0.0"
-source = "git+https://github.com/tustvold/arrow-rs?rev=2ce3ecc85e5c3172f612af82c5257bf2a9e6d738#2ce3ecc85e5c3172f612af82c5257bf2a9e6d738"
+source = "git+https://github.com/alamb/arrow-rs?rev=90ebaacb6#90ebaacb6d361c5d47701cb4a637fc461fc52e69"
 dependencies = [
  "ahash 0.8.3",
  "arrow-array",
@@ -3998,7 +3977,7 @@ dependencies = [
  "lz4",
  "num",
  "num-bigint",
- "object_store 0.6.0",
+ "object_store",
  "paste",
  "seq-macro",
  "snap",
@@ -4021,7 +4000,7 @@ dependencies = [
  "futures",
  "generated_types",
  "iox_time",
- "object_store 0.5.6",
+ "object_store",
  "observability_deps",
  "parquet",
  "pbjson-types",
@@ -4046,7 +4025,7 @@ dependencies = [
  "influxdb-line-protocol",
  "mutable_batch_lp",
  "num_cpus",
- "object_store 0.5.6",
+ "object_store",
  "parquet_file",
  "schema",
  "snafu",
@@ -4503,7 +4482,7 @@ dependencies = [
  "iox_time",
  "metric",
  "mutable_batch_lp",
- "object_store 0.5.6",
+ "object_store",
  "object_store_metrics",
  "observability_deps",
  "parking_lot 0.12.1",
@@ -4837,7 +4816,7 @@ dependencies = [
  "mutable_batch",
  "mutable_batch_lp",
  "mutable_batch_pb",
- "object_store 0.5.6",
+ "object_store",
  "observability_deps",
  "once_cell",
  "parking_lot 0.12.1",
@@ -5211,7 +5190,7 @@ dependencies = [
  "generated_types",
  "iox_catalog",
  "metric",
- "object_store 0.5.6",
+ "object_store",
  "observability_deps",
  "parquet_file",
  "tokio",
@@ -6831,7 +6810,7 @@ dependencies = [
  "nom",
  "num-integer",
  "num-traits",
- "object_store 0.5.6",
+ "object_store",
  "once_cell",
  "parking_lot 0.12.1",
  "parquet",
