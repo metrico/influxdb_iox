@@ -612,3 +612,14 @@ SELECT last(sum_idle), last(sum_system) FROM (SELECT sum(usage_idle) AS sum_idle
 -- A possible fix is to introduce a column that assigned a unique number to
 -- each subquery to ensure the results are deterministic.
 -- SELECT last(*) FROM (SELECT sum(usage_idle) AS sum_idle FROM cpu WHERE cpu = 'cpu-total' GROUP BY time(10s)), (SELECT sum(usage_system) AS sum_idle FROM cpu WHERE cpu = 'cpu-total' GROUP BY time(10s)) GROUP BY time(10s) FILL(none);
+
+--
+-- Window functions:
+-- moving_average, difference
+--
+
+SELECT moving_average(usage_idle, 2) FROM cpu where cpu = 'cpu-total';
+SELECT moving_average(usage_idle, 2) FROM cpu group by cpu;
+SELECT difference(usage_idle) FROM cpu where cpu = 'cpu-total';
+SELECT difference(usage_idle) FROM cpu group by cpu;
+SELECT moving_average(mean(usage_idle), 2), mean(usage_idle) FROM cpu WHERE time >= '2022-10-31T02:00:00Z' AND time <= '2022-10-31T02:00:20Z' group by time(5s), cpu FILL(0);

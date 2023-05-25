@@ -8,9 +8,10 @@ use crate::plan::planner_time_range_expression::{
     duration_expr_to_nanoseconds, expr_to_df_interval_dt, time_range_to_df_expr,
 };
 use crate::plan::rewriter::{find_table_names, rewrite_statement, ProjectionType};
+use crate::plan::udf::{difference, find_window_udfs, moving_average};
 use crate::plan::util::{binary_operator_to_df_operator, rebase_expr, Schemas};
 use crate::plan::var_ref::var_ref_data_type_to_data_type;
-use crate::plan::{error, planner_rewrite_expression};
+use crate::plan::{error, planner_rewrite_expression, udf};
 use arrow::array::{StringBuilder, StringDictionaryBuilder};
 use arrow::datatypes::{DataType, Field as ArrowField, Int32Type, Schema as ArrowSchema};
 use arrow::record_batch::RecordBatch;
@@ -132,6 +133,10 @@ struct Context<'a> {
     projection_type: ProjectionType,
     tz: Option<Tz>,
 
+    // Time ordering
+    order_by: OrderByClause,
+    time_alias: &'a str,
+
     // GROUP BY information
     group_by: Option<&'a GroupByClause>,
     fill: Option<FillClause>,
@@ -142,9 +147,21 @@ struct Context<'a> {
 }
 
 impl<'a> Context<'a> {
-    fn new(table_name: &'a str) -> Self {
+    fn new(table_name: &'a str, order_by: OrderByClause, time_alias: &'a str) -> Self {
         Self {
             table_name,
+            order_by,
+            time_alias,
+            ..Default::default()
+        }
+    }
+
+    fn new_subquery(parent: &'a Context<'_>) -> Self {
+        Self {
+            table_name: parent.table_name,
+            root_group_by_tags: parent.root_group_by_tags,
+            order_by: parent.order_by,
+            time_alias: "time", // time is never aliased in subqueries
             ..Default::default()
         }
     }
@@ -158,6 +175,17 @@ impl<'a> Context<'a> {
 
     fn with_timezone(&self, tz: Option<Tz>) -> Self {
         Self { tz, ..*self }
+    }
+
+    /// Return a [`Expr::Sort`] expression for the `time` column.
+    fn time_sort_expr(&self) -> Expr {
+        self.time_alias.as_expr().sort(
+            match self.order_by {
+                OrderByClause::Ascending => true,
+                OrderByClause::Descending => false,
+            },
+            false,
+        )
     }
 
     fn with_group_by_fill(&self, select: &'a Select) -> Self {
@@ -316,11 +344,14 @@ impl<'a> InfluxQLToLogicalPlan<'a> {
             is_projected,
         } = ProjectionInfo::new(&select.fields, &group_by_tags);
 
+        let order_by = select.order_by.unwrap_or_default();
+        let time_alias = fields[0].name.as_str();
+
         let table_names = find_table_names(select);
         let sort_by_measurement = table_names.len() > 1;
         let mut plans = Vec::new();
         for table_name in table_names {
-            let ctx = Context::new(table_name)
+            let ctx = Context::new(table_name, order_by, time_alias)
                 .with_projection_type(select.projection_type)
                 .with_timezone(select.timezone)
                 .with_group_by_fill(select)
@@ -404,14 +435,10 @@ impl<'a> InfluxQLToLogicalPlan<'a> {
             },
         )?;
 
-        // the sort planner node must refer to the time column using
-        // the alias that was specified
-        let time_alias = fields[0].name.as_str();
         let time_sort_expr = time_alias.as_expr().sort(
-            match select.order_by {
-                // Default behaviour is to sort by time in ascending order if there is no ORDER BY
-                None | Some(OrderByClause::Ascending) => true,
-                Some(OrderByClause::Descending) => false,
+            match order_by {
+                OrderByClause::Ascending => true,
+                OrderByClause::Descending => false,
             },
             false,
         );
@@ -455,10 +482,9 @@ impl<'a> InfluxQLToLogicalPlan<'a> {
         let time_alias = fields[0].name.as_str();
 
         let time_sort_expr = time_alias.as_expr().sort(
-            match select.order_by {
-                // Default behaviour is to sort by time in ascending order if there is no ORDER BY
-                None | Some(OrderByClause::Ascending) => true,
-                Some(OrderByClause::Descending) => false,
+            match ctx.order_by {
+                OrderByClause::Ascending => true,
+                OrderByClause::Descending => false,
             },
             false,
         );
@@ -566,11 +592,13 @@ impl<'a> InfluxQLToLogicalPlan<'a> {
             return LogicalPlanBuilder::from(plan).distinct()?.build();
         }
 
-        let (plan, select_exprs_post_aggr) =
+        let (plan, select_exprs) =
             self.select_aggregate(ctx, input, fields, select_exprs, group_by_tag_set)?;
 
+        let (plan, select_exprs) = self.select_window(ctx, plan, select_exprs, group_by_tag_set)?;
+
         // Wrap the plan in a `LogicalPlan::Projection` from the select expressions
-        project(plan, select_exprs_post_aggr)
+        project(plan, select_exprs)
     }
 
     fn select_aggregate(
@@ -750,6 +778,96 @@ impl<'a> InfluxQLToLogicalPlan<'a> {
             .collect::<Result<Vec<Expr>>>()?;
 
         Ok((plan, select_exprs_post_aggr))
+    }
+
+    /// Generate a plan for any window functions, such as `moving_average` or `difference`.
+    fn select_window(
+        &self,
+        ctx: &Context<'_>,
+        input: LogicalPlan,
+        select_exprs: Vec<Expr>,
+        group_by_tag_set: &[&str],
+    ) -> Result<(LogicalPlan, Vec<Expr>)> {
+        let udfs = find_window_udfs(&select_exprs);
+
+        if udfs.is_empty() {
+            return Ok((input, select_exprs));
+        }
+
+        let order_by = vec![ctx.time_sort_expr()];
+        let partition_by =
+            fields_to_exprs_no_nulls(input.schema(), group_by_tag_set).collect::<Vec<_>>();
+
+        let window_func_exprs = udfs
+            .clone()
+            .into_iter()
+            .map(|e| Self::udf_to_expr(e, partition_by.clone(), order_by.clone()))
+            .collect::<Result<Vec<_>>>()?;
+
+        let plan = LogicalPlanBuilder::from(input)
+            .window(window_func_exprs)?
+            .build()?;
+
+        // Rewrite the window columns from the projection, so that the expressions
+        // refer to the columns from the window projection
+        let select_exprs = select_exprs
+            .iter()
+            .map(|expr| rebase_expr(expr, &udfs, &None, &plan))
+            .collect::<Result<Vec<Expr>>>()?;
+
+        Ok((plan, select_exprs))
+    }
+
+    /// Transform a UDF to a window expression.
+    fn udf_to_expr(e: Expr, partition_by: Vec<Expr>, order_by: Vec<Expr>) -> Result<Expr> {
+        let alias = e
+            .display_name()
+            // display_name is known only to fail with Expr::Sort and Expr::QualifiedWildcard,
+            // neither of which should be passed to udf_to_expr
+            .map_err(|err| error::map::internal(format!("display_name: {err}")))?;
+
+        let Expr::ScalarUDF(expr::ScalarUDF { fun, mut args }) = e else {
+            return error::internal(format!("udf_to_expr: unexpected expression: {e}"))
+        };
+
+        match udf::WindowFunction::try_from_scalar_udf(fun.clone()) {
+            Some(udf::WindowFunction::MovingAverage) => {
+                let Some(Expr::Literal(arg1)) = args.pop() else {
+                    return error::internal("expected ScalarValue for second argument")
+                };
+
+                Ok(Expr::WindowFunction(WindowFunction {
+                    fun: window_function::WindowFunction::AggregateFunction(AggregateFunction::Avg),
+                    args,
+                    partition_by,
+                    order_by,
+                    window_frame: WindowFrame {
+                        units: WindowFrameUnits::Rows,
+                        start_bound: WindowFrameBound::Preceding(arg1),
+                        end_bound: WindowFrameBound::CurrentRow,
+                    },
+                })
+                .alias(alias))
+            }
+            Some(udf::WindowFunction::Difference) => Ok(Expr::WindowFunction(WindowFunction {
+                fun: window_function::WindowFunction::BuiltInWindowFunction(
+                    BuiltInWindowFunction::Lag,
+                ),
+                args,
+                partition_by,
+                order_by,
+                window_frame: WindowFrame {
+                    units: WindowFrameUnits::Rows,
+                    start_bound: WindowFrameBound::Preceding(ScalarValue::Null),
+                    end_bound: WindowFrameBound::CurrentRow,
+                },
+            })
+            .alias(alias)),
+            None => error::internal(format!(
+                "unexpected user-defined window function: {}",
+                fun.name
+            )),
+        }
     }
 
     /// Generate a plan that partitions the input data into groups, first omitting a specified
@@ -1207,6 +1325,42 @@ impl<'a> InfluxQLToLogicalPlan<'a> {
                     key: ScalarValue::Utf8(Some("value".to_owned())),
                 }))
             }
+            "difference" => {
+                check_arg_count(name, args, 1)?;
+
+                // arg0 should be a column or function
+                let arg0 = self.expr_to_df_expr(ctx, scope, &args[0], schemas)?;
+                if let Expr::Literal(ScalarValue::Null) = arg0 {
+                    return Ok(arg0);
+                }
+
+                Ok(arg0.clone() - difference(vec![arg0]))
+            }
+            "moving_average" => {
+                check_arg_count(name, args, 2)?;
+
+                // arg0 should be a column or function
+                let arg0 = self.expr_to_df_expr(ctx, scope, &args[0], schemas)?;
+                if let Expr::Literal(ScalarValue::Null) = arg0 {
+                    return Ok(arg0);
+                }
+
+                // arg1 should be an integer.
+                // Subtract 1 from the window to match InfluxQL behaviour.
+                let arg1 = ScalarValue::UInt64(Some(
+                    match self.expr_to_df_expr(ctx, scope, &args[1], schemas)? {
+                        Expr::Literal(ScalarValue::Int64(Some(v))) => v as u64,
+                        Expr::Literal(ScalarValue::UInt64(Some(v))) => v,
+                        _ => {
+                            return error::query(
+                                "moving average expects number for second argument",
+                            )
+                        }
+                    } - 1,
+                ));
+
+                Ok(moving_average(vec![arg0, lit(arg1)]))
+            }
             _ => error::query(format!("Invalid function '{name}'")),
         }
     }
@@ -1295,11 +1449,10 @@ impl<'a> InfluxQLToLogicalPlan<'a> {
             }
             DataSource::Table(_) => Ok(None),
             DataSource::Subquery(select) => {
-                let ctx = Context::new(ctx.table_name)
+                let ctx = Context::new_subquery(ctx)
                     .with_projection_type(select.projection_type)
                     .with_timezone(select.timezone)
-                    .with_group_by_fill(select)
-                    .with_root_group_by_tags(ctx.root_group_by_tags);
+                    .with_group_by_fill(select);
 
                 Ok(self.subquery_to_plan(&ctx, select)?)
             }
@@ -2957,6 +3110,15 @@ mod test {
               Projection: Dictionary(Int32, Utf8("cpu")) AS iox::measurement, cpu.time AS timestamp, cpu.usage_idle AS usage_idle [iox::measurement:Dictionary(Int32, Utf8), timestamp:Timestamp(Nanosecond, None), usage_idle:Float64;N]
                 TableScan: cpu [cpu:Dictionary(Int32, Utf8);N, host:Dictionary(Int32, Utf8);N, region:Dictionary(Int32, Utf8);N, time:Timestamp(Nanosecond, None), usage_idle:Float64;N, usage_system:Float64;N, usage_user:Float64;N]
             "###);
+        }
+
+        #[test]
+        fn test_window_functions() {
+            // let res = plan("SELECT MOVING_AVERAGE(usage_idle, 2) FROM cpu");
+            // println!("{res}");
+            let res = plan("SELECT DIFFERENCE(usage_idle) FROM cpu");
+            println!("{res}");
+            // assert_snapshot!(plan("SELECT MOVING_AVERAGE(usage_idle, 2) FROM cpu"), @"");
         }
 
         /// Tests for the `DISTINCT` clause and `DISTINCT` function

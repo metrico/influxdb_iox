@@ -1217,7 +1217,7 @@ impl FieldChecker {
     }
 
     fn check_difference(&mut self, name: &str, args: &[Expr]) -> Result<()> {
-        self.inc_aggregate_count();
+        // self.inc_aggregate_count();
         check_exp_args!(name, 1, args);
 
         self.check_nested_symbol(name, &args[0])
@@ -1231,7 +1231,7 @@ impl FieldChecker {
     }
 
     fn check_moving_average(&mut self, args: &[Expr]) -> Result<()> {
-        self.inc_aggregate_count();
+        // self.inc_aggregate_count();
         check_exp_args!("moving_average", 2, args);
 
         let v = lit_integer!("moving_average", args, 1);
