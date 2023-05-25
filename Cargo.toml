@@ -117,14 +117,18 @@ license = "MIT OR Apache-2.0"
 [workspace.dependencies]
 arrow = { version = "40.0.0" }
 arrow-flight = { version = "40.0.0" }
-datafusion = { git = "https://github.com/apache/arrow-datafusion.git", rev="ee1019d9585252066ef5b288c84aabebcbd93ca6", default-features = false }
-datafusion-proto = { git = "https://github.com/apache/arrow-datafusion.git", rev="ee1019d9585252066ef5b288c84aabebcbd93ca6" }
+datafusion = { git = "https://github.com/apache/arrow-datafusion.git", rev = "ee1019d9585252066ef5b288c84aabebcbd93ca6", default-features = false }
+datafusion-proto = { git = "https://github.com/apache/arrow-datafusion.git", rev = "ee1019d9585252066ef5b288c84aabebcbd93ca6" }
 hashbrown = { version = "0.13.2" }
 parquet = { version = "40.0.0" }
 tonic = { version = "0.9.2", features = ["tls", "tls-webpki-roots"] }
 tonic-build = { version = "0.9.2" }
 tonic-health = { version = "0.9.2" }
 tonic-reflection = { version = "0.9.2" }
+
+[patch.crates-io]
+# Temporary until released - https://github.com/apache/arrow-rs/pull/4280
+parquet = { git = "https://github.com/tustvold/arrow-rs", rev = "2ce3ecc85e5c3172f612af82c5257bf2a9e6d738" }
 
 # This profile optimizes for runtime performance and small binary size at the expense of longer
 # build times. It's most suitable for final release builds.
