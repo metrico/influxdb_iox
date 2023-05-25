@@ -65,7 +65,10 @@ fn partition_keys<'a>(
                     key: ColumnName::from(*col_name),
                 }
             }
-            Template::TimeFormat(t, fmt) => FilledTemplate::TimeFormat { nanos: t[idx], fmt },
+            Template::TimeFormat(t, fmt) => FilledTemplate::TimeFormat {
+                nanos: t[idx],
+                fmt: Cow::Borrowed(fmt),
+            },
         });
         partition_key(resolved_columns, cols.len())
     })
@@ -118,6 +121,7 @@ enum Template<'a> {
     TimeFormat(&'a [i64], &'a str),
 }
 
+#[derive(Debug, Clone)]
 enum FilledTemplate<'a> {
     TagKeyValue {
         key: ColumnName<'a>,
@@ -128,7 +132,7 @@ enum FilledTemplate<'a> {
     },
     TimeFormat {
         nanos: i64,
-        fmt: &'a str,
+        fmt: Cow<'a, str>,
     },
 }
 
@@ -169,6 +173,8 @@ fn partition_key<'a>(
 }
 
 use std::borrow::Cow;
+
+#[derive(Debug, PartialEq, Eq, Hash, Clone)]
 struct ColumnName<'a>(Cow<'a, str>);
 
 impl<'a> From<&'a str> for ColumnName<'a> {
@@ -177,11 +183,24 @@ impl<'a> From<&'a str> for ColumnName<'a> {
     }
 }
 
+impl<'a> From<String> for ColumnName<'a> {
+    fn from(name: String) -> Self {
+        Self(Cow::Owned(name))
+    }
+}
+
+#[derive(Debug, PartialEq, Clone)]
 struct ColumnValue<'a>(Cow<'a, str>);
 
 impl<'a> From<&'a str> for ColumnValue<'a> {
     fn from(name: &'a str) -> Self {
         Self(Cow::Borrowed(name))
+    }
+}
+
+impl<'a> From<String> for ColumnValue<'a> {
+    fn from(name: String) -> Self {
+        Self(Cow::Owned(name))
     }
 }
 
@@ -199,12 +218,33 @@ mod tests {
     use proptest::{prelude::prop, proptest, strategy::Strategy};
     use rand::prelude::*;
 
+    fn filled_template_parts_vec() -> impl Strategy<Value = Vec<FilledTemplate<'static>>> {
+        prop::collection::vec((".+", ".+"), 1..1024).prop_map(|vec| {
+            vec.into_iter()
+                .enumerate()
+                .map(|(idx, (string1, string2))| match idx % 2 {
+                    0 => FilledTemplate::TagKeyValue {
+                        key: ColumnName::from(string1),
+                        value: ColumnValue::from(string2),
+                    },
+                    1 => FilledTemplate::MissingTag {
+                        key: ColumnName::from(string1),
+                    },
+                    _ => FilledTemplate::TimeFormat {
+                        nanos: 1_685_026_200_000_000_000,
+                        fmt: Cow::Owned(string1),
+                    },
+                })
+                .collect()
+        })
+    }
+
     proptest! {
         // Assert that tag column and time column values can be round-tripped through a partition
         // key given a partition template.
         #[test]
         fn partition_key_round_trip(
-            filled_template_parts in
+            filled_template_parts in filled_template_parts_vec()
         ) {
             let partition_template_parts: Vec<_> = filled_template_parts.iter().map(|filled| {
                 match filled {
@@ -214,24 +254,25 @@ mod tests {
                 }
             }).collect();
             let expected_column_values: HashMap<_, _> = filled_template_parts
-                .iter()
+                .clone()
+                .into_iter()
                 .filter_map(|filled| {
                     match filled {
                         FilledTemplate::TagKeyValue { key, value } => {
-                            Some((key.0.to_string(), Some(value.0.to_string())))
+                            Some((key, Some(value)))
                         }
-                        FilledTemplate::MissingTag { key } => Some((key.0.to_string(), None)),
+                        FilledTemplate::MissingTag { key } => Some((key, None)),
                         FilledTemplate::TimeFormat { .. } => None,
                     }
                 }).collect();
 
             let partition_key = partition_key(
-                filled_template_parts.iter(),
+                filled_template_parts.clone().into_iter(),
                 filled_template_parts.len()
             );
 
             let parsed_column_values = column_values(
-                partition_template_parts.iter(),
+                partition_template_parts.into_iter(),
                 &partition_key
             );
 
