@@ -9,7 +9,7 @@ use crate::{
 use chrono::{format::StrftimeItems, TimeZone, Utc};
 use data_types::{TablePartitionTemplateOverride, TemplatePart};
 use schema::{InfluxColumnType, TIME_COLUMN_NAME};
-use std::ops::Range;
+use std::{collections::HashMap, ops::Range};
 
 /// Returns an iterator identifying consecutive ranges for a given partition key
 pub fn partition_batch<'a>(
@@ -17,62 +17,6 @@ pub fn partition_batch<'a>(
     template: &'a TablePartitionTemplateOverride,
 ) -> impl Iterator<Item = (String, Range<usize>)> + 'a {
     range_encode(partition_keys(batch, template.parts()))
-}
-
-/// A [`TablePartitionTemplateOverride`] is made up of one of more [`TemplatePart`]s that are
-/// rendered and joined together by hyphens to form a single partition key.
-///
-/// To avoid allocating intermediate strings, and performing column lookups for every row,
-/// each [`TemplatePart`] is converted to a [`Template`].
-///
-/// [`Template::fmt_row`] can then be used to render the template for that particular row
-/// to the provided string, without performing any additional column lookups
-enum Template<'a> {
-    TagValue(&'a Column, &'a str),
-    MissingTag(&'a str),
-    TimeFormat(&'a [i64], &'a str),
-}
-
-enum FilledTemplate<'a> {
-    TagKeyValue { key: &'a str, value: &'a str },
-    MissingTag { key: &'a str },
-    TimeFormat { nanos: i64, fmt: &'a str },
-}
-
-impl<'a> FilledTemplate<'a> {
-    /// Renders this template to `out` for the values it contains
-    fn fmt_row<W: std::fmt::Write>(&self, out: &mut W) -> std::fmt::Result {
-        match self {
-            FilledTemplate::TagKeyValue { key, value } => {
-                out.write_str(key)?;
-                out.write_char('_')?;
-                out.write_str(value)
-            }
-            FilledTemplate::MissingTag { key } => out.write_str(key),
-            FilledTemplate::TimeFormat { nanos, fmt } => {
-                let formatted = Utc
-                    .timestamp_nanos(*nanos)
-                    .format_with_items(StrftimeItems::new(fmt));
-                write!(out, "{formatted}")
-            }
-        }
-    }
-}
-
-fn partition_key<'a>(
-    filled_template_parts: impl Iterator<Item = FilledTemplate<'a>>,
-    len: usize,
-) -> String {
-    let mut string = String::new();
-    for (part_idx, part) in filled_template_parts.enumerate() {
-        part.fmt_row(&mut string)
-            .expect("string writing is infallible");
-
-        if part_idx + 1 != len {
-            string.push('-');
-        }
-    }
-    string
 }
 
 /// Returns an iterator of partition keys for the given table batch
@@ -112,12 +56,14 @@ fn partition_keys<'a>(
                     _ => unreachable!("Template::TagValue only contains tag columns"),
                 };
                 FilledTemplate::TagKeyValue {
-                    key: col_name,
-                    value,
+                    key: ColumnName::from(*col_name),
+                    value: ColumnValue::from(value),
                 }
             }
             Template::TagValue(_, col_name) | Template::MissingTag(col_name) => {
-                FilledTemplate::MissingTag { key: col_name }
+                FilledTemplate::MissingTag {
+                    key: ColumnName::from(*col_name),
+                }
             }
             Template::TimeFormat(t, fmt) => FilledTemplate::TimeFormat { nanos: t[idx], fmt },
         });
@@ -158,11 +104,140 @@ where
     })
 }
 
+/// A [`TablePartitionTemplateOverride`] is made up of one of more [`TemplatePart`]s that are
+/// rendered and joined together by hyphens to form a single partition key.
+///
+/// To avoid allocating intermediate strings, and performing column lookups for every row,
+/// each [`TemplatePart`] is converted to a [`Template`].
+///
+/// [`Template::fmt_row`] can then be used to render the template for that particular row
+/// to the provided string, without performing any additional column lookups
+enum Template<'a> {
+    TagValue(&'a Column, &'a str),
+    MissingTag(&'a str),
+    TimeFormat(&'a [i64], &'a str),
+}
+
+enum FilledTemplate<'a> {
+    TagKeyValue {
+        key: ColumnName<'a>,
+        value: ColumnValue<'a>,
+    },
+    MissingTag {
+        key: ColumnName<'a>,
+    },
+    TimeFormat {
+        nanos: i64,
+        fmt: &'a str,
+    },
+}
+
+impl<'a> FilledTemplate<'a> {
+    /// Renders this template to `out` for the values it contains
+    fn fmt_row<W: std::fmt::Write>(&self, out: &mut W) -> std::fmt::Result {
+        match self {
+            FilledTemplate::TagKeyValue { key, value } => {
+                out.write_str(&key.0)?;
+                out.write_char('_')?;
+                out.write_str(&value.0)
+            }
+            FilledTemplate::MissingTag { key } => out.write_str(&key.0),
+            FilledTemplate::TimeFormat { nanos, fmt } => {
+                let formatted = Utc
+                    .timestamp_nanos(*nanos)
+                    .format_with_items(StrftimeItems::new(fmt));
+                write!(out, "{formatted}")
+            }
+        }
+    }
+}
+
+fn partition_key<'a>(
+    filled_template_parts: impl Iterator<Item = FilledTemplate<'a>>,
+    len: usize,
+) -> String {
+    let mut string = String::new();
+    for (part_idx, part) in filled_template_parts.enumerate() {
+        part.fmt_row(&mut string)
+            .expect("string writing is infallible");
+
+        if part_idx + 1 != len {
+            string.push('-');
+        }
+    }
+    string
+}
+
+use std::borrow::Cow;
+struct ColumnName<'a>(Cow<'a, str>);
+
+impl<'a> From<&'a str> for ColumnName<'a> {
+    fn from(name: &'a str) -> Self {
+        Self(Cow::Borrowed(name))
+    }
+}
+
+struct ColumnValue<'a>(Cow<'a, str>);
+
+impl<'a> From<&'a str> for ColumnValue<'a> {
+    fn from(name: &'a str) -> Self {
+        Self(Cow::Borrowed(name))
+    }
+}
+
+fn column_values<'a, 'b>(
+    partition_template_parts: impl Iterator<Item = TemplatePart<'a>>,
+    partition_key: &'b str,
+) -> HashMap<ColumnName<'b>, Option<ColumnValue<'b>>> {
+    unimplemented!()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::writer::Writer;
+    use proptest::{prelude::prop, proptest, strategy::Strategy};
     use rand::prelude::*;
+
+    proptest! {
+        // Assert that tag column and time column values can be round-tripped through a partition
+        // key given a partition template.
+        #[test]
+        fn partition_key_round_trip(
+            filled_template_parts in
+        ) {
+            let partition_template_parts: Vec<_> = filled_template_parts.iter().map(|filled| {
+                match filled {
+                    FilledTemplate::TagKeyValue { key, .. } => TemplatePart::TagValue(&key.0),
+                    FilledTemplate::MissingTag { key } => TemplatePart::TagValue(&key.0),
+                    FilledTemplate::TimeFormat { fmt, .. } => TemplatePart::TimeFormat(fmt),
+                }
+            }).collect();
+            let expected_column_values: HashMap<_, _> = filled_template_parts
+                .iter()
+                .filter_map(|filled| {
+                    match filled {
+                        FilledTemplate::TagKeyValue { key, value } => {
+                            Some((key.0.to_string(), Some(value.0.to_string())))
+                        }
+                        FilledTemplate::MissingTag { key } => Some((key.0.to_string(), None)),
+                        FilledTemplate::TimeFormat { .. } => None,
+                    }
+                }).collect();
+
+            let partition_key = partition_key(
+                filled_template_parts.iter(),
+                filled_template_parts.len()
+            );
+
+            let parsed_column_values = column_values(
+                partition_template_parts.iter(),
+                &partition_key
+            );
+
+            assert_eq!(expected_column_values, parsed_column_values);
+        }
+    }
 
     fn make_rng() -> StdRng {
         let seed = rand::rngs::OsRng::default().next_u64();

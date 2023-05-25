@@ -3591,6 +3591,7 @@ dependencies = [
  "iox_time",
  "itertools",
  "mutable_batch_lp",
+ "proptest",
  "rand 0.8.5",
  "schema",
  "snafu",
