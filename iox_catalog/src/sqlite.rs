@@ -18,7 +18,7 @@ use data_types::{
     Column, ColumnId, ColumnSet, ColumnType, CompactionLevel, Namespace, NamespaceId,
     NamespaceName, NamespacePartitionTemplateOverride, ParquetFile, ParquetFileId,
     ParquetFileParams, Partition, PartitionId, PartitionKey, SkippedCompaction, Table, TableId,
-    TablePartitionTemplateOverride, Timestamp,
+    TablePartitionTemplateOverride, TemplatePart, Timestamp,
 };
 use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
@@ -489,7 +489,7 @@ impl TableRepo for SqliteTxn {
         // By using SELECT rather than VALUES it will insert zero rows if it finds a null in the
         // subquery, i.e. if count >= max_tables. fetch_one() will return a RowNotFound error if
         // nothing was inserted. Not pretty!
-        let rec = sqlx::query_as::<_, Table>(
+        let table = sqlx::query_as::<_, Table>(
             r#"
 INSERT INTO table_name ( name, namespace_id, partition_template )
 SELECT $1, id, $2 FROM (
@@ -525,7 +525,19 @@ RETURNING *;
             }
         })?;
 
-        Ok(rec)
+        // Partitioning is only supported for tags, so create tag columns for all `TagValue`
+        // partition template parts. It's important this happens within the table creation
+        // transaction so that there isn't a possibility of a concurrent write creating these
+        // columns with an unsupported type.
+        for template_part in table.partition_template.parts() {
+            if let TemplatePart::TagValue(tag_name) = template_part {
+                self.columns()
+                    .create_or_get(tag_name, table.id, ColumnType::Tag)
+                    .await?;
+            }
+        }
+
+        Ok(table)
     }
 
     async fn get_by_id(&mut self, table_id: TableId) -> Result<Option<Table>> {

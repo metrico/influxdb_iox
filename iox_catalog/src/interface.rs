@@ -1223,8 +1223,9 @@ pub(crate) mod test_helpers {
                     },
                 ],
             }),
-            &namespace.partition_template,
+            &namespace2.partition_template,
         );
+
         let templated = repos
             .tables()
             .create(
