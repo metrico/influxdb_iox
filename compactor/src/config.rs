@@ -2,6 +2,7 @@
 use std::{collections::HashSet, fmt::Display, num::NonZeroUsize, sync::Arc, time::Duration};
 
 use backoff::BackoffConfig;
+use compactor_scheduler_grpc::Scheduler;
 use data_types::PartitionId;
 use iox_catalog::interface::Catalog;
 use iox_query::exec::Executor;
@@ -27,6 +28,9 @@ pub struct Config {
 
     /// Central catalog.
     pub catalog: Arc<dyn Catalog>,
+
+    /// Scheduler.
+    pub scheduler: Arc<dyn Scheduler>,
 
     /// Store holding the actual parquet files.
     pub parquet_store_real: ParquetStorage,

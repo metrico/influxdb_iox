@@ -14,6 +14,7 @@ pub fn log_config(config: &Config) {
         // no need to print the internal state of the registry
         metric_registry: _,
         catalog,
+        scheduler,
         parquet_store_real,
         parquet_store_scratchpad,
         exec,
@@ -59,6 +60,7 @@ pub fn log_config(config: &Config) {
     info!(
         ?compaction_type,
         %catalog,
+        %scheduler,
         %parquet_store_real,
         %parquet_store_scratchpad,
         %exec,

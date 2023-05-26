@@ -871,6 +871,7 @@ name = "clap_blocks"
 version = "0.1.0"
 dependencies = [
  "clap",
+ "compactor_scheduler_grpc",
  "futures",
  "http",
  "humantime",
@@ -981,6 +982,7 @@ dependencies = [
  "async-trait",
  "backoff",
  "bytes",
+ "compactor_scheduler_grpc",
  "compactor_test_utils",
  "data_types",
  "datafusion",
@@ -1032,6 +1034,7 @@ dependencies = [
  "async-trait",
  "backoff",
  "compactor",
+ "compactor_scheduler_grpc",
  "data_types",
  "datafusion",
  "datafusion_util",
@@ -3039,6 +3042,7 @@ dependencies = [
  "backoff",
  "clap_blocks",
  "compactor",
+ "compactor_scheduler_grpc",
  "data_types",
  "hyper",
  "iox_catalog",

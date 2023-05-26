@@ -21,6 +21,7 @@ use compactor::{
     compactor::Compactor,
     config::{Config, PartitionsSourceConfig, ShardConfig},
 };
+use compactor_scheduler_grpc::Scheduler;
 use data_types::PartitionId;
 use hyper::{Body, Request, Response};
 use iox_catalog::interface::Catalog;
@@ -151,6 +152,7 @@ pub async fn create_compactor_server_type(
     common_state: &CommonServerState,
     metric_registry: Arc<metric::Registry>,
     catalog: Arc<dyn Catalog>,
+    scheduler: Arc<dyn Scheduler>,
     parquet_store_real: ParquetStorage,
     parquet_store_scratchpad: ParquetStorage,
     exec: Arc<Executor>,
@@ -210,6 +212,7 @@ pub async fn create_compactor_server_type(
         compaction_type,
         metric_registry: Arc::clone(&metric_registry),
         catalog,
+        scheduler,
         parquet_store_real,
         parquet_store_scratchpad,
         exec,

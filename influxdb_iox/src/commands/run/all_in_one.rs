@@ -6,6 +6,7 @@ use super::main;
 use clap_blocks::{
     catalog_dsn::CatalogDsnConfig,
     compactor::CompactorConfig,
+    compactor_scheduler::CompactorSchedulerConfig,
     ingester::IngesterConfig,
     ingester_address::IngesterAddress,
     object_store::{make_object_store, ObjectStoreConfig},
@@ -314,6 +315,9 @@ pub struct Config {
     )]
     pub compactor_grpc_bind_address: SocketAddr,
 
+    #[clap(flatten)]
+    compactor_scheduler_config: CompactorSchedulerConfig,
+
     /// Size of the querier RAM cache used to store catalog metadata information in bytes.
     #[clap(
         long = "querier-ram-pool-metadata-bytes",
@@ -373,6 +377,7 @@ impl Config {
             querier_grpc_bind_address,
             ingester_grpc_bind_address,
             compactor_grpc_bind_address,
+            compactor_scheduler_config,
             querier_ram_pool_metadata_bytes,
             querier_ram_pool_data_bytes,
             querier_max_concurrent_queries,
@@ -524,6 +529,7 @@ impl Config {
 
             ingester_run_config,
             compactor_run_config,
+            compactor_scheduler_config,
 
             catalog_dsn,
             ingester_config,
@@ -551,6 +557,7 @@ struct SpecializedConfig {
     querier_run_config: RunConfig,
     ingester_run_config: RunConfig,
     compactor_run_config: RunConfig,
+    compactor_scheduler_config: CompactorSchedulerConfig,
 
     catalog_dsn: CatalogDsnConfig,
     ingester_config: IngesterConfig,
@@ -565,6 +572,7 @@ pub async fn command(config: Config) -> Result<()> {
         querier_run_config,
         ingester_run_config,
         compactor_run_config,
+        compactor_scheduler_config,
         catalog_dsn,
         ingester_config,
         router_config,
@@ -582,6 +590,8 @@ pub async fn command(config: Config) -> Result<()> {
     // all in one mode to ensure the database is ready.
     info!("running db migrations");
     catalog.setup().await?;
+
+    let scheduler = compactor_scheduler_config.get_scheduler();
 
     let object_store: Arc<DynObjectStore> =
         make_object_store(router_run_config.object_store_config())
@@ -645,6 +655,7 @@ pub async fn command(config: Config) -> Result<()> {
         &common_state,
         Arc::clone(&metrics),
         Arc::clone(&catalog),
+        scheduler,
         parquet_store_real,
         parquet_store_scratchpad,
         Arc::clone(&exec),
