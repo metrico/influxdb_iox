@@ -8,9 +8,6 @@ pub enum CompactionType {
     /// Compacts recent writes as they come in.
     #[default]
     Hot,
-
-    /// Compacts partitions that have not been written to very recently for longer-term storage.
-    Cold,
 }
 
 /// CLI config for compactor
@@ -35,16 +32,6 @@ pub struct CompactorConfig {
         action
     )]
     pub compaction_partition_minute_threshold: u64,
-
-    /// When in "cold" compaction mode, the compactor will only consider compacting partitions that
-    /// have had no new Parquet files created in at least this many minutes.
-    #[clap(
-        long = "compaction_cold_partition_minute_threshold",
-        env = "INFLUXDB_IOX_COMPACTION_COLD_PARTITION_MINUTE_THRESHOLD",
-        default_value = "60",
-        action
-    )]
-    pub compaction_cold_partition_minute_threshold: u64,
 
     /// Number of partitions that should be compacted in parallel.
     ///
@@ -334,13 +321,6 @@ mod tests {
     }
 
     #[test]
-    fn can_specify_cold() {
-        let config =
-            CompactorConfig::try_parse_from(["my_binary", "--compaction-type", "cold"]).unwrap();
-        assert_eq!(config.compaction_type, CompactionType::Cold);
-    }
-
-    #[test]
     fn any_other_compaction_type_string_is_invalid() {
         let error = CompactorConfig::try_parse_from(["my_binary", "--compaction-type", "hello"])
             .unwrap_err()
@@ -349,6 +329,6 @@ mod tests {
             &error,
             "invalid value 'hello' for '--compaction-type <COMPACTION_TYPE>'"
         );
-        assert_contains!(&error, "[possible values: hot, cold]");
+        assert_contains!(&error, "[possible values: hot]");
     }
 }

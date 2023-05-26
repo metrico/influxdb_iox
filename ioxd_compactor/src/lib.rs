@@ -195,7 +195,6 @@ pub async fn create_compactor_server_type(
         compactor_config.process_all_partitions,
         compactor_config.compaction_type,
         compactor_config.compaction_partition_minute_threshold,
-        compactor_config.compaction_cold_partition_minute_threshold,
     );
 
     // This is annoying to have two types that are so similar and have to convert between them, but
@@ -205,7 +204,6 @@ pub async fn create_compactor_server_type(
     // conversion, though.
     let compaction_type = match compactor_config.compaction_type {
         CompactionType::Hot => compactor::config::CompactionType::Hot,
-        CompactionType::Cold => compactor::config::CompactionType::Cold,
     };
 
     let compactor = Compactor::start(Config {
@@ -252,14 +250,10 @@ fn create_partition_source_config(
     process_all_partitions: bool,
     compaction_type: CompactionType,
     compaction_partition_minute_threshold: u64,
-    compaction_cold_partition_minute_threshold: u64,
 ) -> PartitionsSourceConfig {
     match (partition_filter, process_all_partitions, compaction_type) {
         (None, false, CompactionType::Hot) => PartitionsSourceConfig::CatalogRecentWrites {
             threshold: Duration::from_secs(compaction_partition_minute_threshold * 60),
-        },
-        (None, false, CompactionType::Cold) => PartitionsSourceConfig::CatalogColdForWrites {
-            threshold: Duration::from_secs(compaction_cold_partition_minute_threshold * 60),
         },
         (None, true, _) => PartitionsSourceConfig::CatalogAll,
         (Some(ids), false, _) => {
@@ -285,7 +279,6 @@ mod tests {
             true,
             CompactionType::Hot, // arbitrary
             10,                  // arbitrary
-            60,                  // arbitrary
         );
     }
 
@@ -296,7 +289,6 @@ mod tests {
             false,
             CompactionType::Hot, // arbitrary
             10,                  // arbitrary
-            60,                  // arbitrary
         );
 
         assert_eq!(
@@ -312,7 +304,6 @@ mod tests {
             true,
             CompactionType::Hot, // arbitrary
             10,                  // arbitrary
-            60,                  // arbitrary
         );
 
         assert_eq!(partitions_source_config, PartitionsSourceConfig::CatalogAll,);
@@ -320,36 +311,13 @@ mod tests {
 
     #[test]
     fn hot_compaction() {
-        let partitions_source_config = create_partition_source_config(
-            None,
-            false,
-            CompactionType::Hot,
-            10,
-            60, // arbitrary
-        );
+        let partitions_source_config =
+            create_partition_source_config(None, false, CompactionType::Hot, 10);
 
         assert_eq!(
             partitions_source_config,
             PartitionsSourceConfig::CatalogRecentWrites {
                 threshold: Duration::from_secs(600)
-            },
-        );
-    }
-
-    #[test]
-    fn cold_compaction() {
-        let partitions_source_config = create_partition_source_config(
-            None,
-            false,
-            CompactionType::Cold,
-            10, // arbitrary
-            60,
-        );
-
-        assert_eq!(
-            partitions_source_config,
-            PartitionsSourceConfig::CatalogColdForWrites {
-                threshold: Duration::from_secs(3600)
             },
         );
     }

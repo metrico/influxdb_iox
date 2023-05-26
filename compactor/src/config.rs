@@ -168,9 +168,6 @@ pub enum CompactionType {
     /// Compacts recent writes as they come in.
     #[default]
     Hot,
-
-    /// Compacts partitions that have not been written to very recently for longer-term storage.
-    Cold,
 }
 
 /// Partitions source config.
@@ -180,14 +177,6 @@ pub enum PartitionsSourceConfig {
     /// writes, defined as having a new Parquet file created within the last `threshold`.
     CatalogRecentWrites {
         /// The amount of time ago to look for Parquet file creations
-        threshold: Duration,
-    },
-
-    /// For "cold" compaction: use the catalog to determine which partitions have gone cold for
-    /// writing and should undergo final compaction, defined as having no new Parquet files created
-    /// in at least the last `threshold`.
-    CatalogColdForWrites {
-        /// The amount of time ago the last Parquet file creation must have happened
         threshold: Duration,
     },
 
@@ -207,9 +196,6 @@ impl Display for PartitionsSourceConfig {
         match self {
             Self::CatalogRecentWrites { threshold } => {
                 write!(f, "catalog_recent_writes({threshold:?})")
-            }
-            Self::CatalogColdForWrites { threshold } => {
-                write!(f, "catalog_cold_for_writes({threshold:?})")
             }
             Self::CatalogAll => write!(f, "catalog_all"),
             Self::Fixed(p_ids) => {

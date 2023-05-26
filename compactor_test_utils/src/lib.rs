@@ -39,7 +39,7 @@ use async_trait::async_trait;
 use backoff::BackoffConfig;
 use compactor::{
     compact,
-    config::{CompactionType, Config, PartitionsSourceConfig},
+    config::{Config, PartitionsSourceConfig},
     hardcoded_components, Components, PanicDataFusionPlanner, PartitionInfo,
 };
 use compactor_scheduler_grpc::LocalScheduler;
@@ -563,15 +563,6 @@ impl<const WITH_FILES: bool> TestSetupBuilder<WITH_FILES> {
     /// Set the compaction timeout
     pub fn with_partition_timeout(mut self, partition_timeout: Duration) -> Self {
         self.config.partition_timeout = partition_timeout;
-        self
-    }
-
-    /// Set to do cold compaction
-    pub fn for_cold_compaction(mut self) -> Self {
-        self.config.compaction_type = CompactionType::Cold;
-        self.config.partitions_source = PartitionsSourceConfig::CatalogColdForWrites {
-            threshold: Duration::from_secs(60 * 60),
-        };
         self
     }
 
