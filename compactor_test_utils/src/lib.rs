@@ -121,7 +121,6 @@ impl TestSetupBuilder<false> {
             .with_invariant_check(Arc::clone(&invariant_check) as _);
 
         let config = Config {
-            compaction_type: Default::default(),
             metric_registry: catalog.metric_registry(),
             catalog: catalog.catalog(),
             scheduler: Arc::new(LocalScheduler::default()),

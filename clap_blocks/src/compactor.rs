@@ -2,27 +2,9 @@
 
 use std::num::NonZeroUsize;
 
-/// Compaction type.
-#[derive(Debug, Default, Clone, Copy, PartialEq, clap::ValueEnum)]
-pub enum CompactionType {
-    /// Compacts recent writes as they come in.
-    #[default]
-    Hot,
-}
-
 /// CLI config for compactor
 #[derive(Debug, Clone, clap::Parser)]
 pub struct CompactorConfig {
-    /// Type of compaction to perform.
-    #[clap(
-        value_enum,
-        long = "compaction-type",
-        env = "INFLUXDB_IOX_COMPACTION_TYPE",
-        default_value = "hot",
-        action
-    )]
-    pub compaction_type: CompactionType,
-
     /// When in "hot" compaction mode, the compactor will only consider compacting partitions that
     /// have new Parquet files created within this many minutes.
     #[clap(
@@ -299,36 +281,4 @@ pub struct CompactorConfig {
         action
     )]
     pub max_num_columns_per_table: usize,
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use clap::Parser;
-    use test_helpers::assert_contains;
-
-    #[test]
-    fn default_compaction_type_is_hot() {
-        let config = CompactorConfig::try_parse_from(["my_binary"]).unwrap();
-        assert_eq!(config.compaction_type, CompactionType::Hot);
-    }
-
-    #[test]
-    fn can_specify_hot() {
-        let config =
-            CompactorConfig::try_parse_from(["my_binary", "--compaction-type", "hot"]).unwrap();
-        assert_eq!(config.compaction_type, CompactionType::Hot);
-    }
-
-    #[test]
-    fn any_other_compaction_type_string_is_invalid() {
-        let error = CompactorConfig::try_parse_from(["my_binary", "--compaction-type", "hello"])
-            .unwrap_err()
-            .to_string();
-        assert_contains!(
-            &error,
-            "invalid value 'hello' for '--compaction-type <COMPACTION_TYPE>'"
-        );
-        assert_contains!(&error, "[possible values: hot]");
-    }
 }
