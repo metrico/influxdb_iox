@@ -2,11 +2,9 @@ use std::{fmt::Display, sync::Arc, time::Duration};
 
 use async_trait::async_trait;
 use backoff::{Backoff, BackoffConfig};
-use data_types::PartitionId;
+use data_types::{PartitionId, PartitionsSource};
 use iox_catalog::interface::Catalog;
 use iox_time::TimeProvider;
-
-use super::PartitionsSource;
 
 #[derive(Debug)]
 /// Returns all partitions that had a new Parquet file written after a lower bound of the current

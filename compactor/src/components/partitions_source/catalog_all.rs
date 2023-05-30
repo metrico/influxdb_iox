@@ -2,10 +2,8 @@ use std::{fmt::Display, sync::Arc};
 
 use async_trait::async_trait;
 use backoff::{Backoff, BackoffConfig};
-use data_types::PartitionId;
+use data_types::{PartitionId, PartitionsSource};
 use iox_catalog::interface::Catalog;
-
-use super::PartitionsSource;
 
 #[derive(Debug)]
 /// Returns all partitions in the catalog, regardless of any other condition

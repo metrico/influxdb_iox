@@ -8,13 +8,13 @@ use std::{
 };
 
 use async_trait::async_trait;
-use data_types::{CompactionLevel, ParquetFile, ParquetFileId, ParquetFileParams, PartitionId};
+use data_types::{
+    CompactionLevel, ParquetFile, ParquetFileId, ParquetFileParams, PartitionId, PartitionsSource,
+};
 use futures::StreamExt;
 use iox_time::{Time, TimeProvider};
 
-use crate::components::{
-    commit::Commit, partition_done_sink::PartitionDoneSink, partitions_source::PartitionsSource,
-};
+use crate::components::{commit::Commit, partition_done_sink::PartitionDoneSink};
 
 /// Ensures that partitions that do not receive any commits are throttled.
 ///
@@ -297,12 +297,12 @@ where
 
 #[cfg(test)]
 mod tests {
+    use data_types::MockPartitionsSource;
     use iox_time::MockProvider;
 
     use crate::components::{
         commit::mock::{CommitHistoryEntry, MockCommit},
         partition_done_sink::mock::MockPartitionDoneSink,
-        partitions_source::mock::MockPartitionsSource,
     };
 
     use super::*;

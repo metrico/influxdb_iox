@@ -4,7 +4,7 @@
 
 use std::{sync::Arc, time::Duration};
 
-use data_types::CompactionLevel;
+use data_types::{CompactionLevel, MockPartitionsSource, PartitionsSource};
 use object_store::memory::InMemory;
 use observability_deps::tracing::info;
 
@@ -71,9 +71,8 @@ use super::{
         catalog_all::CatalogAllPartitionsSource,
         catalog_to_compact::CatalogToCompactPartitionsSource,
         filter::FilterPartitionsSourceWrapper, logging::LoggingPartitionsSourceWrapper,
-        metrics::MetricsPartitionsSourceWrapper, mock::MockPartitionsSource,
-        not_empty::NotEmptyPartitionsSourceWrapper,
-        randomize_order::RandomizeOrderPartitionsSourcesWrapper, PartitionsSource,
+        metrics::MetricsPartitionsSourceWrapper, not_empty::NotEmptyPartitionsSourceWrapper,
+        randomize_order::RandomizeOrderPartitionsSourcesWrapper,
     },
     post_classification_partition_filter::{
         logging::LoggingPostClassificationFilterWrapper,
