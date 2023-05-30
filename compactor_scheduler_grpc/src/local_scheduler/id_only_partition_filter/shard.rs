@@ -5,14 +5,16 @@ use sharder::JumpHash;
 
 use super::IdOnlyPartitionFilter;
 
+/// Apply a shard [`IdOnlyPartitionFilter`].
+/// PartitionId must be within shard.
 #[derive(Debug)]
-pub struct ShardPartitionFilter {
+pub(crate) struct ShardPartitionFilter {
     jump_hash: JumpHash<usize>,
     shard_id: usize,
 }
 
 impl ShardPartitionFilter {
-    pub fn new(n_shards: usize, shard_id: usize) -> Self {
+    pub(crate) fn new(n_shards: usize, shard_id: usize) -> Self {
         assert!(shard_id < n_shards, "shard_id out of range");
 
         Self {

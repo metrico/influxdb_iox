@@ -4,13 +4,14 @@ use data_types::PartitionId;
 
 use super::IdOnlyPartitionFilter;
 
+/// Apply a series of ANDed [`IdOnlyPartitionFilter`].
 #[derive(Debug)]
-pub struct AndIdOnlyPartitionFilter {
+pub(crate) struct AndIdOnlyPartitionFilter {
     filters: Vec<Arc<dyn IdOnlyPartitionFilter>>,
 }
 
 impl AndIdOnlyPartitionFilter {
-    pub fn new(filters: Vec<Arc<dyn IdOnlyPartitionFilter>>) -> Self {
+    pub(crate) fn new(filters: Vec<Arc<dyn IdOnlyPartitionFilter>>) -> Self {
         Self { filters }
     }
 }
@@ -38,7 +39,7 @@ impl IdOnlyPartitionFilter for AndIdOnlyPartitionFilter {
 mod tests {
     use std::collections::HashSet;
 
-    use crate::components::id_only_partition_filter::by_id::ByIdPartitionFilter;
+    use crate::local_scheduler::id_only_partition_filter::by_id::ByIdPartitionFilter;
 
     use super::*;
 

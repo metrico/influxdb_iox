@@ -2,6 +2,7 @@
 
 use super::main;
 use crate::process_info::setup_metric_registry;
+use backoff::BackoffConfig;
 use clap_blocks::{
     catalog_dsn::CatalogDsnConfig, compactor::CompactorConfig,
     compactor_scheduler::CompactorSchedulerConfig, object_store::make_object_store,
@@ -80,7 +81,9 @@ pub async fn command(config: Config) -> Result<(), Error> {
         .get_catalog("compactor", Arc::clone(&metric_registry))
         .await?;
 
-    let scheduler = config.compactor_scheduler_config.get_scheduler();
+    let scheduler = config
+        .compactor_scheduler_config
+        .get_scheduler(Arc::clone(&catalog), BackoffConfig::default());
 
     let object_store = make_object_store(config.run_config.object_store_config())
         .map_err(Error::ObjectStoreParsing)?;

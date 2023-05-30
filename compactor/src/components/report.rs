@@ -1,8 +1,9 @@
 //! Report component system state.
 
+use compactor_scheduler_grpc::temp;
 use observability_deps::tracing::info;
 
-use crate::config::{Config, ShardConfig};
+use crate::config::Config;
 
 use super::Components;
 
@@ -44,7 +45,7 @@ pub fn log_config(config: &Config) {
         None => (None, None),
         Some(shard_config) => {
             // use struct unpack so we don't forget any members
-            let ShardConfig { n_shards, shard_id } = shard_config;
+            let temp::ShardConfig { n_shards, shard_id } = shard_config;
             (Some(n_shards), Some(shard_id))
         }
     };

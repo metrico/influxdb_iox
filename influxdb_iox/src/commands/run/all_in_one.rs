@@ -3,6 +3,7 @@
 use crate::process_info::setup_metric_registry;
 
 use super::main;
+use backoff;
 use clap_blocks::{
     catalog_dsn::CatalogDsnConfig,
     compactor::CompactorConfig,
@@ -589,13 +590,14 @@ pub async fn command(config: Config) -> Result<()> {
     info!("running db migrations");
     catalog.setup().await?;
 
-    let scheduler = compactor_scheduler_config.get_scheduler();
-
     let object_store: Arc<DynObjectStore> =
         make_object_store(router_run_config.object_store_config())
             .map_err(Error::ObjectStoreParsing)?;
 
     let time_provider: Arc<dyn TimeProvider> = Arc::new(SystemProvider::new());
+
+    let scheduler = compactor_scheduler_config
+        .get_scheduler(Arc::clone(&catalog), backoff::BackoffConfig::default());
 
     // create common state from the router and use it below
     let common_state = CommonServerState::from_config(router_run_config.clone())?;

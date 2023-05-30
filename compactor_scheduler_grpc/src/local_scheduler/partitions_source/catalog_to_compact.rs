@@ -7,7 +7,7 @@ use iox_catalog::interface::Catalog;
 use iox_time::TimeProvider;
 
 #[derive(Debug)]
-/// Returns all partitions that had a new Parquet file written after a lower bound of the current
+/// Returns all [`PartitionId`](data_types::PartitionId) that had a new Parquet file written after a lower bound of the current
 /// time minus `min_threshold` and optionally limited only to those with Parquet files written
 /// before the current time minus `max_threshold`.
 ///
@@ -16,7 +16,7 @@ use iox_time::TimeProvider;
 /// If `max_threshold` is specified, it must be less than `min_threshold` so that when computing
 /// the range endpoints as `(now - min_threshold, now - max_threshold)`, the lower bound is lower
 /// than the upper bound.
-pub struct CatalogToCompactPartitionsSource {
+pub(crate) struct CatalogToCompactPartitionsSource {
     backoff_config: BackoffConfig,
     catalog: Arc<dyn Catalog>,
     min_threshold: Duration,
@@ -25,7 +25,7 @@ pub struct CatalogToCompactPartitionsSource {
 }
 
 impl CatalogToCompactPartitionsSource {
-    pub fn new(
+    pub(crate) fn new(
         backoff_config: BackoffConfig,
         catalog: Arc<dyn Catalog>,
         min_threshold: Duration,

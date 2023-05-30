@@ -17,12 +17,8 @@ use workspace_hack as _;
 use async_trait::async_trait;
 use backoff::BackoffConfig;
 use clap_blocks::compactor::CompactorConfig;
-use compactor::{
-    compactor::Compactor,
-    config::{Config, PartitionsSourceConfig, ShardConfig},
-};
-use compactor_scheduler_grpc::Scheduler;
-use data_types::PartitionId;
+use compactor::{compactor::Compactor, config::Config};
+use compactor_scheduler_grpc::{temp, Scheduler};
 use hyper::{Body, Request, Response};
 use iox_catalog::interface::Catalog;
 use iox_query::exec::Executor;
@@ -185,12 +181,12 @@ pub async fn create_compactor_server_type(
         shard_id.is_some() == compactor_config.shard_count.is_some(),
         "must provide or not provide shard ID and count"
     );
-    let shard_config = shard_id.map(|shard_id| ShardConfig {
+    let shard_config = shard_id.map(|shard_id| temp::ShardConfig {
         shard_id,
         n_shards: compactor_config.shard_count.expect("just checked"),
     });
 
-    let partitions_source = create_partition_source_config(
+    let partitions_source = temp::scheduler_create_partition_source_config(
         compactor_config.partition_filter.as_deref(),
         compactor_config.process_all_partitions,
         compactor_config.compaction_partition_minute_threshold,
@@ -232,75 +228,4 @@ pub async fn create_compactor_server_type(
         metric_registry,
         common_state,
     ))
-}
-
-fn create_partition_source_config(
-    partition_filter: Option<&[i64]>,
-    process_all_partitions: bool,
-    compaction_partition_minute_threshold: u64,
-) -> PartitionsSourceConfig {
-    match (partition_filter, process_all_partitions) {
-        (None, false) => PartitionsSourceConfig::CatalogRecentWrites {
-            threshold: Duration::from_secs(compaction_partition_minute_threshold * 60),
-        },
-        (None, true) => PartitionsSourceConfig::CatalogAll,
-        (Some(ids), false) => {
-            PartitionsSourceConfig::Fixed(ids.iter().cloned().map(PartitionId::new).collect())
-        }
-        (Some(_), true) => panic!(
-            "provided partition ID filter and specific 'process all', this does not make sense"
-        ),
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    #[should_panic(
-        expected = "provided partition ID filter and specific 'process all', this does not make sense"
-    )]
-    fn process_all_and_partition_filter_incompatible() {
-        create_partition_source_config(
-            Some(&[1, 7]),
-            true,
-            10, // arbitrary
-        );
-    }
-
-    #[test]
-    fn fixed_list_of_partitions() {
-        let partitions_source_config = create_partition_source_config(
-            Some(&[1, 7]),
-            false,
-            10, // arbitrary
-        );
-
-        assert_eq!(
-            partitions_source_config,
-            PartitionsSourceConfig::Fixed([PartitionId::new(1), PartitionId::new(7)].into())
-        );
-    }
-
-    #[test]
-    fn all_in_the_catalog() {
-        let partitions_source_config = create_partition_source_config(
-            None, true, 10, // arbitrary
-        );
-
-        assert_eq!(partitions_source_config, PartitionsSourceConfig::CatalogAll,);
-    }
-
-    #[test]
-    fn hot_compaction() {
-        let partitions_source_config = create_partition_source_config(None, false, 10);
-
-        assert_eq!(
-            partitions_source_config,
-            PartitionsSourceConfig::CatalogRecentWrites {
-                threshold: Duration::from_secs(600)
-            },
-        );
-    }
 }

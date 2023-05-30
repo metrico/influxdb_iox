@@ -20,9 +20,7 @@ pub mod or;
 ///
 /// May return an error. In this case, the partition will be marked as "skipped".
 ///
-/// If you only plan to inspect the ID but not the files and not perform any IO, check
-/// [`IdOnlyPartitionFilter`](crate::components::id_only_partition_filter::IdOnlyPartitionFilter)
-/// which usually runs earlier in the pipeline and hence is more efficient.
+/// Filters a partition during the partition file IO.
 #[async_trait]
 pub trait PartitionFilter: Debug + Display + Send + Sync {
     /// Return `true` if the compactor should run a compaction on this partition. Return `false`

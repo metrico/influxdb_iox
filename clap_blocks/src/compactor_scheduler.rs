@@ -1,7 +1,9 @@
 //! Compactor-Scheduler-related configs.
 use std::sync::Arc;
 
+use backoff::BackoffConfig;
 use compactor_scheduler_grpc::{LocalScheduler, Scheduler};
+use iox_catalog::interface::Catalog;
 use snafu::Snafu;
 
 /// Why a specified ingester address might be invalid
@@ -36,9 +38,15 @@ pub struct CompactorSchedulerConfig {
 
 impl CompactorSchedulerConfig {
     /// Get config-dependent compactor scheduler.
-    pub fn get_scheduler(&self) -> Arc<dyn Scheduler> {
+    pub fn get_scheduler(
+        &self,
+        catalog: Arc<dyn Catalog>,
+        backoff_config: BackoffConfig,
+    ) -> Arc<dyn Scheduler> {
         match self.compactor_scheduler_type {
-            CompactorSchedulerType::Local => Arc::new(LocalScheduler::default()),
+            CompactorSchedulerType::Local => {
+                Arc::new(LocalScheduler::new(catalog, backoff_config, None))
+            }
             CompactorSchedulerType::Remote => {
                 unimplemented!("only 'local' compactor-scheduler is implemented")
             }

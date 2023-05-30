@@ -870,6 +870,7 @@ dependencies = [
 name = "clap_blocks"
 version = "0.1.0"
 dependencies = [
+ "backoff",
  "clap",
  "compactor_scheduler_grpc",
  "futures",
@@ -1000,7 +1001,6 @@ dependencies = [
  "predicate",
  "rand 0.8.5",
  "schema",
- "sharder",
  "test_helpers",
  "tokio",
  "tokio-util",
@@ -1014,17 +1014,17 @@ name = "compactor_scheduler_grpc"
 version = "0.1.0"
 dependencies = [
  "async-trait",
+ "backoff",
  "data_types",
- "futures",
  "generated_types",
  "iox_catalog",
+ "iox_tests",
  "iox_time",
  "metric",
- "object_store",
  "observability_deps",
+ "sharder",
  "tokio",
  "tonic",
- "workspace-hack",
 ]
 
 [[package]]
@@ -2519,6 +2519,7 @@ dependencies = [
  "assert_matches",
  "async-trait",
  "authz",
+ "backoff",
  "backtrace",
  "bytes",
  "clap",
@@ -3045,7 +3046,6 @@ dependencies = [
  "clap_blocks",
  "compactor",
  "compactor_scheduler_grpc",
- "data_types",
  "hyper",
  "iox_catalog",
  "iox_query",

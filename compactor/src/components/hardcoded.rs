@@ -4,15 +4,10 @@
 
 use std::{sync::Arc, time::Duration};
 
-use data_types::{CompactionLevel, MockPartitionsSource, PartitionsSource};
+use data_types::{CompactionLevel, PartitionsSource};
 use object_store::memory::InMemory;
-use observability_deps::tracing::info;
 
-use crate::{
-    config::{Config, PartitionsSourceConfig},
-    error::ErrorKind,
-    object_store::ignore_writes::IgnoreWrites,
-};
+use crate::{config::Config, error::ErrorKind, object_store::ignore_writes::IgnoreWrites};
 
 use super::{
     changed_files_filter::logging::LoggingChangedFiles,
@@ -34,9 +29,6 @@ use super::{
     files_split::{
         non_overlap_split::NonOverlapSplit, target_level_split::TargetLevelSplit,
         upgrade_split::UpgradeSplit,
-    },
-    id_only_partition_filter::{
-        and::AndIdOnlyPartitionFilter, shard::ShardPartitionFilter, IdOnlyPartitionFilter,
     },
     ir_planner::{logging::LoggingIRPlannerWrapper, planner_v1::V1IRPlanner, IRPlanner},
     namespaces_source::catalog::CatalogNamespacesSource,
@@ -68,11 +60,10 @@ use super::{
         endless::EndlessPartititionStream, once::OncePartititionStream, PartitionStream,
     },
     partitions_source::{
-        catalog_all::CatalogAllPartitionsSource,
-        catalog_to_compact::CatalogToCompactPartitionsSource,
-        filter::FilterPartitionsSourceWrapper, logging::LoggingPartitionsSourceWrapper,
-        metrics::MetricsPartitionsSourceWrapper, not_empty::NotEmptyPartitionsSourceWrapper,
+        logging::LoggingPartitionsSourceWrapper, metrics::MetricsPartitionsSourceWrapper,
+        not_empty::NotEmptyPartitionsSourceWrapper,
         randomize_order::RandomizeOrderPartitionsSourcesWrapper,
+        scheduled::ScheduledPartitionsSource,
     },
     post_classification_partition_filter::{
         logging::LoggingPostClassificationFilterWrapper,
@@ -98,10 +89,14 @@ pub fn hardcoded_components(config: &Config) -> Arc<Components> {
 
     Arc::new(Components {
         partition_stream: make_partition_stream(config, partitions_source),
+
+        // FIXME: should this technically be information from the scheduler?
+        // or is part of the decision process which a compactor should do autonomously?
         partition_info_source: make_partition_info_source(config),
+
         partition_files_source: make_partition_files_source(config),
         round_info_source: make_round_info_source(config),
-        partition_filter: make_partition_filter(config),
+        partition_filter: make_partition_filter(config), // applies compaction invarients
         partition_done_sink,
         commit,
         ir_planner: make_ir_planner(config),
@@ -124,40 +119,10 @@ fn make_partitions_source_commit_partition_sink(
     Arc<dyn Commit>,
     Arc<dyn PartitionDoneSink>,
 ) {
-    let partitions_source: Arc<dyn PartitionsSource> = match &config.partitions_source {
-        PartitionsSourceConfig::CatalogRecentWrites { threshold } => {
-            Arc::new(CatalogToCompactPartitionsSource::new(
-                config.backoff_config.clone(),
-                Arc::clone(&config.catalog),
-                *threshold,
-                None, // Recent writes is `threshold` ago to now
-                Arc::clone(&config.time_provider),
-            ))
-        }
-        PartitionsSourceConfig::CatalogAll => Arc::new(CatalogAllPartitionsSource::new(
-            config.backoff_config.clone(),
-            Arc::clone(&config.catalog),
-        )),
-        PartitionsSourceConfig::Fixed(ids) => {
-            Arc::new(MockPartitionsSource::new(ids.iter().cloned().collect()))
-        }
-    };
-
-    let mut id_only_partition_filters: Vec<Arc<dyn IdOnlyPartitionFilter>> = vec![];
-    if let Some(shard_config) = &config.shard_config {
-        // add shard filter before performing any catalog IO
-        info!(
-            "starting compactor {} of {}",
-            shard_config.shard_id, shard_config.n_shards
-        );
-        id_only_partition_filters.push(Arc::new(ShardPartitionFilter::new(
-            shard_config.n_shards,
-            shard_config.shard_id,
-        )));
-    }
-    let partitions_source = FilterPartitionsSourceWrapper::new(
-        AndIdOnlyPartitionFilter::new(id_only_partition_filters),
-        partitions_source,
+    let partitions_source = ScheduledPartitionsSource::new(
+        Arc::clone(&config.scheduler),
+        config.partitions_source.clone(),
+        config.shard_config.clone(),
     );
 
     let partition_done_sink: Arc<dyn PartitionDoneSink> = if config.shadow_mode {
@@ -184,9 +149,9 @@ fn make_partitions_source_commit_partition_sink(
         commit
     };
 
+    // Wrap the partitions_source in abstraction used during IO.
     let (partitions_source, partition_done_sink) =
         unique_partitions(partitions_source, partition_done_sink, 1);
-
     let (partitions_source, commit, partition_done_sink) = throttle_partition(
         partitions_source,
         commit,
@@ -223,6 +188,7 @@ fn make_partitions_source_commit_partition_sink(
         MetricsPartitionDoneSinkWrapper::new(partition_done_sink, &config.metric_registry),
     ));
 
+    // Wrap the partitions_source in metrics and logging abstractions.
     // Note: Place "not empty" wrapper at the very last so that the logging and metric wrapper work
     // even when there is not data.
     let partitions_source =

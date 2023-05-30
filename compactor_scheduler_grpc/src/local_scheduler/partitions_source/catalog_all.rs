@@ -6,14 +6,14 @@ use data_types::{PartitionId, PartitionsSource};
 use iox_catalog::interface::Catalog;
 
 #[derive(Debug)]
-/// Returns all partitions in the catalog, regardless of any other condition
-pub struct CatalogAllPartitionsSource {
+/// Returns all [`PartitionId`](data_types::PartitionId) in the catalog, regardless of any other condition
+pub(crate) struct CatalogAllPartitionsSource {
     backoff_config: BackoffConfig,
     catalog: Arc<dyn Catalog>,
 }
 
 impl CatalogAllPartitionsSource {
-    pub fn new(backoff_config: BackoffConfig, catalog: Arc<dyn Catalog>) -> Self {
+    pub(crate) fn new(backoff_config: BackoffConfig, catalog: Arc<dyn Catalog>) -> Self {
         Self {
             backoff_config,
             catalog,
