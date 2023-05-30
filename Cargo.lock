@@ -6842,7 +6842,6 @@ dependencies = [
  "memchr",
  "nix",
  "nom",
- "num-integer",
  "num-traits",
  "object_store",
  "once_cell",
