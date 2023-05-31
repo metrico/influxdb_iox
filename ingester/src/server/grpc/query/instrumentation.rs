@@ -1,10 +1,11 @@
 use std::pin::Pin;
 use std::sync::Arc;
 use std::task::{Context, Poll};
+use std::time::Instant;
 
 use arrow_flight::{encode::FlightDataEncoder, error::Result as FlightResult, FlightData};
 use futures::Stream;
-use metric::DurationHistogram;
+use metric::{DurationCounter, DurationHistogram};
 use pin_project::pin_project;
 use trace::span::Span;
 use trace::span::SpanRecorder;
@@ -52,6 +53,7 @@ pub(crate) struct FlightFrameEncodeRecorder {
     parent_span: Option<Span>,
     state: FrameEncodeRecorderState,
     encoding_duration_metric: Arc<DurationHistogram>,
+    current_duration_subtotal: DurationCounter,
 }
 
 impl FlightFrameEncodeRecorder {
@@ -68,6 +70,7 @@ impl FlightFrameEncodeRecorder {
             parent_span,
             state: FrameEncodeRecorderState::Unpolled,
             encoding_duration_metric,
+            current_duration_subtotal: DurationCounter::default(),
         }
     }
 }
@@ -83,12 +86,16 @@ impl Stream for FlightFrameEncodeRecorder {
                 SpanRecorder::new(this.parent_span.as_ref().map(|s| s.child("frame encoding")));
             *this.state = FrameEncodeRecorderState::Polled(recorder);
         };
+        let start = Instant::now();
         let poll = this.inner.poll_next(cx);
+        this.current_duration_subtotal.inc(start.elapsed());
 
         match poll {
             Poll::Pending => {}
             Poll::Ready(None) => {
                 this.state.take_recorder().ok("complete");
+                this.encoding_duration_metric
+                    .record(this.current_duration_subtotal.fetch());
             }
             Poll::Ready(Some(Ok(_))) => {
                 this.state.take_recorder().ok("data emitted");
