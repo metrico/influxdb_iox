@@ -24,6 +24,9 @@ use std::sync::Arc;
 use backoff::BackoffConfig;
 use clap_blocks::compactor_scheduler::{CompactorSchedulerConfig, CompactorSchedulerType};
 use iox_catalog::interface::Catalog;
+
+use crate::local_scheduler::shard_config::ShardConfig;
+
 pub use local_scheduler::LocalScheduler;
 mod scheduler;
 pub use scheduler::Scheduler;
@@ -37,7 +40,13 @@ pub fn create_compactor_scheduler_service(
 ) -> Arc<dyn Scheduler> {
     match scheduler_config.compactor_scheduler_type {
         CompactorSchedulerType::Local => {
-            Arc::new(LocalScheduler::new(catalog, BackoffConfig::default(), None))
+            let shard_config = ShardConfig::from_config(scheduler_config.shard_config);
+            Arc::new(LocalScheduler::new(
+                catalog,
+                BackoffConfig::default(),
+                None,
+                shard_config,
+            ))
         }
         CompactorSchedulerType::Remote => {
             unimplemented!("only 'local' compactor-scheduler is implemented")

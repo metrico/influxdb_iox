@@ -1,6 +1,5 @@
 //! Report component system state.
 
-use compactor_scheduler_grpc::temp;
 use observability_deps::tracing::info;
 
 use crate::config::Config;
@@ -30,7 +29,6 @@ pub fn log_config(config: &Config) {
         partitions_source,
         shadow_mode,
         ignore_partition_skip_marker,
-        shard_config,
         min_num_l1_files_to_compact,
         process_once,
         parquet_files_sink_override,
@@ -40,15 +38,6 @@ pub fn log_config(config: &Config) {
         max_num_columns_per_table,
         max_num_files_per_plan,
     } = &config;
-
-    let (shard_cfg_n_shards, shard_cfg_shard_id) = match shard_config {
-        None => (None, None),
-        Some(shard_config) => {
-            // use struct unpack so we don't forget any members
-            let temp::ShardConfig { n_shards, shard_id } = shard_config;
-            (Some(n_shards), Some(shard_id))
-        }
-    };
 
     let parquet_files_sink_override = parquet_files_sink_override
         .as_ref()
@@ -75,8 +64,6 @@ pub fn log_config(config: &Config) {
         %partitions_source,
         shadow_mode,
         ignore_partition_skip_marker,
-        ?shard_cfg_n_shards,
-        ?shard_cfg_shard_id,
         min_num_l1_files_to_compact,
         process_once,
         simulate_without_object_store,

@@ -63,19 +63,6 @@ impl Display for PartitionsSourceConfig {
     }
 }
 
-/// Shard config.
-#[derive(Debug, Clone)]
-#[allow(missing_copy_implementations)]
-pub struct ShardConfig {
-    /// Number of shards.
-    pub n_shards: usize,
-
-    /// Shard ID.
-    ///
-    /// Starts as 0 and must be smaller than the number of shards.
-    pub shard_id: usize,
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;

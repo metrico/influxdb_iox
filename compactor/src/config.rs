@@ -96,9 +96,6 @@ pub struct Config {
     /// This is mostly useful for debugging.
     pub ignore_partition_skip_marker: bool,
 
-    /// Shard config (if sharding should be enabled).
-    pub shard_config: Option<temp::ShardConfig>,
-
     /// Minimum number of L1 files to compact to L2
     /// This is to prevent too many small files
     pub min_num_l1_files_to_compact: usize,

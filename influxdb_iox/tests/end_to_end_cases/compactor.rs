@@ -51,7 +51,7 @@ fn shard_id_without_num_shards_is_invalid() {
         .assert()
         .failure()
         .stderr(predicate::str::contains(
-            "must provide or not provide shard ID and count",
+            "the following required arguments were not provided:\n  --compaction-shard-count <SHARD_COUNT>",
         ));
 }
 

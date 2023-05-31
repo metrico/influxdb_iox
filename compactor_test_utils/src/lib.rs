@@ -126,6 +126,7 @@ impl TestSetupBuilder<false> {
                 Arc::clone(&catalog.catalog),
                 BackoffConfig::default(),
                 Some(catalog.time_provider()),
+                None,
             )),
             parquet_store_real: catalog.parquet_store.clone(),
             parquet_store_scratchpad: ParquetStorage::new(
@@ -147,7 +148,6 @@ impl TestSetupBuilder<false> {
             },
             shadow_mode: false,
             ignore_partition_skip_marker: false,
-            shard_config: None,
             min_num_l1_files_to_compact: MIN_NUM_L1_FILES_TO_COMPACT,
             process_once: true,
             simulate_without_object_store: false,

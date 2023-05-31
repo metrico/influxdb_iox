@@ -56,7 +56,7 @@ mod tests {
         let catalog = Arc::new(MemCatalog::new(Arc::new(metric::Registry::default())));
         let backoff_config = BackoffConfig::default();
 
-        let scheduler = Arc::new(LocalScheduler::new(catalog, backoff_config, None));
+        let scheduler = Arc::new(LocalScheduler::new(catalog, backoff_config, None, None));
         let grpc = super::CompactorSchedulerService::new(scheduler);
 
         let request = GetCompactionJobRequest {};
