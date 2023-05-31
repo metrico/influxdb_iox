@@ -332,6 +332,74 @@ mod tests {
         });
     }
 
+    /// A test that validates the correctness of the FlightFrameEncodeRecorder
+    /// metric.
+    #[tokio::test]
+    async fn test_frame_encoding_cumulative_duration() {
+        // A dummy batch of data.
+        let (batch, _schema) = make_batch!(
+            Int64Array("a" => vec![42, 42, 42, 42]),
+        );
+
+        // This simulates a data source that must be asynchronously driven to be
+        // able to yield a RecordBatch (such as a contended async mutex), taking
+        // at least 7 * POLL_BLOCK_TIME to yield all the data.
+        let data_source = MockStream::new([
+            Poll::Pending,
+            Poll::Pending,
+            Poll::Ready(Some(Ok(batch.clone()))),
+            Poll::Pending,
+            Poll::Ready(Some(Ok(batch.clone()))),
+            Poll::Ready(Some(Ok(batch))),
+            Poll::Ready(None),
+        ]);
+
+        let histogram = Arc::new(
+            metric::Registry::default()
+                .register_metric::<DurationHistogram>("test", "")
+                .recorder([]),
+        );
+
+        // Construct the frame encoder, providing it with the dummy data source,
+        // and wrap it the encoder in the metric decorator.
+        let call_chain = FlightFrameEncodeRecorder::new(
+            FlightDataEncoderBuilder::new().build(data_source.boxed()),
+            None,
+            Arc::clone(&histogram),
+        );
+
+        // Wait before using the encoder stack to simulate a delay between
+        // construction, and usage.
+        std::thread::sleep(2 * POLL_BLOCK_TIME);
+
+        // Record the starting time.
+        let started_at = Instant::now();
+
+        // Drive the call chain by collecting all the encoded frames from
+        // through the stack.
+        let encoded = call_chain.collect::<Vec<_>>().await;
+
+        // Record the finish time.
+        let ended_at = Instant::now();
+
+        // Assert that at least three frames of encoded data were yielded through
+        // the call chain (data frames + arbitrary protocol frames).
+        assert!(encoded.len() >= 3);
+
+        // Assert that the entire encoding call took AT LEAST as long as the
+        // lower bound time.
+        //
+        // The encoding call will have required polling the mock data source at
+        // least 7 times, causing 7 sleeps of POLL_BLOCK_TIME, plus additional
+        // scheduling/execution overhead.
+        let call_duration = ended_at.duration_since(started_at);
+        assert!(call_duration >= (7 * POLL_BLOCK_TIME));
+
+        // assert the cumulative duration
+        assert!(histogram.fetch().total <= call_duration);
+        assert!(histogram.fetch().total >= (7 * POLL_BLOCK_TIME));
+    }
+
     /// Helper function to return the duration of time covered by `s`.
     ///
     /// # Panics
