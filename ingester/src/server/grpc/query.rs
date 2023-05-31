@@ -1,4 +1,4 @@
-use std::pin::Pin;
+use std::{pin::Pin, sync::Arc};
 
 use arrow_flight::{
     encode::FlightDataEncoderBuilder, error::FlightError,
@@ -10,7 +10,7 @@ use data_types::{NamespaceId, PartitionId, TableId};
 use flatbuffers::FlatBufferBuilder;
 use futures::{Stream, StreamExt, TryStreamExt};
 use ingester_query_grpc::influxdata::iox::ingester::v1 as proto;
-use metric::U64Counter;
+use metric::{DurationHistogram, U64Counter};
 use observability_deps::tracing::*;
 use prost::Message;
 use thiserror::Error;
@@ -99,6 +99,10 @@ pub(crate) struct FlightService<Q> {
     /// permit.
     query_request_limit_rejected: U64Counter,
 
+    /// Collected durations of data frame encoding time.
+    /// Duration per partition, per request.
+    query_request_frame_encoding_duration: Arc<DurationHistogram>,
+
     ingester_id: IngesterId,
 }
 
@@ -116,10 +120,20 @@ impl<Q> FlightService<Q> {
             )
             .recorder(&[]);
 
+        let query_request_frame_encoding_duration = Arc::new(
+            metrics
+                .register_metric::<DurationHistogram>(
+                    "query_request_frame_encoding_duration",
+                    "cumulative duration of frame encoding time, per partition per request",
+                )
+                .recorder(&[]),
+        );
+
         Self {
             query_handler,
             request_sem: Semaphore::new(max_simultaneous_requests),
             query_request_limit_rejected,
+            query_request_frame_encoding_duration,
             ingester_id,
         }
     }
@@ -200,7 +214,13 @@ where
             }
         };
 
-        let output = encode_response(response, self.ingester_id, span).map_err(tonic::Status::from);
+        let output = encode_response(
+            response,
+            self.ingester_id,
+            span,
+            Arc::clone(&self.query_request_frame_encoding_duration),
+        )
+        .map_err(tonic::Status::from);
 
         Ok(Response::new(Box::pin(output) as Self::DoGetStream))
     }
@@ -309,6 +329,7 @@ fn encode_response(
     response: QueryResponse,
     ingester_id: IngesterId,
     span: Option<Span>,
+    frame_encoding_duration_metric: Arc<DurationHistogram>,
 ) -> impl Stream<Item = Result<FlightData, FlightError>> {
     response.into_partition_stream().flat_map(move |partition| {
         let partition_id = partition.id();
@@ -338,6 +359,7 @@ fn encode_response(
                         .collect::<Vec<Result<_, FlightError>>>(),
                 )),
                 span.clone(),
+                Arc::clone(&frame_encoding_duration_metric),
             ))
         }
 

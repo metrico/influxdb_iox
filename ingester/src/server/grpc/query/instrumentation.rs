@@ -1,8 +1,10 @@
 use std::pin::Pin;
+use std::sync::Arc;
 use std::task::{Context, Poll};
 
 use arrow_flight::{encode::FlightDataEncoder, error::Result as FlightResult, FlightData};
 use futures::Stream;
+use metric::DurationHistogram;
 use pin_project::pin_project;
 use trace::span::Span;
 use trace::span::SpanRecorder;
@@ -49,17 +51,23 @@ pub(crate) struct FlightFrameEncodeRecorder {
     inner: FlightDataEncoder,
     parent_span: Option<Span>,
     state: FrameEncodeRecorderState,
+    encoding_duration_metric: Arc<DurationHistogram>,
 }
 
 impl FlightFrameEncodeRecorder {
     /// Creates a [`FlightFrameEncodeRecorder`].
     ///
     /// When a `parent_span` is provided, it adds a trace span as a child of the parent.
-    pub fn new(inner: FlightDataEncoder, parent_span: Option<Span>) -> Self {
+    pub fn new(
+        inner: FlightDataEncoder,
+        parent_span: Option<Span>,
+        encoding_duration_metric: Arc<DurationHistogram>,
+    ) -> Self {
         Self {
             inner,
             parent_span,
             state: FrameEncodeRecorderState::Unpolled,
+            encoding_duration_metric,
         }
     }
 }
@@ -104,6 +112,7 @@ mod tests {
     use arrow_flight::{encode::FlightDataEncoderBuilder, error::FlightError};
     use assert_matches::assert_matches;
     use futures::StreamExt;
+    use metric::{DurationHistogramOptions, MakeMetricObserver};
     use parking_lot::Mutex;
     use trace::{ctx::SpanContext, RingBufferTraceCollector, TraceCollector};
 
@@ -202,11 +211,14 @@ mod tests {
         let span_ctx = SpanContext::new(Arc::clone(&trace_observer));
         let query_span = span_ctx.child("query span");
 
+        let histogram = MakeMetricObserver::create(&DurationHistogramOptions::new([]));
+
         // Construct the frame encoder, providing it with the dummy data source,
         // and wrap it the encoder in the metric decorator.
         let call_chain = FlightFrameEncodeRecorder::new(
             FlightDataEncoderBuilder::new().build(data_source.boxed()),
             Some(query_span.clone()),
+            Arc::new(histogram),
         );
 
         // Wait before using the encoder stack to simulate a delay between
