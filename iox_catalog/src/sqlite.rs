@@ -224,7 +224,7 @@ DO NOTHING;
         ))
     }
 
-    #[cfg(test)]
+    // #[cfg(test)]
     fn metrics(&self) -> Arc<Registry> {
         Arc::clone(&self.metrics)
     }
@@ -1489,7 +1489,7 @@ fn is_unique_violation(e: &sqlx::Error) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::test_helpers::{arbitrary_namespace, arbitrary_table};
+    use crate::catalog_test_helpers::{arbitrary_namespace, arbitrary_table};
     use assert_matches::assert_matches;
     use data_types::partition_template::TemplatePart;
     use generated_types::influxdata::iox::partition_template::v1 as proto;

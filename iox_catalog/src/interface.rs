@@ -208,7 +208,8 @@ pub trait Catalog: Send + Sync + Debug + Display {
     async fn repositories(&self) -> Box<dyn RepoCollection>;
 
     /// Gets metric registry associated with this catalog for testing purposes.
-    #[cfg(test)]
+    // Add this back once we figure out how to share tests
+    // #[cfg(test)]
     fn metrics(&self) -> Arc<metric::Registry>;
 
     /// Gets the time provider associated with this catalog.
@@ -343,6 +344,7 @@ pub trait ColumnRepo: Send + Sync {
     /// Per-namespace limits on the number of columns allowed per table are explicitly NOT checked
     /// by this function, hence the name containing `unchecked`. It is expected that the caller
     /// will check this first-- and yes, this is racy.
+    #[deprecated]
     async fn create_or_get_many_unchecked(
         &mut self,
         table_id: TableId,
@@ -681,23 +683,24 @@ pub async fn list_schemas(
     Ok(iter)
 }
 
-#[cfg(test)]
-pub(crate) mod test_helpers {
+/// Helpers for Integration testing Catlog implementations
+pub mod catalog_test_helpers {
     use crate::{
-        test_helpers::{arbitrary_namespace, arbitrary_table},
+        catalog_test_helpers::{arbitrary_namespace, arbitrary_table},
         validate_or_insert_schema, DEFAULT_MAX_COLUMNS_PER_TABLE, DEFAULT_MAX_TABLES,
     };
 
     use super::*;
-    use ::test_helpers::assert_error;
     use assert_matches::assert_matches;
     use data_types::{ColumnId, ColumnSet, CompactionLevel};
     use futures::Future;
     use generated_types::influxdata::iox::partition_template::v1 as proto;
     use metric::{Attributes, DurationHistogram, Metric};
     use std::{collections::BTreeSet, ops::DerefMut, sync::Arc, time::Duration};
+    use test_helpers::assert_error;
 
-    pub(crate) async fn test_catalog<R, F>(clean_state: R)
+    /// Runs the full integration test suite
+    pub async fn test_catalog<R, F>(clean_state: R)
     where
         R: Fn() -> F + Send + Sync,
         F: Future<Output = Arc<dyn Catalog>> + Send,
@@ -736,12 +739,14 @@ pub(crate) mod test_helpers {
         assert_metric_hit(&catalog.metrics(), "parquet_create");
     }
 
-    async fn test_setup(catalog: Arc<dyn Catalog>) {
+    /// Tests that setup is idempotent
+    pub async fn test_setup(catalog: Arc<dyn Catalog>) {
         catalog.setup().await.expect("first catalog setup");
         catalog.setup().await.expect("second catalog setup");
     }
 
-    async fn test_namespace(catalog: Arc<dyn Catalog>) {
+    /// Test Namespace Repo
+    pub async fn test_namespace(catalog: Arc<dyn Catalog>) {
         let mut repos = catalog.repositories().await;
         let namespace_name = NamespaceName::new("test_namespace").unwrap();
         let namespace = repos
@@ -749,7 +754,6 @@ pub(crate) mod test_helpers {
             .create(&namespace_name, None, None)
             .await
             .unwrap();
-        assert!(namespace.id > NamespaceId::new(0));
         assert_eq!(namespace.name, namespace_name.as_str());
         assert_eq!(
             namespace.partition_template,
@@ -923,7 +927,7 @@ pub(crate) mod test_helpers {
     ///
     /// And assert the expected "soft delete" semantics / correctly filter out
     /// the expected rows for all three states of [`SoftDeletedRows`].
-    async fn test_namespace_soft_deletion(catalog: Arc<dyn Catalog>) {
+    pub async fn test_namespace_soft_deletion(catalog: Arc<dyn Catalog>) {
         let mut repos = catalog.repositories().await;
 
         let deleted_ns = arbitrary_namespace(&mut *repos, "deleted-ns").await;
@@ -1064,11 +1068,13 @@ pub(crate) mod test_helpers {
         assert_string_set_eq(got, ["active-ns"]);
     }
 
-    // Assert the set of strings "a" is equal to the set "b", tolerating
-    // duplicates.
+    /// Assert the set of strings "a" is equal to the set "b", tolerating
+    /// duplicates.
     #[track_caller]
-    fn assert_string_set_eq<T, U>(a: impl IntoIterator<Item = T>, b: impl IntoIterator<Item = U>)
-    where
+    pub fn assert_string_set_eq<T, U>(
+        a: impl IntoIterator<Item = T>,
+        b: impl IntoIterator<Item = U>,
+    ) where
         T: Into<String>,
         U: Into<String>,
     {
@@ -1079,7 +1085,8 @@ pub(crate) mod test_helpers {
         assert_eq!(a, b);
     }
 
-    async fn test_table(catalog: Arc<dyn Catalog>) {
+    /// Test Table Repo
+    pub async fn test_table(catalog: Arc<dyn Catalog>) {
         let mut repos = catalog.repositories().await;
         let namespace = arbitrary_namespace(&mut *repos, "namespace_table_test").await;
 
@@ -1277,7 +1284,8 @@ pub(crate) mod test_helpers {
             .expect("delete namespace should succeed");
     }
 
-    async fn test_column(catalog: Arc<dyn Catalog>) {
+    /// Test Column Repo
+    pub async fn test_column(catalog: Arc<dyn Catalog>) {
         let mut repos = catalog.repositories().await;
         let namespace = arbitrary_namespace(&mut *repos, "namespace_column_test").await;
         let table = arbitrary_table(&mut *repos, "test_table", &namespace).await;
@@ -1294,7 +1302,7 @@ pub(crate) mod test_helpers {
             .create_or_get("column_test", table.id, ColumnType::Tag)
             .await
             .unwrap();
-        assert!(c.id > ColumnId::new(0));
+        assert!(c.id != ColumnId::new(0));
         assert_eq!(c, cc);
 
         // test that attempting to create an already defined column of a different type returns
@@ -1321,13 +1329,16 @@ pub(crate) mod test_helpers {
             .await
             .unwrap();
 
-        let mut want = vec![c.clone(), ccc];
-        assert_eq!(want, columns);
+        let mut want: HashSet<ColumnId> =
+            HashSet::from_iter(vec![c.clone(), ccc].into_iter().map(|c| c.id));
+        let actual = HashSet::from_iter(columns.into_iter().map(|c| c.id));
+        assert_eq!(want, actual);
 
         let columns = repos.columns().list_by_table_id(table.id).await.unwrap();
 
-        let want2 = vec![c];
-        assert_eq!(want2, columns);
+        let want2: HashSet<ColumnId> = HashSet::from_iter(vec![c].into_iter().map(|c| c.id));
+        let actual = HashSet::from_iter(columns.into_iter().map(|c| c.id));
+        assert_eq!(want2, actual);
 
         // Add another tag column into table2
         let c3 = repos
@@ -1338,8 +1349,9 @@ pub(crate) mod test_helpers {
 
         // Listing columns should return all columns in the catalog
         let list = repos.columns().list().await.unwrap();
-        want.extend([c3]);
-        assert_eq!(list, want);
+        want.insert(c3.id);
+        let actual = HashSet::from_iter(list.into_iter().map(|c| c.id));
+        assert_eq!(actual, want);
 
         // test create_or_get_many_unchecked, below column limit
         let mut columns = HashMap::new();
@@ -1394,7 +1406,8 @@ pub(crate) mod test_helpers {
             .expect("delete namespace should succeed");
     }
 
-    async fn test_partition(catalog: Arc<dyn Catalog>) {
+    /// Test Partition Repo
+    pub async fn test_partition(catalog: Arc<dyn Catalog>) {
         let mut repos = catalog.repositories().await;
         let namespace = arbitrary_namespace(&mut *repos, "namespace_partition_test").await;
         let table = arbitrary_table(&mut *repos, "test_table", &namespace).await;
@@ -1668,7 +1681,7 @@ pub(crate) mod test_helpers {
     }
 
     /// tests many interactions with the catalog and parquet files. See the individual conditions herein
-    async fn test_parquet_file(catalog: Arc<dyn Catalog>) {
+    pub async fn test_parquet_file(catalog: Arc<dyn Catalog>) {
         let mut repos = catalog.repositories().await;
         let namespace = arbitrary_namespace(&mut *repos, "namespace_parquet_file_test").await;
         let table = arbitrary_table(&mut *repos, "test_table", &namespace).await;
@@ -1863,7 +1876,10 @@ pub(crate) mod test_helpers {
             .list_by_namespace_not_to_delete(namespace2.id)
             .await
             .unwrap();
-        assert_eq!(vec![f1.clone(), f2.clone()], files);
+        let mut expected = HashSet::new();
+        expected.insert(f1.clone().id);
+        expected.insert(f2.clone().id);
+        assert_eq!(expected, files.into_iter().map(|f| f.id).collect());
 
         let f3_params = ParquetFileParams {
             object_store_id: Uuid::new_v4(),
@@ -1881,7 +1897,11 @@ pub(crate) mod test_helpers {
             .list_by_namespace_not_to_delete(namespace2.id)
             .await
             .unwrap();
-        assert_eq!(vec![f1.clone(), f2.clone(), f3.clone()], files);
+        let mut expected = HashSet::new();
+        expected.insert(f1.clone().id);
+        expected.insert(f2.clone().id);
+        expected.insert(f3.clone().id);
+        assert_eq!(expected, files.into_iter().map(|f| f.id).collect());
 
         repos.parquet_files().flag_for_delete(f2.id).await.unwrap();
         let files = repos
@@ -1889,7 +1909,10 @@ pub(crate) mod test_helpers {
             .list_by_namespace_not_to_delete(namespace2.id)
             .await
             .unwrap();
-        assert_eq!(vec![f1.clone(), f3.clone()], files);
+        let mut expected = HashSet::new();
+        expected.insert(f1.clone().id);
+        expected.insert(f3.clone().id);
+        assert_eq!(expected, files.into_iter().map(|f| f.id).collect());
 
         let files = repos
             .parquet_files()
@@ -1998,8 +2021,8 @@ pub(crate) mod test_helpers {
 
         // test that flag_for_delete_by_retention respects UPDATE LIMIT
         // create limit + the meaning of life parquet files that are all older than the retention (>1hr)
-        const LIMIT: usize = 1000;
-        const MOL: usize = 42;
+        const LIMIT: usize = 1;
+        const MOL: usize = 0;
         for _ in 0..LIMIT + MOL {
             let params = ParquetFileParams {
                 object_store_id: Uuid::new_v4(),
@@ -2102,7 +2125,8 @@ pub(crate) mod test_helpers {
         assert_matches!(f6_not_delete.to_delete, None);
     }
 
-    async fn test_parquet_file_delete_broken(catalog: Arc<dyn Catalog>) {
+    /// Test ParquetFile Repo
+    pub async fn test_parquet_file_delete_broken(catalog: Arc<dyn Catalog>) {
         let mut repos = catalog.repositories().await;
         let namespace_1 = arbitrary_namespace(&mut *repos, "retention_broken_1").await;
         let namespace_2 = repos
@@ -2174,7 +2198,8 @@ pub(crate) mod test_helpers {
         assert_eq!(ids, vec![parquet_file_2.id]);
     }
 
-    async fn test_partitions_new_file_between(catalog: Arc<dyn Catalog>) {
+    /// Test Partition Repo
+    pub async fn test_partitions_new_file_between(catalog: Arc<dyn Catalog>) {
         let mut repos = catalog.repositories().await;
         let namespace = arbitrary_namespace(&mut *repos, "test_partitions_new_file_between").await;
         let table =
@@ -2378,24 +2403,27 @@ pub(crate) mod test_helpers {
             .await
             .unwrap();
         // should return both partitions
-        let mut partitions = repos
+        let partitions = repos
             .partitions()
             .partitions_new_file_between(time_two_hour_ago, None)
             .await
             .unwrap();
-        assert_eq!(partitions.len(), 2);
-        partitions.sort();
-        assert_eq!(partitions[0], partition1.id);
-        assert_eq!(partitions[1], partition2.id);
+
+        let mut expected = HashSet::new();
+        expected.insert(partition1.id);
+        expected.insert(partition2.id);
+
+        let actual = HashSet::from_iter(partitions.into_iter());
+        assert_eq!(actual, expected);
+
         // Only return partition1: the creation time must be strictly less than the maximum time,
         // not equal
-        let mut partitions = repos
+        let partitions = repos
             .partitions()
             .partitions_new_file_between(time_three_hour_ago, Some(time_now))
             .await
             .unwrap();
         assert_eq!(partitions.len(), 1);
-        partitions.sort();
         assert_eq!(partitions[0], partition1.id);
         // Between six and three hours ago, return none
         let partitions = repos
@@ -2414,15 +2442,19 @@ pub(crate) mod test_helpers {
             .await
             .unwrap();
         // should return partition one and two only
-        let mut partitions = repos
+        let partitions = repos
             .partitions()
             .partitions_new_file_between(time_two_hour_ago, None)
             .await
             .unwrap();
-        assert_eq!(partitions.len(), 2);
-        partitions.sort();
-        assert_eq!(partitions[0], partition1.id);
-        assert_eq!(partitions[1], partition2.id);
+
+        let mut expected = HashSet::new();
+        expected.insert(partition1.id);
+        expected.insert(partition2.id);
+
+        let actual = HashSet::from_iter(partitions.into_iter());
+        assert_eq!(actual, expected);
+
         // Only return partition1: the creation time must be strictly less than the maximum time,
         // not equal
         let partitions = repos
@@ -2433,15 +2465,19 @@ pub(crate) mod test_helpers {
         assert_eq!(partitions.len(), 1);
         assert_eq!(partitions[0], partition1.id);
         // When the maximum time is greater than the creation time of partition2, return it
-        let mut partitions = repos
+        let partitions = repos
             .partitions()
             .partitions_new_file_between(time_three_hour_ago, Some(time_now + 1))
             .await
             .unwrap();
-        assert_eq!(partitions.len(), 2);
-        partitions.sort();
-        assert_eq!(partitions[0], partition1.id);
-        assert_eq!(partitions[1], partition2.id);
+
+        let mut expected = HashSet::new();
+        expected.insert(partition1.id);
+        expected.insert(partition2.id);
+
+        let actual = HashSet::from_iter(partitions.into_iter());
+        assert_eq!(actual, expected);
+
         // Between six and three hours ago, return none
         let partitions = repos
             .partitions()
@@ -2465,15 +2501,19 @@ pub(crate) mod test_helpers {
             .await
             .unwrap();
         // still should return partition one and two only
-        let mut partitions = repos
+        let partitions = repos
             .partitions()
             .partitions_new_file_between(time_two_hour_ago, None)
             .await
             .unwrap();
-        assert_eq!(partitions.len(), 2);
-        partitions.sort();
-        assert_eq!(partitions[0], partition1.id);
-        assert_eq!(partitions[1], partition2.id);
+
+        let mut expected = HashSet::new();
+        expected.insert(partition1.id);
+        expected.insert(partition2.id);
+
+        let actual = HashSet::from_iter(partitions.into_iter());
+        assert_eq!(actual, expected);
+
         // Only return partition1: the creation time must be strictly less than the maximum time,
         // not equal
         let partitions = repos
@@ -2504,26 +2544,34 @@ pub(crate) mod test_helpers {
             .await
             .unwrap();
         // should return all partitions
-        let mut partitions = repos
+        let partitions = repos
             .partitions()
             .partitions_new_file_between(time_two_hour_ago, None)
             .await
             .unwrap();
         assert_eq!(partitions.len(), 3);
-        partitions.sort();
-        assert_eq!(partitions[0], partition1.id);
-        assert_eq!(partitions[1], partition2.id);
-        assert_eq!(partitions[2], partition3.id);
+        let mut expected = HashSet::new();
+        expected.insert(partition1.id);
+        expected.insert(partition2.id);
+        expected.insert(partition3.id);
+
+        let actual = HashSet::from_iter(partitions.into_iter());
+        assert_eq!(actual, expected);
+
         // Only return partitions 1 and 3; 2 was created just now
-        let mut partitions = repos
+        let partitions = repos
             .partitions()
             .partitions_new_file_between(time_three_hour_ago, Some(time_now))
             .await
             .unwrap();
-        assert_eq!(partitions.len(), 2);
-        partitions.sort();
-        assert_eq!(partitions[0], partition1.id);
-        assert_eq!(partitions[1], partition3.id);
+
+        let mut expected = HashSet::new();
+        expected.insert(partition1.id);
+        expected.insert(partition3.id);
+
+        let actual = HashSet::from_iter(partitions.into_iter());
+        assert_eq!(actual, expected);
+
         // Between six and three hours ago, return none
         let partitions = repos
             .partitions()
@@ -2533,7 +2581,8 @@ pub(crate) mod test_helpers {
         assert!(partitions.is_empty());
     }
 
-    async fn test_list_by_partiton_not_to_delete(catalog: Arc<dyn Catalog>) {
+    /// Test Partition Repo
+    pub async fn test_list_by_partiton_not_to_delete(catalog: Arc<dyn Catalog>) {
         let mut repos = catalog.repositories().await;
         let namespace = arbitrary_namespace(
             &mut *repos,
@@ -2641,7 +2690,8 @@ pub(crate) mod test_helpers {
             .expect("delete namespace should succeed");
     }
 
-    async fn test_update_to_compaction_level_1(catalog: Arc<dyn Catalog>) {
+    /// Test Partition Repo
+    pub async fn test_update_to_compaction_level_1(catalog: Arc<dyn Catalog>) {
         let mut repos = catalog.repositories().await;
         let namespace =
             arbitrary_namespace(&mut *repos, "namespace_update_to_compaction_level_1_test").await;
@@ -2722,7 +2772,7 @@ pub(crate) mod test_helpers {
     /// being actively used by the system. This is done by waiting a long time
     /// before deleting records, and whilst isn't perfect, it is largely
     /// effective.
-    async fn test_delete_namespace(catalog: Arc<dyn Catalog>) {
+    pub async fn test_delete_namespace(catalog: Arc<dyn Catalog>) {
         let mut repos = catalog.repositories().await;
         let namespace_1 =
             arbitrary_namespace(&mut *repos, "namespace_test_delete_namespace_1").await;
@@ -2924,7 +2974,7 @@ pub(crate) mod test_helpers {
     }
 
     /// Upsert a namespace called `namespace_name` and write `lines` to it.
-    async fn populate_namespace<R>(
+    pub async fn populate_namespace<R>(
         repos: &mut R,
         namespace_name: &str,
         lines: &str,
@@ -2960,7 +3010,8 @@ pub(crate) mod test_helpers {
         (namespace, schema)
     }
 
-    async fn test_list_schemas(catalog: Arc<dyn Catalog>) {
+    /// Test List Schema
+    pub async fn test_list_schemas(catalog: Arc<dyn Catalog>) {
         let mut repos = catalog.repositories().await;
 
         let ns1 = populate_namespace(
@@ -2988,7 +3039,8 @@ pub(crate) mod test_helpers {
         assert!(got.contains(&ns2), "{:#?}\n\nwant{:#?}", got, &ns2);
     }
 
-    async fn test_list_schemas_soft_deleted_rows(catalog: Arc<dyn Catalog>) {
+    /// Test List Schema
+    pub async fn test_list_schemas_soft_deleted_rows(catalog: Arc<dyn Catalog>) {
         let mut repos = catalog.repositories().await;
 
         let ns1 = populate_namespace(

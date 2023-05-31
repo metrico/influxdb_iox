@@ -264,7 +264,7 @@ where
 }
 
 /// Catalog helper functions for creation of catalog objects
-pub mod test_helpers {
+pub mod catalog_test_helpers {
     use crate::RepoCollection;
     use data_types::{
         partition_template::TablePartitionTemplateOverride, Namespace, NamespaceName, Table,

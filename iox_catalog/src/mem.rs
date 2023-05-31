@@ -105,7 +105,7 @@ impl Catalog for MemCatalog {
         ))
     }
 
-    #[cfg(test)]
+    // #[cfg(test)]
     fn metrics(&self) -> Arc<metric::Registry> {
         Arc::clone(&self.metrics)
     }
