@@ -43,7 +43,7 @@ pub static PARTITION_BY_DAY_PROTO: Lazy<Arc<proto::PartitionTemplate>> = Lazy::n
 /// A partition template specified by a namespace record.
 #[derive(Debug, PartialEq, Clone, Default, sqlx::Type)]
 #[sqlx(transparent)]
-pub struct NamespacePartitionTemplateOverride(Option<SerializationWrapper>);
+pub struct NamespacePartitionTemplateOverride(pub Option<SerializationWrapper>);
 
 impl From<proto::PartitionTemplate> for NamespacePartitionTemplateOverride {
     fn from(partition_template: proto::PartitionTemplate) -> Self {
@@ -54,7 +54,7 @@ impl From<proto::PartitionTemplate> for NamespacePartitionTemplateOverride {
 /// A partition template specified by a table record.
 #[derive(Debug, PartialEq, Clone, Default, sqlx::Type)]
 #[sqlx(transparent)]
-pub struct TablePartitionTemplateOverride(Option<SerializationWrapper>);
+pub struct TablePartitionTemplateOverride(pub Option<SerializationWrapper>);
 
 impl TablePartitionTemplateOverride {
     /// When a table is being explicitly created, the creation request might have contained a
@@ -96,7 +96,7 @@ impl TablePartitionTemplateOverride {
 /// `TablePartitionTemplateOverride` types. It's an internal implementation detail to minimize code
 /// duplication.
 #[derive(Debug, Clone, PartialEq)]
-struct SerializationWrapper(Arc<proto::PartitionTemplate>);
+pub struct SerializationWrapper(pub Arc<proto::PartitionTemplate>);
 
 impl<DB> sqlx::Type<DB> for SerializationWrapper
 where
