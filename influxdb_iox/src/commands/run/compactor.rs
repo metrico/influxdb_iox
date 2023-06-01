@@ -2,13 +2,13 @@
 
 use super::main;
 use crate::process_info::setup_metric_registry;
-use backoff::BackoffConfig;
 use clap_blocks::{
     catalog_dsn::CatalogDsnConfig, compactor::CompactorConfig,
     compactor_scheduler::CompactorSchedulerConfig, object_store::make_object_store,
     run_config::RunConfig,
 };
 use compactor::object_store::metrics::MetricsStore;
+use compactor_scheduler_grpc::create_compactor_scheduler_service;
 use iox_query::exec::{Executor, ExecutorConfig};
 use iox_time::{SystemProvider, TimeProvider};
 use ioxd_common::{
@@ -81,9 +81,8 @@ pub async fn command(config: Config) -> Result<(), Error> {
         .get_catalog("compactor", Arc::clone(&metric_registry))
         .await?;
 
-    let scheduler = config
-        .compactor_scheduler_config
-        .get_scheduler(Arc::clone(&catalog), BackoffConfig::default());
+    let scheduler =
+        create_compactor_scheduler_service(config.compactor_scheduler_config, Arc::clone(&catalog));
 
     let object_store = make_object_store(config.run_config.object_store_config())
         .map_err(Error::ObjectStoreParsing)?;

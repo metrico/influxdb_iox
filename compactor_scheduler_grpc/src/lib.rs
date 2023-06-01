@@ -19,11 +19,31 @@
 #![allow(clippy::missing_docs_in_private_items)]
 
 mod local_scheduler;
+use std::sync::Arc;
+
+use backoff::BackoffConfig;
+use clap_blocks::compactor_scheduler::{CompactorSchedulerConfig, CompactorSchedulerType};
+use iox_catalog::interface::Catalog;
 pub use local_scheduler::LocalScheduler;
 mod scheduler;
 pub use scheduler::Scheduler;
 mod service;
 pub use service::*;
+
+/// Instantiate a compaction scheduler service
+pub fn create_compactor_scheduler_service(
+    scheduler_config: CompactorSchedulerConfig,
+    catalog: Arc<dyn Catalog>,
+) -> Arc<dyn Scheduler> {
+    match scheduler_config.compactor_scheduler_type {
+        CompactorSchedulerType::Local => {
+            Arc::new(LocalScheduler::new(catalog, BackoffConfig::default(), None))
+        }
+        CompactorSchedulerType::Remote => {
+            unimplemented!("only 'local' compactor-scheduler is implemented")
+        }
+    }
+}
 
 // temporary mod, for this commit only.
 // code still being consumed in the compactor, by direct function call.

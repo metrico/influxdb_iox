@@ -6,9 +6,7 @@ edition.workspace = true
 license.workspace = true
 
 [dependencies]
-backoff = { path = "../backoff" }
 clap = { version = "4", features = ["derive", "env"] }
-compactor_scheduler_grpc = { path = "../compactor_scheduler_grpc" }
 futures = "0.3"
 http = "0.2.9"
 humantime = "2.1.0"
