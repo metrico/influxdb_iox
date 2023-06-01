@@ -3,18 +3,8 @@
 use std::num::NonZeroUsize;
 
 /// CLI config for compactor
-#[derive(Debug, Clone, clap::Parser)]
+#[derive(Debug, Copy, Clone, clap::Parser)]
 pub struct CompactorConfig {
-    /// When in "hot" compaction mode, the compactor will only consider compacting partitions that
-    /// have new Parquet files created within this many minutes.
-    #[clap(
-        long = "compaction_partition_minute_threshold",
-        env = "INFLUXDB_IOX_COMPACTION_PARTITION_MINUTE_THRESHOLD",
-        default_value = "10",
-        action
-    )]
-    pub compaction_partition_minute_threshold: u64,
-
     /// Number of partitions that should be compacted in parallel.
     ///
     /// This should usually be larger than the compaction job
@@ -153,16 +143,6 @@ pub struct CompactorConfig {
     )]
     pub partition_timeout_secs: u64,
 
-    /// Filter partitions to the given set of IDs.
-    ///
-    /// This is mostly useful for debugging.
-    #[clap(
-        long = "compaction-partition-filter",
-        env = "INFLUXDB_IOX_COMPACTION_PARTITION_FILTER",
-        action
-    )]
-    pub partition_filter: Option<Vec<i64>>,
-
     /// Shadow mode.
     ///
     /// This will NOT write / commit any output to the object store or catalog.
@@ -229,15 +209,6 @@ pub struct CompactorConfig {
         action
     )]
     pub process_once: bool,
-
-    /// Compact all partitions found in the catalog, no matter if/when
-    /// they received writes.
-    #[clap(
-        long = "compaction-process-all-partitions",
-        env = "INFLUXDB_IOX_COMPACTION_PROCESS_ALL_PARTITIONS",
-        action
-    )]
-    pub process_all_partitions: bool,
 
     /// Maximum number of columns in a table of a partition that
     /// will be able to considered to get compacted

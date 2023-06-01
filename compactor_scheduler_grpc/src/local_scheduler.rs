@@ -1,6 +1,8 @@
 //! Internal modules used by [`LocalScheduler`].
 pub(crate) mod id_only_partition_filter;
 pub(crate) mod partitions_source;
+mod partitions_source_config;
+pub use partitions_source_config::PartitionsSourceConfig;
 pub(crate) mod shard_config;
 
 use std::{
@@ -16,7 +18,7 @@ use iox_time::{SystemProvider, TimeProvider};
 use observability_deps::tracing::info;
 
 use crate::local_scheduler::id_only_partition_filter::shard::ShardPartitionFilter;
-use crate::{scheduler::Scheduler, temp::PartitionsSourceConfig};
+use crate::scheduler::Scheduler;
 
 use self::{
     id_only_partition_filter::{and::AndIdOnlyPartitionFilter, IdOnlyPartitionFilter},
@@ -31,6 +33,7 @@ use self::{
 /// Implementation of the [`Scheduler`] for local (per compactor) scheduling.
 #[derive(Debug)]
 pub struct LocalScheduler {
+    partitions_source_config: PartitionsSourceConfig,
     catalog: Arc<dyn Catalog>,
     time_provider: Arc<dyn TimeProvider>,
     backoff_config: BackoffConfig,
@@ -40,6 +43,7 @@ pub struct LocalScheduler {
 impl LocalScheduler {
     /// Create new LocalScheduler.
     pub fn new(
+        partitions_source_config: PartitionsSourceConfig,
         catalog: Arc<dyn Catalog>,
         backoff_config: BackoffConfig,
         time_provider: Option<Arc<dyn TimeProvider>>,
@@ -51,6 +55,7 @@ impl LocalScheduler {
         };
 
         Self {
+            partitions_source_config,
             catalog,
             time_provider,
             backoff_config,
@@ -61,8 +66,8 @@ impl LocalScheduler {
 
 #[async_trait]
 impl Scheduler for LocalScheduler {
-    async fn get_partitions(&self, config: PartitionsSourceConfig) -> Vec<PartitionId> {
-        let partitions_source: Arc<dyn PartitionsSource> = match &config {
+    async fn get_partitions(&self) -> Vec<PartitionId> {
+        let partitions_source: Arc<dyn PartitionsSource> = match &self.partitions_source_config {
             PartitionsSourceConfig::CatalogRecentWrites { threshold } => {
                 Arc::new(CatalogToCompactPartitionsSource::new(
                     self.backoff_config.clone(),

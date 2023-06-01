@@ -27,7 +27,7 @@ use iox_catalog::interface::Catalog;
 
 use crate::local_scheduler::shard_config::ShardConfig;
 
-pub use local_scheduler::LocalScheduler;
+pub use local_scheduler::{LocalScheduler, PartitionsSourceConfig};
 mod scheduler;
 pub use scheduler::Scheduler;
 mod service;
@@ -41,7 +41,10 @@ pub fn create_compactor_scheduler_service(
     match scheduler_config.compactor_scheduler_type {
         CompactorSchedulerType::Local => {
             let shard_config = ShardConfig::from_config(scheduler_config.shard_config);
+            let partitions_source_config =
+                PartitionsSourceConfig::from_config(scheduler_config.partition_source_config);
             Arc::new(LocalScheduler::new(
+                partitions_source_config,
                 catalog,
                 BackoffConfig::default(),
                 None,
@@ -53,8 +56,3 @@ pub fn create_compactor_scheduler_service(
         }
     }
 }
-
-// temporary mod, for this commit only.
-// code still being consumed in the compactor, by direct function call.
-// TODO: move into LocalScheduler, which is used by the grpc service.
-pub mod temp;

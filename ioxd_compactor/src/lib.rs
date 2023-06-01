@@ -18,7 +18,7 @@ use async_trait::async_trait;
 use backoff::BackoffConfig;
 use clap_blocks::compactor::CompactorConfig;
 use compactor::{compactor::Compactor, config::Config};
-use compactor_scheduler_grpc::{temp, Scheduler};
+use compactor_scheduler_grpc::Scheduler;
 use hyper::{Body, Request, Response};
 use iox_catalog::interface::Catalog;
 use iox_query::exec::Executor;
@@ -157,12 +157,6 @@ pub async fn create_compactor_server_type(
 ) -> Arc<dyn ServerType> {
     let backoff_config = BackoffConfig::default();
 
-    let partitions_source = temp::scheduler_create_partition_source_config(
-        compactor_config.partition_filter.as_deref(),
-        compactor_config.process_all_partitions,
-        compactor_config.compaction_partition_minute_threshold,
-    );
-
     let compactor = Compactor::start(Config {
         metric_registry: Arc::clone(&metric_registry),
         catalog,
@@ -180,7 +174,6 @@ pub async fn create_compactor_server_type(
         percentage_max_file_size: compactor_config.percentage_max_file_size,
         split_percentage: compactor_config.split_percentage,
         partition_timeout: Duration::from_secs(compactor_config.partition_timeout_secs),
-        partitions_source,
         shadow_mode: compactor_config.shadow_mode,
         ignore_partition_skip_marker: compactor_config.ignore_partition_skip_marker,
         min_num_l1_files_to_compact: compactor_config.min_num_l1_files_to_compact,

@@ -47,7 +47,7 @@ mod tests {
     use generated_types::influxdata::iox::compactor_scheduler::v1::compactor_scheduler_service_server::CompactorSchedulerService;
     use iox_catalog::mem::MemCatalog;
 
-    use crate::LocalScheduler;
+    use crate::{LocalScheduler, PartitionsSourceConfig};
 
     use super::*;
 
@@ -55,8 +55,15 @@ mod tests {
     async fn get_job() {
         let catalog = Arc::new(MemCatalog::new(Arc::new(metric::Registry::default())));
         let backoff_config = BackoffConfig::default();
+        let partitions_src_config = PartitionsSourceConfig::default();
 
-        let scheduler = Arc::new(LocalScheduler::new(catalog, backoff_config, None, None));
+        let scheduler = Arc::new(LocalScheduler::new(
+            partitions_src_config,
+            catalog,
+            backoff_config,
+            None,
+            None,
+        ));
         let grpc = super::CompactorSchedulerService::new(scheduler);
 
         let request = GetCompactionJobRequest {};

@@ -41,7 +41,7 @@ use compactor::{
     compact, config::Config, hardcoded_components, Components, PanicDataFusionPlanner,
     PartitionInfo,
 };
-use compactor_scheduler_grpc::{temp, LocalScheduler};
+use compactor_scheduler_grpc::{LocalScheduler, PartitionsSourceConfig};
 use data_types::{ColumnType, CompactionLevel, ParquetFile, TableId};
 use datafusion::arrow::record_batch::RecordBatch;
 use datafusion_util::config::register_iox_object_store;
@@ -59,7 +59,6 @@ use schema::sort::SortKey;
 use tracker::AsyncSemaphoreMetrics;
 
 // Default values for the test setup builder
-const PARTITION_THRESHOLD: Duration = Duration::from_secs(10 * 60); // 10min
 const MAX_DESIRE_FILE_SIZE: u64 = 100 * 1024;
 const PERCENTAGE_MAX_FILE_SIZE: u16 = 5;
 const SPLIT_PERCENTAGE: u16 = 80;
@@ -123,6 +122,7 @@ impl TestSetupBuilder<false> {
             metric_registry: catalog.metric_registry(),
             catalog: catalog.catalog(),
             scheduler: Arc::new(LocalScheduler::new(
+                PartitionsSourceConfig::default(),
                 Arc::clone(&catalog.catalog),
                 BackoffConfig::default(),
                 Some(catalog.time_provider()),
@@ -143,9 +143,6 @@ impl TestSetupBuilder<false> {
             percentage_max_file_size: PERCENTAGE_MAX_FILE_SIZE,
             split_percentage: SPLIT_PERCENTAGE,
             partition_timeout: Duration::from_secs(3_600),
-            partitions_source: temp::PartitionsSourceConfig::CatalogRecentWrites {
-                threshold: PARTITION_THRESHOLD,
-            },
             shadow_mode: false,
             ignore_partition_skip_marker: false,
             min_num_l1_files_to_compact: MIN_NUM_L1_FILES_TO_COMPACT,

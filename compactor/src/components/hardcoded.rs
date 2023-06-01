@@ -119,10 +119,7 @@ fn make_partitions_source_commit_partition_sink(
     Arc<dyn Commit>,
     Arc<dyn PartitionDoneSink>,
 ) {
-    let partitions_source = ScheduledPartitionsSource::new(
-        Arc::clone(&config.scheduler),
-        config.partitions_source.clone(),
-    );
+    let partitions_source = ScheduledPartitionsSource::new(Arc::clone(&config.scheduler));
 
     let partition_done_sink: Arc<dyn PartitionDoneSink> = if config.shadow_mode {
         Arc::new(MockPartitionDoneSink::new())

@@ -1,18 +1,17 @@
 use std::{fmt::Display, sync::Arc};
 
 use async_trait::async_trait;
-use compactor_scheduler_grpc::{temp::PartitionsSourceConfig, Scheduler};
+use compactor_scheduler_grpc::Scheduler;
 use data_types::{PartitionId, PartitionsSource};
 
 #[derive(Debug)]
 pub struct ScheduledPartitionsSource {
     scheduler: Arc<dyn Scheduler>,
-    config: PartitionsSourceConfig,
 }
 
 impl ScheduledPartitionsSource {
-    pub fn new(scheduler: Arc<dyn Scheduler>, config: PartitionsSourceConfig) -> Self {
-        Self { scheduler, config }
+    pub fn new(scheduler: Arc<dyn Scheduler>) -> Self {
+        Self { scheduler }
     }
 }
 
@@ -25,7 +24,7 @@ impl Display for ScheduledPartitionsSource {
 #[async_trait]
 impl PartitionsSource for ScheduledPartitionsSource {
     async fn fetch(&self) -> Vec<PartitionId> {
-        self.scheduler.get_partitions(self.config.clone()).await
+        self.scheduler.get_partitions().await
     }
 }
 

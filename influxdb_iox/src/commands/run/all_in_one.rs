@@ -487,7 +487,6 @@ impl Config {
         // settings from other configs. Can't use `#clap(flatten)` as the
         // parameters are redundant with ingester's
         let compactor_config = CompactorConfig {
-            compaction_partition_minute_threshold: 10,
             compaction_partition_concurrency: NonZeroUsize::new(1).unwrap(),
             compaction_df_concurrency: NonZeroUsize::new(1).unwrap(),
             compaction_partition_scratchpad_concurrency: NonZeroUsize::new(1).unwrap(),
@@ -497,12 +496,10 @@ impl Config {
             percentage_max_file_size: 30,
             split_percentage: 80,
             partition_timeout_secs: 0,
-            partition_filter: None,
             shadow_mode: false,
             ignore_partition_skip_marker: false,
             min_num_l1_files_to_compact: 1,
             process_once: false,
-            process_all_partitions: false,
             max_num_columns_per_table: 200,
             max_num_files_per_plan: 200,
         };

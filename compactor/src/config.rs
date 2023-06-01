@@ -2,7 +2,7 @@
 use std::{num::NonZeroUsize, sync::Arc, time::Duration};
 
 use backoff::BackoffConfig;
-use compactor_scheduler_grpc::{temp, Scheduler};
+use compactor_scheduler_grpc::Scheduler;
 use iox_catalog::interface::Catalog;
 use iox_query::exec::Executor;
 use iox_time::TimeProvider;
@@ -80,9 +80,6 @@ pub struct Config {
 
     /// Maximum duration of the per-partition compaction task.
     pub partition_timeout: Duration,
-
-    /// Source of partitions to consider for comapction.
-    pub partitions_source: temp::PartitionsSourceConfig,
 
     /// Shadow mode.
     ///
