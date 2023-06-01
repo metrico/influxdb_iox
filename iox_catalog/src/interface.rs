@@ -705,6 +705,7 @@ pub(crate) mod test_helpers {
         test_column(clean_state().await).await;
         test_partition(clean_state().await).await;
         test_parquet_file(clean_state().await).await;
+        test_parquet_file_deleting(clean_state().await).await;
         test_parquet_file_delete_broken(clean_state().await).await;
         test_update_to_compaction_level_1(clean_state().await).await;
         test_list_by_partiton_not_to_delete(clean_state().await).await;
@@ -1723,6 +1724,7 @@ pub(crate) mod test_helpers {
             object_store_id: Uuid::new_v4(),
             min_time: Timestamp::new(50),
             max_time: Timestamp::new(60),
+            created_at: Timestamp::new(50),
             ..parquet_file_params.clone()
         };
         let other_file = repos.parquet_files().create(other_params).await.unwrap();
@@ -1766,16 +1768,14 @@ pub(crate) mod test_helpers {
             .cloned()
             .unwrap();
 
-        // File is not deleted if it was marked to be deleted after the specified time
-        let before_deleted = Timestamp::new(
-            (catalog.time_provider().now() - Duration::from_secs(100)).timestamp_nanos(),
-        );
+        // File is not deleted if its created_at time is after the specified time or it hasn't been marked deleted
+        let before_deleted = Timestamp::new(0);
         let deleted = repos
             .parquet_files()
             .delete_old_ids_only(before_deleted)
             .await
             .unwrap();
-        assert!(deleted.is_empty());
+        assert!(deleted.is_empty(), "not empty!!");
 
         // test list_all that includes soft-deleted file
         // at this time the file is not actually hard deleted yet and stay as soft deleted
@@ -2101,6 +2101,98 @@ pub(crate) mod test_helpers {
             .unwrap()
             .unwrap();
         assert_matches!(f6_not_delete.to_delete, None);
+    }
+
+    /// test conditions around marking files as "soft deleted" and then deleting them from the catalog
+    /// after some retention for backup purposes and to allow queries/caches to maintain access to
+    /// soft deleted files for some time.
+    // this test relies on catalog.time_provider.now() which makes the tests fragile.
+    async fn test_parquet_file_deleting(catalog: Arc<dyn Catalog>) {
+        let mut repos = catalog.repositories().await;
+        let namespace_name = NamespaceName::new("namespace_parquet_file_test").unwrap();
+        let namespace = repos
+            .namespaces()
+            // 30 minute retention
+            .create(
+                &namespace_name,
+                None,
+                Some(Duration::from_secs(30 * 60).as_nanos() as i64),
+            )
+            .await
+            .unwrap();
+        let table = arbitrary_table(&mut *repos, "test_table", &namespace).await;
+        let partition = repos
+            .partitions()
+            .create_or_get("one".into(), table.id)
+            .await
+            .unwrap();
+
+        let test_start_now = catalog.time_provider().now();
+        // simulate it being created an hour ago with data that started an hour ago too
+        let parquet_file_params = ParquetFileParams {
+            namespace_id: namespace.id,
+            table_id: partition.table_id,
+            partition_id: partition.id,
+            object_store_id: Uuid::new_v4(),
+            min_time: Timestamp::new(
+                (test_start_now.clone() - Duration::from_secs(60 * 60)).timestamp_nanos(),
+            ),
+            // max time is 31 minutes ago, to be older than the 30 minute retention
+            max_time: Timestamp::new(
+                (test_start_now.clone() - Duration::from_secs(60 * 31)).timestamp_nanos(),
+            ),
+            file_size_bytes: 1337,
+            row_count: 0,
+            compaction_level: CompactionLevel::Initial,
+            // 1 hr old
+            created_at: Timestamp::new(
+                (test_start_now.clone() - Duration::from_secs(60 * 60)).timestamp_nanos(),
+            ),
+            column_set: ColumnSet::new([ColumnId::new(1), ColumnId::new(2)]),
+            max_l0_created_at: Timestamp::new(1),
+        };
+        let parquet_file = repos
+            .parquet_files()
+            .create(parquet_file_params.clone())
+            .await
+            .unwrap();
+
+        // verify we can get it by its object store id
+        let pfg = repos
+            .parquet_files()
+            .get_by_object_store_id(parquet_file.object_store_id)
+            .await
+            .unwrap();
+        assert_eq!(parquet_file, pfg.unwrap());
+
+        // mark it deleted as if by GC for customer retention
+        // this gives it a to_delete value of now()
+        let pid = repos
+            .parquet_files()
+            .flag_for_delete_by_retention()
+            .await
+            .unwrap();
+        assert_eq!(pid.len(), 1);
+        assert_eq!(*pid.get(0).unwrap(), parquet_file.id);
+
+        // simulate GC running in the future to remove files past a cutoff age. We simulate this
+        // by interpreting that the test run time (aka now) is actually the GC runtime minus the cutoff.
+        let older_than = Timestamp::new(catalog.time_provider().now().timestamp_nanos());
+        let removed_pid = repos
+            .parquet_files()
+            .delete_old_ids_only(older_than)
+            .await
+            .unwrap();
+        assert_eq!(removed_pid.len(), 1);
+        assert_eq!(*removed_pid.get(0).unwrap(), parquet_file.id);
+
+        // verify its gone
+        let deleted_pid = repos
+            .parquet_files()
+            .get_by_object_store_id(parquet_file.object_store_id)
+            .await
+            .unwrap();
+        assert_eq!(deleted_pid, None);
     }
 
     async fn test_parquet_file_delete_broken(catalog: Arc<dyn Catalog>) {

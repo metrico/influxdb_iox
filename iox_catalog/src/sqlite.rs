@@ -1227,7 +1227,8 @@ WHERE table_id = $1 AND to_delete IS NULL;
 WITH parquet_file_ids as (
     SELECT id
     FROM parquet_file
-    WHERE to_delete < $1
+    WHERE to_delete IS NOT NULL
+    AND created_at < $1
     LIMIT $2
 )
 DELETE FROM parquet_file

@@ -787,9 +787,11 @@ impl ParquetFileRepo for MemTxn {
     async fn delete_old_ids_only(&mut self, older_than: Timestamp) -> Result<Vec<ParquetFileId>> {
         let stage = self.stage();
 
-        let (delete, keep): (Vec<_>, Vec<_>) = stage.parquet_files.iter().cloned().partition(
-            |f| matches!(f.to_delete, Some(marked_deleted) if marked_deleted < older_than),
-        );
+        let (delete, keep): (Vec<_>, Vec<_>) = stage
+            .parquet_files
+            .iter()
+            .cloned()
+            .partition(|f| matches!(f.to_delete, Some(_) if f.created_at < older_than));
 
         stage.parquet_files = keep;
 
