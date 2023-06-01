@@ -24,9 +24,9 @@ impl CompactorSchedulerService {
 impl compactor_scheduler_service_server::CompactorSchedulerService for CompactorSchedulerService {
     async fn get_job(
         &self,
-        _request: Request<GetCompactionJobRequest>,
-    ) -> Result<Response<ListCompactionJobResponse>, Status> {
-        let response = ListCompactionJobResponse {
+        _request: Request<GetJobRequest>,
+    ) -> Result<Response<GetJobResponse>, Status> {
+        let response = GetJobResponse {
             compaction_jobs: Vec::new(),
         };
         Ok(Response::new(response))
@@ -66,7 +66,7 @@ mod tests {
         ));
         let grpc = super::CompactorSchedulerService::new(scheduler);
 
-        let request = GetCompactionJobRequest {};
+        let request = GetJobRequest {};
         let tonic_response = grpc.get_job(Request::new(request)).await;
         assert!(tonic_response.is_ok());
     }

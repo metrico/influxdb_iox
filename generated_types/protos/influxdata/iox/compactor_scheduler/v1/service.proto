@@ -3,15 +3,15 @@ package influxdata.iox.compactor_scheduler.v1;
 
 service CompactorSchedulerService {
   // Get a compaction job to work on
-  rpc GetJob(GetCompactionJobRequest) returns (ListCompactionJobResponse);
+  rpc GetJob(GetJobRequest) returns (GetJobResponse);
 
   // report status of a compaction job
   rpc ReportJobStatus(ReportJobStatusRequest) returns (ReportJobStatusResponse);
 }
 
-message GetCompactionJobRequest {}
+message GetJobRequest {}
 
-message ListCompactionJobResponse {
+message GetJobResponse {
   // A list of compaction jobs
   repeated CompactionJob compaction_jobs = 1;
 }
