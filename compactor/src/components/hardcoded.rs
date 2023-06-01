@@ -189,6 +189,7 @@ fn make_partitions_source_commit_partition_sink(
         Arc::new(CatalogCommit::new(
             config.backoff_config.clone(),
             Arc::clone(&config.catalog),
+            Duration::from_secs(60*60*24*80) // 80 days
         ))
     };
 

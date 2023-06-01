@@ -36,6 +36,7 @@ use sqlx::{
 };
 use std::str::FromStr;
 use std::sync::Arc;
+use std::time::Duration;
 
 static MIGRATOR: Migrator = sqlx::migrate!("sqlite/migrations");
 
@@ -1300,6 +1301,7 @@ WHERE object_store_id = $1;
         upgrade: &[ParquetFileId],
         create: &[ParquetFileParams],
         target_level: CompactionLevel,
+        delete_at_adjustment: Option<Duration>,
     ) -> Result<Vec<ParquetFileId>> {
         let delete_set = delete.iter().copied().collect::<HashSet<_>>();
         let upgrade_set = upgrade.iter().copied().collect::<HashSet<_>>();
@@ -1317,7 +1319,9 @@ WHERE object_store_id = $1;
             .map_err(|e| Error::StartTransaction { source: e })?;
 
         for id in delete {
-            let marked_at = Timestamp::from(self.time_provider.now());
+            let marked_at = Timestamp::from(
+                self.time_provider.now() - delete_at_adjustment.unwrap_or(Duration::ZERO)
+            );
             flag_for_delete(&mut tx, *id, marked_at).await?;
         }
 
@@ -1769,7 +1773,7 @@ mod tests {
         // flag f1 for deletion and assert that the total file size is reduced accordingly.
         repos
             .parquet_files()
-            .create_upgrade_delete(&[f1.id], &[], &[], CompactionLevel::Initial)
+            .create_upgrade_delete(&[f1.id], &[], &[], CompactionLevel::Initial, None)
             .await
             .expect("flag parquet file for deletion should succeed");
         let total_file_size_bytes: i64 =

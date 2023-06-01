@@ -588,7 +588,7 @@ impl TestPartition {
         if to_delete {
             repos
                 .parquet_files()
-                .create_upgrade_delete(&[parquet_file.id], &[], &[], CompactionLevel::Initial)
+                .create_upgrade_delete(&[parquet_file.id], &[], &[], CompactionLevel::Initial, None)
                 .await
                 .unwrap();
         }
@@ -817,7 +817,7 @@ impl TestParquetFile {
 
         repos
             .parquet_files()
-            .create_upgrade_delete(&[self.parquet_file.id], &[], &[], CompactionLevel::Initial)
+            .create_upgrade_delete(&[self.parquet_file.id], &[], &[], CompactionLevel::Initial, None)
             .await
             .unwrap();
     }

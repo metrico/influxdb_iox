@@ -14,6 +14,7 @@ use std::{
     fmt::{Debug, Display},
     sync::Arc,
 };
+use std::time::Duration;
 use uuid::Uuid;
 
 /// Maximum number of files deleted by [`ParquetFileRepo::delete_old_ids_only`] and
@@ -486,12 +487,17 @@ pub trait ParquetFileRepo: Send + Sync {
     /// Commit deletions, upgrades and creations in a single transaction.
     ///
     /// Returns IDs of created files.
+    /// # Arguments
+    ///
+    /// * `delete_at_adjustment` - an optional value to back date the to_delete time. This
+    ///    adjustment is subtracted from now() to give the deleted at timestamp.
     async fn create_upgrade_delete(
         &mut self,
         delete: &[ParquetFileId],
         upgrade: &[ParquetFileId],
         create: &[ParquetFileParams],
         target_level: CompactionLevel,
+        delete_at_adjustment: Option<Duration>,
     ) -> Result<Vec<ParquetFileId>>;
 }
 
@@ -1752,7 +1758,7 @@ pub(crate) mod test_helpers {
         // verify to_delete can be updated to a timestamp
         repos
             .parquet_files()
-            .create_upgrade_delete(&[parquet_file.id], &[], &[], CompactionLevel::Initial)
+            .create_upgrade_delete(&[parquet_file.id], &[], &[], CompactionLevel::Initial, None)
             .await
             .unwrap();
 
@@ -1882,7 +1888,7 @@ pub(crate) mod test_helpers {
 
         repos
             .parquet_files()
-            .create_upgrade_delete(&[f2.id], &[], &[], CompactionLevel::Initial)
+            .create_upgrade_delete(&[f2.id], &[], &[], CompactionLevel::Initial, None)
             .await
             .unwrap();
         let files = repos
@@ -2046,6 +2052,7 @@ pub(crate) mod test_helpers {
                 &[f1.id],
                 &[f6_params.clone()],
                 CompactionLevel::Final,
+                None
             )
             .await
             .unwrap();
@@ -2084,6 +2091,7 @@ pub(crate) mod test_helpers {
                 &[f2.id],
                 &[f6_params.clone()],
                 CompactionLevel::Final,
+                None
             )
             .await;
 
@@ -2236,7 +2244,7 @@ pub(crate) mod test_helpers {
             .unwrap();
         repos
             .parquet_files()
-            .create_upgrade_delete(&[delete_l0_file.id], &[], &[], CompactionLevel::Initial)
+            .create_upgrade_delete(&[delete_l0_file.id], &[], &[], CompactionLevel::Initial, None)
             .await
             .unwrap();
         let partitions = repos
@@ -2588,7 +2596,7 @@ pub(crate) mod test_helpers {
             .unwrap();
         repos
             .parquet_files()
-            .create_upgrade_delete(&[delete_file.id], &[], &[], CompactionLevel::Initial)
+            .create_upgrade_delete(&[delete_file.id], &[], &[], CompactionLevel::Initial, None)
             .await
             .unwrap();
         let level1_file_params = ParquetFileParams {
@@ -2607,6 +2615,7 @@ pub(crate) mod test_helpers {
                 &[level1_file.id],
                 &[],
                 CompactionLevel::FileNonOverlapped,
+                None
             )
             .await
             .unwrap();
@@ -2697,6 +2706,7 @@ pub(crate) mod test_helpers {
                 &[parquet_file.id, nonexistent_parquet_file_id],
                 &[],
                 CompactionLevel::FileNonOverlapped,
+                None
             )
             .await
             .unwrap();

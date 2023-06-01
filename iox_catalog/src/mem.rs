@@ -25,6 +25,7 @@ use std::{
     fmt::{Display, Formatter},
     sync::Arc,
 };
+use std::time::Duration;
 use tokio::sync::{Mutex, OwnedMutexGuard};
 
 /// In-memory catalog that implements the `RepoCollection` and individual repo traits from
@@ -834,6 +835,7 @@ impl ParquetFileRepo for MemTxn {
         upgrade: &[ParquetFileId],
         create: &[ParquetFileParams],
         target_level: CompactionLevel,
+        delete_at_adjustment: Option<Duration>,
     ) -> Result<Vec<ParquetFileId>> {
         let delete_set = delete.iter().copied().collect::<HashSet<_>>();
         let upgrade_set = upgrade.iter().copied().collect::<HashSet<_>>();
@@ -846,7 +848,9 @@ impl ParquetFileRepo for MemTxn {
         let mut stage = self.inner.clone();
 
         for id in delete {
-            let marked_at = Timestamp::from(self.time_provider.now());
+            let marked_at = Timestamp::from(
+                self.time_provider.now() - delete_at_adjustment.unwrap_or(Duration::ZERO)
+            );
             flag_for_delete(&mut stage, *id, marked_at).await?;
         }
 

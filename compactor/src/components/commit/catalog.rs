@@ -1,4 +1,5 @@
 use std::{fmt::Display, sync::Arc};
+use std::time::Duration;
 
 use async_trait::async_trait;
 use backoff::{Backoff, BackoffConfig};
@@ -11,13 +12,15 @@ use super::Commit;
 pub struct CatalogCommit {
     backoff_config: BackoffConfig,
     catalog: Arc<dyn Catalog>,
+    deleted_at_adjustment: Duration
 }
 
 impl CatalogCommit {
-    pub fn new(backoff_config: BackoffConfig, catalog: Arc<dyn Catalog>) -> Self {
+    pub fn new(backoff_config: BackoffConfig, catalog: Arc<dyn Catalog>, deleted_at_adjustment: Duration) -> Self {
         Self {
             backoff_config,
             catalog,
+            deleted_at_adjustment
         }
     }
 }
@@ -48,7 +51,7 @@ impl Commit for CatalogCommit {
                 let mut repos = self.catalog.repositories().await;
                 let parquet_files = repos.parquet_files();
                 let ids = parquet_files
-                    .create_upgrade_delete(&delete, &upgrade, create, target_level)
+                    .create_upgrade_delete(&delete, &upgrade, create, target_level, Some(self.deleted_at_adjustment))
                     .await?;
 
                 Ok::<_, iox_catalog::interface::Error>(ids)

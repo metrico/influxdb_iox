@@ -15,6 +15,7 @@ use iox_time::{SystemProvider, TimeProvider};
 use metric::{DurationHistogram, Metric};
 use std::{collections::HashMap, fmt::Debug, sync::Arc};
 use uuid::Uuid;
+use core::time::Duration;
 
 /// Decorates a implementation of the catalog's [`RepoCollection`] (and the
 /// transactional variant) with instrumentation that emits latency histograms
@@ -193,6 +194,6 @@ decorate!(
         "parquet_delete_old_ids_only" = delete_old_ids_only(&mut self, older_than: Timestamp) -> Result<Vec<ParquetFileId>>;
         "parquet_list_by_partition_not_to_delete" = list_by_partition_not_to_delete(&mut self, partition_id: PartitionId) -> Result<Vec<ParquetFile>>;
         "parquet_get_by_object_store_id" = get_by_object_store_id(&mut self, object_store_id: Uuid) -> Result<Option<ParquetFile>>;
-        "parquet_create_upgrade_delete" = create_upgrade_delete(&mut self, delete: &[ParquetFileId], upgrade: &[ParquetFileId], create: &[ParquetFileParams], target_level: CompactionLevel) -> Result<Vec<ParquetFileId>>;
+        "parquet_create_upgrade_delete" = create_upgrade_delete(&mut self, delete: &[ParquetFileId], upgrade: &[ParquetFileId], create: &[ParquetFileParams], target_level: CompactionLevel, delete_at_adjustment: Option<Duration>) -> Result<Vec<ParquetFileId>>;
     ]
 );

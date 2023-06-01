@@ -1438,6 +1438,7 @@ WHERE object_store_id = $1;
         upgrade: &[ParquetFileId],
         create: &[ParquetFileParams],
         target_level: CompactionLevel,
+        delete_at_adjustment: Option<Duration>,
     ) -> Result<Vec<ParquetFileId>> {
         let delete_set: HashSet<_> = delete.iter().map(|d| d.get()).collect();
         let upgrade_set: HashSet<_> = upgrade.iter().map(|u| u.get()).collect();
@@ -1454,7 +1455,10 @@ WHERE object_store_id = $1;
             .await
             .map_err(|e| Error::StartTransaction { source: e })?;
 
-        let marked_at = Timestamp::from(self.time_provider.now());
+        // shift the delete_at value by the optionally provided adjustment
+        let marked_at = Timestamp::from(
+            self.time_provider.now() - delete_at_adjustment.unwrap_or(Duration::ZERO)
+        );
         flag_for_delete(&mut tx, delete, marked_at).await?;
 
         update_compaction_level(&mut tx, upgrade, target_level).await?;
@@ -2169,7 +2173,7 @@ mod tests {
         // flag f1 for deletion and assert that the total file size is reduced accordingly.
         repos
             .parquet_files()
-            .create_upgrade_delete(&[f1.id], &[], &[], CompactionLevel::Initial)
+            .create_upgrade_delete(&[f1.id], &[], &[], CompactionLevel::Initial, None)
             .await
             .expect("flag parquet file for deletion should succeed");
         let total_file_size_bytes: i64 =
