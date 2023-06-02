@@ -189,7 +189,7 @@ impl IoxGetRequest {
         /// This represents ths JSON fields
         #[derive(Deserialize, Debug)]
         struct ReadInfoJson {
-            #[serde(alias = "bucket", alias = "bucket-name")]
+            #[serde(alias = "namespace_name", alias = "bucket", alias = "bucket-name")]
             database: String,
             sql_query: String,
             // If query type is not supplied, defaults to SQL
@@ -351,9 +351,39 @@ mod tests {
                 "my_db",
                 "SELECT 1;",
             ),
+            TestCase::new_sql(
+                r#"{"namespace_name": "my_db", "sql_query": "SELECT 1;"}"#,
+                "my_db",
+                "SELECT 1;",
+            ),
+            TestCase::new_sql(
+                r#"{"bucket": "my_db", "sql_query": "SELECT 1;"}"#,
+                "my_db",
+                "SELECT 1;",
+            ),
+            TestCase::new_sql(
+                r#"{"bucket-name": "my_db", "sql_query": "SELECT 1;"}"#,
+                "my_db",
+                "SELECT 1;",
+            ),
             // explicit query type, sql
             TestCase::new_sql(
                 r#"{"database": "my_db", "sql_query": "SELECT 1;", "query_type": "sql"}"#,
+                "my_db",
+                "SELECT 1;",
+            ),
+            TestCase::new_sql(
+                r#"{"namespace_name": "my_db", "sql_query": "SELECT 1;", "query_type": "sql"}"#,
+                "my_db",
+                "SELECT 1;",
+            ),
+            TestCase::new_sql(
+                r#"{"bucket": "my_db", "sql_query": "SELECT 1;", "query_type": "sql"}"#,
+                "my_db",
+                "SELECT 1;",
+            ),
+            TestCase::new_sql(
+                r#"{"bucket-name": "my_db", "sql_query": "SELECT 1;", "query_type": "sql"}"#,
                 "my_db",
                 "SELECT 1;",
             ),
@@ -363,41 +393,83 @@ mod tests {
                 "my_db",
                 "SELECT 1;",
             ),
+            TestCase::new_sql(
+                r#"{"namespace_name": "my_db", "sql_query": "SELECT 1;", "query_type": null}"#,
+                "my_db",
+                "SELECT 1;",
+            ),
+            TestCase::new_sql(
+                r#"{"bucket": "my_db", "sql_query": "SELECT 1;", "query_type": null}"#,
+                "my_db",
+                "SELECT 1;",
+            ),
+            TestCase::new_sql(
+                r#"{"bucket-name": "my_db", "sql_query": "SELECT 1;", "query_type": null}"#,
+                "my_db",
+                "SELECT 1;",
+            ),
             // explicit query type, influxql
+            TestCase::new_influxql(
+                r#"{"database": "my_db", "sql_query": "SELECT 1;", "query_type": "influxql"}"#,
+                "my_db",
+                "SELECT 1;",
+            ),
+            TestCase::new_influxql(
+                r#"{"namespace_name": "my_db", "sql_query": "SELECT 1;", "query_type": "influxql"}"#,
+                "my_db",
+                "SELECT 1;",
+            ),
+            TestCase::new_influxql(
+                r#"{"bucket": "my_db", "sql_query": "SELECT 1;", "query_type": "influxql"}"#,
+                "my_db",
+                "SELECT 1;",
+            ),
+            TestCase::new_influxql(
+                r#"{"bucket-name": "my_db", "sql_query": "SELECT 1;", "query_type": "influxql"}"#,
+                "my_db",
+                "SELECT 1;",
+            ),
+            // explicit query type, influxql on metadata
             TestCase::new_influxql(
                 r#"{"database": "my_otherdb", "sql_query": "SHOW DATABASES;", "query_type": "influxql"}"#,
                 "my_otherdb",
                 "SHOW DATABASES;",
             ),
-            // influxql bucket metadata
+            TestCase::new_influxql(
+                r#"{"namespace_name": "my_otherdb", "sql_query": "SHOW DATABASES;", "query_type": "influxql"}"#,
+                "my_otherdb",
+                "SHOW DATABASES;",
+            ),
             TestCase::new_influxql(
                 r#"{"bucket": "my_otherdb", "sql_query": "SHOW DATABASES;", "query_type": "influxql"}"#,
                 "my_otherdb",
                 "SHOW DATABASES;",
             ),
-            // influxql bucket-name metadata
             TestCase::new_influxql(
                 r#"{"bucket-name": "my_otherdb", "sql_query": "SHOW DATABASES;", "query_type": "influxql"}"#,
                 "my_otherdb",
                 "SHOW DATABASES;",
             ),
-            // sql database metadata
+            // explicit query type, sql on metadata
             TestCase::new_sql(
-                r#"{"database": "my_db", "sql_query": "SELECT 1;", "query_type": "sql"}"#,
-                "my_db",
-                "SELECT 1;",
+                r#"{"database": "my_otherdb", "sql_query": "SHOW DATABASES;", "query_type": "sql"}"#,
+                "my_otherdb",
+                "SHOW DATABASES;",
             ),
-            // sql bucket metadata
             TestCase::new_sql(
-                r#"{"bucket": "my_db", "sql_query": "SELECT 1;", "query_type": "sql"}"#,
-                "my_db",
-                "SELECT 1;",
+                r#"{"namespace_name": "my_otherdb", "sql_query": "SHOW DATABASES;", "query_type": "sql"}"#,
+                "my_otherdb",
+                "SHOW DATABASES;",
             ),
-            // sql bucket-name metadata
             TestCase::new_sql(
-                r#"{"bucket-name": "my_db", "sql_query": "SELECT 1;", "query_type": "sql"}"#,
-                "my_db",
-                "SELECT 1;",
+                r#"{"bucket": "my_otherdb", "sql_query": "SHOW DATABASES;", "query_type": "sql"}"#,
+                "my_otherdb",
+                "SHOW DATABASES;",
+            ),
+            TestCase::new_sql(
+                r#"{"bucket-name": "my_otherdb", "sql_query": "SHOW DATABASES;", "query_type": "sql"}"#,
+                "my_otherdb",
+                "SHOW DATABASES;",
             ),
         ];
 

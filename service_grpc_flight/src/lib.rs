@@ -790,7 +790,6 @@ fn cmd_from_descriptor(flight_descriptor: FlightDescriptor) -> Result<FlightSQLC
 /// Note that `iox-namespace-name` is still accepted (rather than error) for
 /// some period of time until we are sure that all other software speaking
 /// FlightSQL is using the new header names.
-/// Ask the team: when to rename this?
 fn get_flightsql_namespace(metadata: &MetadataMap) -> Result<String> {
     let mut found_header_keys: Vec<String> = vec![];
 
@@ -978,7 +977,9 @@ mod tests {
             authz: Option::<Arc<dyn Authorizer>>::None,
         };
         let ticket = Ticket {
-            ticket: br#"{"database": "my_db", "sql_query": "SELECT 1;"}"#.to_vec().into(),
+            ticket: br#"{"namespace_name": "my_db", "sql_query": "SELECT 1;"}"#
+                .to_vec()
+                .into(),
         };
         let streaming_resp1 = service
             .do_get(tonic::Request::new(ticket.clone()))
