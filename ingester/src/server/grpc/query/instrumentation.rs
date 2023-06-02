@@ -1,11 +1,11 @@
 use std::pin::Pin;
 use std::sync::Arc;
 use std::task::{Context, Poll};
-use std::time::Instant;
+use std::time::{Duration, Instant};
 
 use arrow_flight::{encode::FlightDataEncoder, error::Result as FlightResult, FlightData};
 use futures::Stream;
-use metric::{DurationCounter, DurationHistogram};
+use metric::DurationHistogram;
 use pin_project::pin_project;
 use trace::span::Span;
 use trace::span::SpanRecorder;
@@ -18,8 +18,8 @@ enum FrameEncodeRecorderState {
     Unpolled,
 
     /// The caller is currently awaiting a frame, and the embedded
-    /// [`SpanRecorder`] was created when the wait began.
-    Polled(SpanRecorder),
+    /// [`SpanRecorder`] and [`Instant`] was created when the wait began.
+    Polled(SpanRecorder, Instant),
 }
 
 impl FrameEncodeRecorderState {
@@ -29,10 +29,15 @@ impl FrameEncodeRecorderState {
     /// # Panics
     ///
     /// Panics if `self` is not [`FrameEncodeRecorderState::Polled`].
-    fn take_recorder(&mut self) -> SpanRecorder {
+    fn take_recorder(&mut self, subtotaled_sum: &mut Duration) -> SpanRecorder {
         match std::mem::replace(self, Self::Unpolled) {
             Self::Unpolled => panic!("unwrapping incorrect state"),
-            Self::Polled(recorder) => recorder,
+            Self::Polled(recorder, start) => {
+                *subtotaled_sum = subtotaled_sum
+                    .checked_add(start.elapsed())
+                    .expect("invalid subtotaled_sum");
+                recorder
+            }
         }
     }
 }
@@ -53,7 +58,7 @@ pub(crate) struct FlightFrameEncodeRecorder {
     parent_span: Option<Span>,
     state: FrameEncodeRecorderState,
     encoding_duration_metric: Arc<DurationHistogram>,
-    current_duration_subtotal: DurationCounter,
+    current_duration_subtotal: Duration,
 }
 
 impl FlightFrameEncodeRecorder {
@@ -70,7 +75,7 @@ impl FlightFrameEncodeRecorder {
             parent_span,
             state: FrameEncodeRecorderState::Unpolled,
             encoding_duration_metric,
-            current_duration_subtotal: DurationCounter::default(),
+            current_duration_subtotal: Duration::ZERO,
         }
     }
 }
@@ -84,24 +89,28 @@ impl Stream for FlightFrameEncodeRecorder {
         if let FrameEncodeRecorderState::Unpolled = this.state {
             let recorder =
                 SpanRecorder::new(this.parent_span.as_ref().map(|s| s.child("frame encoding")));
-            *this.state = FrameEncodeRecorderState::Polled(recorder);
+            *this.state = FrameEncodeRecorderState::Polled(recorder, Instant::now());
         };
-        let start = Instant::now();
         let poll = this.inner.poll_next(cx);
-        this.current_duration_subtotal.inc(start.elapsed());
 
         match poll {
             Poll::Pending => {}
             Poll::Ready(None) => {
-                this.state.take_recorder().ok("complete");
+                this.state
+                    .take_recorder(this.current_duration_subtotal)
+                    .ok("complete");
                 this.encoding_duration_metric
-                    .record(this.current_duration_subtotal.fetch());
+                    .record(*this.current_duration_subtotal);
             }
             Poll::Ready(Some(Ok(_))) => {
-                this.state.take_recorder().ok("data emitted");
+                this.state
+                    .take_recorder(this.current_duration_subtotal)
+                    .ok("data emitted");
             }
             Poll::Ready(Some(Err(_))) => {
-                this.state.take_recorder().error("error");
+                this.state
+                    .take_recorder(this.current_duration_subtotal)
+                    .error("error");
             }
         }
         poll
@@ -119,7 +128,6 @@ mod tests {
     use arrow_flight::{encode::FlightDataEncoderBuilder, error::FlightError};
     use assert_matches::assert_matches;
     use futures::StreamExt;
-    use metric::{DurationHistogramOptions, MakeMetricObserver};
     use parking_lot::Mutex;
     use trace::{ctx::SpanContext, RingBufferTraceCollector, TraceCollector};
 
@@ -218,14 +226,19 @@ mod tests {
         let span_ctx = SpanContext::new(Arc::clone(&trace_observer));
         let query_span = span_ctx.child("query span");
 
-        let histogram = MakeMetricObserver::create(&DurationHistogramOptions::new([]));
+        // Initialise metric
+        let histogram = Arc::new(
+            metric::Registry::default()
+                .register_metric::<DurationHistogram>("test", "")
+                .recorder([]),
+        );
 
         // Construct the frame encoder, providing it with the dummy data source,
         // and wrap it the encoder in the metric decorator.
         let call_chain = FlightFrameEncodeRecorder::new(
             FlightDataEncoderBuilder::new().build(data_source.boxed()),
             Some(query_span.clone()),
-            Arc::new(histogram),
+            Arc::clone(&histogram),
         );
 
         // Wait before using the encoder stack to simulate a delay between
@@ -329,75 +342,11 @@ mod tests {
                 + span_duration(span3)
                 + span_duration(end_span);
             assert!(span_total <= call_duration);
+
+            // assert the cumulative duration
+            assert!(histogram.fetch().total <= call_duration);
+            assert!(histogram.fetch().total >= (7 * POLL_BLOCK_TIME));
         });
-    }
-
-    /// A test that validates the correctness of the FlightFrameEncodeRecorder
-    /// metric.
-    #[tokio::test]
-    async fn test_frame_encoding_cumulative_duration() {
-        // A dummy batch of data.
-        let (batch, _schema) = make_batch!(
-            Int64Array("a" => vec![42, 42, 42, 42]),
-        );
-
-        // This simulates a data source that must be asynchronously driven to be
-        // able to yield a RecordBatch (such as a contended async mutex), taking
-        // at least 7 * POLL_BLOCK_TIME to yield all the data.
-        let data_source = MockStream::new([
-            Poll::Pending,
-            Poll::Pending,
-            Poll::Ready(Some(Ok(batch.clone()))),
-            Poll::Pending,
-            Poll::Ready(Some(Ok(batch.clone()))),
-            Poll::Ready(Some(Ok(batch))),
-            Poll::Ready(None),
-        ]);
-
-        let histogram = Arc::new(
-            metric::Registry::default()
-                .register_metric::<DurationHistogram>("test", "")
-                .recorder([]),
-        );
-
-        // Construct the frame encoder, providing it with the dummy data source,
-        // and wrap it the encoder in the metric decorator.
-        let call_chain = FlightFrameEncodeRecorder::new(
-            FlightDataEncoderBuilder::new().build(data_source.boxed()),
-            None,
-            Arc::clone(&histogram),
-        );
-
-        // Wait before using the encoder stack to simulate a delay between
-        // construction, and usage.
-        std::thread::sleep(2 * POLL_BLOCK_TIME);
-
-        // Record the starting time.
-        let started_at = Instant::now();
-
-        // Drive the call chain by collecting all the encoded frames from
-        // through the stack.
-        let encoded = call_chain.collect::<Vec<_>>().await;
-
-        // Record the finish time.
-        let ended_at = Instant::now();
-
-        // Assert that at least three frames of encoded data were yielded through
-        // the call chain (data frames + arbitrary protocol frames).
-        assert!(encoded.len() >= 3);
-
-        // Assert that the entire encoding call took AT LEAST as long as the
-        // lower bound time.
-        //
-        // The encoding call will have required polling the mock data source at
-        // least 7 times, causing 7 sleeps of POLL_BLOCK_TIME, plus additional
-        // scheduling/execution overhead.
-        let call_duration = ended_at.duration_since(started_at);
-        assert!(call_duration >= (7 * POLL_BLOCK_TIME));
-
-        // assert the cumulative duration
-        assert!(histogram.fetch().total <= call_duration);
-        assert!(histogram.fetch().total >= (7 * POLL_BLOCK_TIME));
     }
 
     /// Helper function to return the duration of time covered by `s`.

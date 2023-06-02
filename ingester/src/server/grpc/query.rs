@@ -123,7 +123,7 @@ impl<Q> FlightService<Q> {
         let query_request_frame_encoding_duration = Arc::new(
             metrics
                 .register_metric::<DurationHistogram>(
-                    "query_request_frame_encoding_duration",
+                    "ingester_query_request_frame_encoding_duration",
                     "cumulative duration of frame encoding time, per partition per request",
                 )
                 .recorder(&[]),
