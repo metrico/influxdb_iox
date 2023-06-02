@@ -729,7 +729,7 @@ mod tests {
             projection: Some(projection),
             limit: None,
             table_partition_cols: vec![],
-            output_ordering: Some(vec![
+            output_ordering: vec![vec![
                 PhysicalSortExpr {
                     expr: expr_col("tag3", &schema_projected),
                     options: Default::default(),
@@ -742,7 +742,7 @@ mod tests {
                     expr: expr_col("tag2", &schema_projected),
                     options: Default::default(),
                 },
-            ]),
+            ]],
             infinite_source: false,
         };
         let inner = ParquetExec::new(base_config, Some(expr_string_cmp("tag1", &schema)), None);
@@ -1330,7 +1330,7 @@ mod tests {
             projection: None,
             limit: None,
             table_partition_cols: vec![],
-            output_ordering: None,
+            output_ordering: vec![vec![]],
             infinite_source: false,
         };
         let plan = Arc::new(ParquetExec::new(base_config, None, None));
