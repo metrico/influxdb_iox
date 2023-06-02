@@ -126,7 +126,7 @@ impl<'a> TreeNodeRewriter for ParquetSortnessRewriter<'a> {
         };
 
         let base_config = parquet_exec.base_config();
-        if base_config.output_ordering.is_none() {
+        if base_config.output_ordering.is_empty() {
             // no output ordering requested
             return Ok(node);
         }

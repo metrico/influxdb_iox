@@ -97,11 +97,11 @@ impl PhysicalOptimizerRule for ProjectionPushdown {
                     let output_ordering = child_parquet
                         .base_config()
                         .output_ordering
-                        .as_ref()
+                        .iter()
                         .map(|output_ordering| {
                             project_output_ordering(output_ordering, projection_exec.schema())
                         })
-                        .transpose()?;
+                        .collect::<Result<_>>()?;
                     let base_config = FileScanConfig {
                         projection: Some(projection),
                         output_ordering,
