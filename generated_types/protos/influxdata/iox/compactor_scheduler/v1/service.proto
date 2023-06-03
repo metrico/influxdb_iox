@@ -1,3 +1,5 @@
+/* Remote compaction scheduler protocol */
+
 syntax = "proto3";
 package influxdata.iox.compactor_scheduler.v1;
 
@@ -29,6 +31,7 @@ message CompactionJob {
   // concurrency limit
 
   // done criteria
+  string doneness_criteria = 4;
 }
 
 

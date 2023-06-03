@@ -2,7 +2,7 @@
 use std::{num::NonZeroUsize, sync::Arc, time::Duration};
 
 use backoff::BackoffConfig;
-use compactor_scheduler_grpc::Scheduler;
+use compactor_scheduler::Scheduler;
 use iox_catalog::interface::Catalog;
 use iox_query::exec::Executor;
 use iox_time::TimeProvider;

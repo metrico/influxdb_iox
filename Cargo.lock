@@ -981,7 +981,7 @@ dependencies = [
  "async-trait",
  "backoff",
  "bytes",
- "compactor_scheduler_grpc",
+ "compactor_scheduler",
  "compactor_test_utils",
  "data_types",
  "datafusion",
@@ -1008,7 +1008,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "compactor_scheduler_grpc"
+name = "compactor_scheduler"
 version = "0.1.0"
 dependencies = [
  "async-trait",
@@ -1019,7 +1019,6 @@ dependencies = [
  "iox_catalog",
  "iox_tests",
  "iox_time",
- "metric",
  "observability_deps",
  "sharder",
  "tokio",
@@ -1034,7 +1033,7 @@ dependencies = [
  "async-trait",
  "backoff",
  "compactor",
- "compactor_scheduler_grpc",
+ "compactor_scheduler",
  "data_types",
  "datafusion",
  "datafusion_util",
@@ -2525,7 +2524,7 @@ dependencies = [
  "clap_blocks",
  "comfy-table",
  "compactor",
- "compactor_scheduler_grpc",
+ "compactor_scheduler",
  "console-subscriber",
  "data_types",
  "datafusion",
@@ -3044,7 +3043,7 @@ dependencies = [
  "backoff",
  "clap_blocks",
  "compactor",
- "compactor_scheduler_grpc",
+ "compactor_scheduler",
  "hyper",
  "iox_catalog",
  "iox_query",

@@ -18,7 +18,7 @@ use async_trait::async_trait;
 use backoff::BackoffConfig;
 use clap_blocks::compactor::CompactorConfig;
 use compactor::{compactor::Compactor, config::Config};
-use compactor_scheduler_grpc::Scheduler;
+use compactor_scheduler::Scheduler;
 use hyper::{Body, Request, Response};
 use iox_catalog::interface::Catalog;
 use iox_query::exec::Executor;

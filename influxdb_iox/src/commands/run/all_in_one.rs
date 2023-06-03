@@ -19,7 +19,7 @@ use clap_blocks::{
     socket_addr::SocketAddr,
 };
 use compactor::object_store::metrics::MetricsStore;
-use compactor_scheduler_grpc::create_compactor_scheduler_service;
+use compactor_scheduler::create_compactor_scheduler_service;
 use iox_query::exec::{Executor, ExecutorConfig};
 use iox_time::{SystemProvider, TimeProvider};
 use ioxd_common::{
@@ -591,7 +591,7 @@ pub async fn command(config: Config) -> Result<()> {
     let time_provider: Arc<dyn TimeProvider> = Arc::new(SystemProvider::new());
 
     let scheduler =
-        create_compactor_scheduler_service(compactor_scheduler_config, Arc::clone(&catalog));
+        create_compactor_scheduler_service(compactor_scheduler_config, Arc::clone(&catalog)).await;
 
     // create common state from the router and use it below
     let common_state = CommonServerState::from_config(router_run_config.clone())?;

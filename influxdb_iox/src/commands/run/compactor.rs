@@ -8,7 +8,7 @@ use clap_blocks::{
     run_config::RunConfig,
 };
 use compactor::object_store::metrics::MetricsStore;
-use compactor_scheduler_grpc::create_compactor_scheduler_service;
+use compactor_scheduler::create_compactor_scheduler_service;
 use iox_query::exec::{Executor, ExecutorConfig};
 use iox_time::{SystemProvider, TimeProvider};
 use ioxd_common::{
@@ -82,7 +82,8 @@ pub async fn command(config: Config) -> Result<(), Error> {
         .await?;
 
     let scheduler =
-        create_compactor_scheduler_service(config.compactor_scheduler_config, Arc::clone(&catalog));
+        create_compactor_scheduler_service(config.compactor_scheduler_config, Arc::clone(&catalog))
+            .await;
 
     let object_store = make_object_store(config.run_config.object_store_config())
         .map_err(Error::ObjectStoreParsing)?;

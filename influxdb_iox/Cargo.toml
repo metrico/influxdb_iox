@@ -12,7 +12,7 @@ arrow-flight = { workspace = true }
 authz = {path = "../authz" }
 clap_blocks = { path = "../clap_blocks" }
 compactor = { path = "../compactor" }
-compactor_scheduler_grpc = { path = "../compactor_scheduler_grpc" }
+compactor_scheduler = { path = "../compactor_scheduler" }
 data_types = { path = "../data_types" }
 datafusion = { workspace = true }
 generated_types = { path = "../generated_types" }

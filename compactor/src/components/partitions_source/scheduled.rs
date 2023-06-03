@@ -1,7 +1,7 @@
 use std::{fmt::Display, sync::Arc};
 
 use async_trait::async_trait;
-use compactor_scheduler_grpc::Scheduler;
+use compactor_scheduler::{CompactionJob, Scheduler};
 use data_types::{PartitionId, PartitionsSource};
 
 #[derive(Debug)]
@@ -24,7 +24,8 @@ impl Display for ScheduledPartitionsSource {
 #[async_trait]
 impl PartitionsSource for ScheduledPartitionsSource {
     async fn fetch(&self) -> Vec<PartitionId> {
-        self.scheduler.get_partitions().await
+        let job: Vec<CompactionJob> = self.scheduler.get_job().await;
+        job.into_iter().map(|job| job.partition_id).collect()
     }
 }
 

@@ -1,4 +1,4 @@
-//! Internal modules used by [`LocalScheduler`].
+//! Internals used by [`LocalScheduler`].
 pub(crate) mod id_only_partition_filter;
 pub(crate) mod partitions_source;
 mod partitions_source_config;
@@ -12,13 +12,13 @@ use std::{
 
 use async_trait::async_trait;
 use backoff::BackoffConfig;
-use data_types::{MockPartitionsSource, PartitionId, PartitionsSource};
+use data_types::{MockPartitionsSource, PartitionsSource};
 use iox_catalog::interface::Catalog;
 use iox_time::{SystemProvider, TimeProvider};
 use observability_deps::tracing::info;
 
 use crate::local_scheduler::id_only_partition_filter::shard::ShardPartitionFilter;
-use crate::scheduler::Scheduler;
+use crate::scheduler::{CompactionJob, Scheduler};
 
 use self::{
     id_only_partition_filter::{and::AndIdOnlyPartitionFilter, IdOnlyPartitionFilter},
@@ -66,7 +66,7 @@ impl LocalScheduler {
 
 #[async_trait]
 impl Scheduler for LocalScheduler {
-    async fn get_partitions(&self) -> Vec<PartitionId> {
+    async fn get_job(&self) -> Vec<CompactionJob> {
         let partitions_source: Arc<dyn PartitionsSource> = match &self.partitions_source_config {
             PartitionsSourceConfig::CatalogRecentWrites { threshold } => {
                 Arc::new(CatalogToCompactPartitionsSource::new(
@@ -105,6 +105,9 @@ impl Scheduler for LocalScheduler {
         )
         .fetch()
         .await
+        .into_iter()
+        .map(|partition_id| CompactionJob { partition_id })
+        .collect()
     }
 }
 

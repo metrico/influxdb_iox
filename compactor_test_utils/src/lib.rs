@@ -41,7 +41,7 @@ use compactor::{
     compact, config::Config, hardcoded_components, Components, PanicDataFusionPlanner,
     PartitionInfo,
 };
-use compactor_scheduler_grpc::{LocalScheduler, PartitionsSourceConfig};
+use compactor_scheduler::{LocalScheduler, PartitionsSourceConfig};
 use data_types::{ColumnType, CompactionLevel, ParquetFile, TableId};
 use datafusion::arrow::record_batch::RecordBatch;
 use datafusion_util::config::register_iox_object_store;

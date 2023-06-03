@@ -22,22 +22,21 @@
 use workspace_hack as _;
 
 mod local_scheduler;
+pub use local_scheduler::{LocalScheduler, PartitionsSourceConfig};
+mod remote_scheduler;
+mod scheduler;
+pub use scheduler::*;
+
 use std::sync::Arc;
 
 use backoff::BackoffConfig;
 use clap_blocks::compactor_scheduler::{CompactorSchedulerConfig, CompactorSchedulerType};
 use iox_catalog::interface::Catalog;
 
-use crate::local_scheduler::shard_config::ShardConfig;
-
-pub use local_scheduler::{LocalScheduler, PartitionsSourceConfig};
-mod scheduler;
-pub use scheduler::Scheduler;
-mod service;
-pub use service::*;
+use crate::{local_scheduler::shard_config::ShardConfig, remote_scheduler::RemoteScheduler};
 
 /// Instantiate a compaction scheduler service
-pub fn create_compactor_scheduler_service(
+pub async fn create_compactor_scheduler_service(
     scheduler_config: CompactorSchedulerConfig,
     catalog: Arc<dyn Catalog>,
 ) -> Arc<dyn Scheduler> {
@@ -55,7 +54,11 @@ pub fn create_compactor_scheduler_service(
             ))
         }
         CompactorSchedulerType::Remote => {
-            unimplemented!("only 'local' compactor-scheduler is implemented")
+            let remote_scheduler = Arc::new(RemoteScheduler::new());
+            match remote_scheduler.connect().await {
+                Ok(_) => remote_scheduler,
+                Err(_) => panic!("remote compactor scheduler failed to connect"),
+            }
         }
     }
 }
