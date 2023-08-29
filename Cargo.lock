@@ -4887,6 +4887,7 @@ dependencies = [
  "flate2",
  "futures",
  "generated_types",
+ "gossip",
  "gossip_schema",
  "hashbrown 0.14.0",
  "hyper",
