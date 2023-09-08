@@ -180,10 +180,11 @@ where
                     NamespaceSchema {
                         id: NamespaceId::new(note.namespace_id),
                         tables: Default::default(),
-                        max_tables: MaxTables::new(note.max_tables as i32),
-                        max_columns_per_table: MaxColumnsPerTable::new(
-                            note.max_columns_per_table as i32,
-                        ),
+                        max_tables: MaxTables::try_from(note.max_tables).unwrap_or_default(),
+                        max_columns_per_table: MaxColumnsPerTable::try_from(
+                            note.max_columns_per_table,
+                        )
+                        .unwrap_or_default(),
                         retention_period_ns: note.retention_period_ns,
                         partition_template,
                     },

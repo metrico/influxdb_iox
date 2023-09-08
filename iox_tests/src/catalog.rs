@@ -265,21 +265,24 @@ impl TestNamespace {
     }
 
     /// Set the number of tables allowed in this namespace.
-    pub async fn update_table_limit(&self, new_max: i32) {
+    pub async fn update_table_limit(&self, new_max: usize) {
         let mut repos = self.catalog.catalog.repositories().await;
         repos
             .namespaces()
-            .update_table_limit(&self.namespace.name, MaxTables::new(new_max))
+            .update_table_limit(&self.namespace.name, MaxTables::try_from(new_max).unwrap())
             .await
             .unwrap();
     }
 
     /// Set the number of columns per table allowed in this namespace.
-    pub async fn update_column_limit(&self, new_max: i32) {
+    pub async fn update_column_limit(&self, new_max: usize) {
         let mut repos = self.catalog.catalog.repositories().await;
         repos
             .namespaces()
-            .update_column_limit(&self.namespace.name, MaxColumnsPerTable::new(new_max))
+            .update_column_limit(
+                &self.namespace.name,
+                MaxColumnsPerTable::try_from(new_max).unwrap(),
+            )
             .await
             .unwrap();
     }

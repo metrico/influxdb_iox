@@ -84,6 +84,13 @@ impl namespace_service_server::NamespaceService for NamespaceService {
 
         debug!(%namespace_name, ?retention_period_ns, "Creating namespace");
 
+        let service_protection_limits = service_protection_limits
+            .map(|limits| {
+                NamespaceServiceProtectionLimitsOverride::try_from(limits)
+                    .map_err(|v| Status::invalid_argument(v.to_string()))
+            })
+            .transpose()?;
+
         let namespace = repos
             .namespaces()
             .create(
@@ -93,7 +100,7 @@ impl namespace_service_server::NamespaceService for NamespaceService {
                     .transpose()
                     .map_err(|v| Status::invalid_argument(v.to_string()))?,
                 retention_period_ns,
-                service_protection_limits.map(NamespaceServiceProtectionLimitsOverride::from),
+                service_protection_limits,
             )
             .await
             .map_err(|e| {
@@ -250,8 +257,8 @@ pub fn namespace_to_proto(namespace: &CatalogNamespace) -> Namespace {
         id: namespace.id.get(),
         name: namespace.name.clone(),
         retention_period_ns: namespace.retention_period_ns,
-        max_tables: namespace.max_tables.get(),
-        max_columns_per_table: namespace.max_columns_per_table.get(),
+        max_tables: namespace.max_tables.get_i32(),
+        max_columns_per_table: namespace.max_columns_per_table.get_i32(),
         partition_template: namespace.partition_template.as_proto().cloned(),
     }
 }

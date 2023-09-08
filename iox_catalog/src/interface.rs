@@ -902,7 +902,7 @@ pub(crate) mod test_helpers {
         namespaces.sort_by_key(|ns| ns.name.clone());
         assert_eq!(namespaces, vec![namespace, namespace2]);
 
-        let new_table_limit = MaxTables::new(15000);
+        let new_table_limit = MaxTables::try_from(15_000).unwrap();
         let modified = repos
             .namespaces()
             .update_table_limit(namespace_name.as_str(), new_table_limit)
@@ -910,7 +910,7 @@ pub(crate) mod test_helpers {
             .expect("namespace should be updateable");
         assert_eq!(new_table_limit, modified.max_tables);
 
-        let new_column_limit = MaxColumnsPerTable::new(1500);
+        let new_column_limit = MaxColumnsPerTable::try_from(1_500).unwrap();
         let modified = repos
             .namespaces()
             .update_column_limit(namespace_name.as_str(), new_column_limit)
@@ -1282,7 +1282,7 @@ pub(crate) mod test_helpers {
         // test per-namespace table limits
         let latest = repos
             .namespaces()
-            .update_table_limit("namespace_table_test", MaxTables::new(1))
+            .update_table_limit("namespace_table_test", MaxTables::try_from(1).unwrap())
             .await
             .expect("namespace should be updateable");
         let err = repos
@@ -1500,7 +1500,10 @@ pub(crate) mod test_helpers {
         // test per-namespace column limits
         repos
             .namespaces()
-            .update_column_limit("namespace_column_test", MaxColumnsPerTable::new(1))
+            .update_column_limit(
+                "namespace_column_test",
+                MaxColumnsPerTable::try_from(1).unwrap(),
+            )
             .await
             .expect("namespace should be updateable");
         let err = repos

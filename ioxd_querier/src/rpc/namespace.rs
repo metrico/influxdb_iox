@@ -36,8 +36,8 @@ fn namespace_to_proto(namespace: Namespace) -> proto::Namespace {
         id: namespace.id.get(),
         name: namespace.name,
         retention_period_ns: namespace.retention_period_ns,
-        max_tables: namespace.max_tables.get(),
-        max_columns_per_table: namespace.max_columns_per_table.get(),
+        max_tables: namespace.max_tables.get_i32(),
+        max_columns_per_table: namespace.max_columns_per_table.get_i32(),
         partition_template: namespace.partition_template.as_proto().cloned(),
     }
 }
@@ -181,16 +181,16 @@ mod tests {
                         id: 1,
                         name: "namespace2".to_string(),
                         retention_period_ns: TEST_RETENTION_PERIOD_NS,
-                        max_tables: MaxTables::default().get(),
-                        max_columns_per_table: MaxColumnsPerTable::default().get(),
+                        max_tables: MaxTables::default().get_i32(),
+                        max_columns_per_table: MaxColumnsPerTable::default().get_i32(),
                         partition_template: None,
                     },
                     proto::Namespace {
                         id: 2,
                         name: "namespace1".to_string(),
                         retention_period_ns: TEST_RETENTION_PERIOD_NS,
-                        max_tables: MaxTables::default().get(),
-                        max_columns_per_table: MaxColumnsPerTable::default().get(),
+                        max_tables: MaxTables::default().get_i32(),
+                        max_columns_per_table: MaxColumnsPerTable::default().get_i32(),
                         partition_template: None,
                     },
                 ]

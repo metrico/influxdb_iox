@@ -164,8 +164,8 @@ mod tests {
         NamespaceSchema {
             id: NamespaceId::new(42),
             tables,
-            max_tables: MaxTables::new(42),
-            max_columns_per_table: MaxColumnsPerTable::new(100),
+            max_tables: MaxTables::try_from(42).unwrap(),
+            max_columns_per_table: MaxColumnsPerTable::try_from(100).unwrap(),
             retention_period_ns: None,
             partition_template: Default::default(),
         }

@@ -175,8 +175,8 @@ mod tests {
     const DEFAULT_NAMESPACE: NamespaceSchema = NamespaceSchema {
         id: NamespaceId::new(4242),
         tables: BTreeMap::new(),
-        max_columns_per_table: MaxColumnsPerTable::new(1),
-        max_tables: MaxTables::new(2),
+        max_columns_per_table: MaxColumnsPerTable::const_default(),
+        max_tables: MaxTables::const_default(),
         retention_period_ns: None,
         partition_template: DEFAULT_NAMESPACE_PARTITION_TEMPLATE,
     };
@@ -342,8 +342,8 @@ mod tests {
             *platanos,
             NamespaceSchema {
                 id: NamespaceId::new(2424),
-                max_columns_per_table: MaxColumnsPerTable::new(1234),
-                max_tables: MaxTables::new(666),
+                max_columns_per_table: MaxColumnsPerTable::try_from(1234).unwrap(),
+                max_tables: MaxTables::try_from(666).unwrap(),
                 retention_period_ns: Some(4321),
                 partition_template: Default::default(),
                 tables: [(

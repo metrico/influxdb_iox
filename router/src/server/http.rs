@@ -472,7 +472,8 @@ mod tests {
 
     use assert_matches::assert_matches;
     use data_types::{
-        NamespaceId, NamespaceName, NamespaceNameError, OrgBucketMappingError, TableId,
+        MaxColumnsPerTable, MaxTables, NamespaceId, NamespaceName, NamespaceNameError,
+        OrgBucketMappingError, TableId,
     };
     use flate2::{write::GzEncoder, Compression};
     use hyper::header::HeaderValue;
@@ -1531,7 +1532,7 @@ mod tests {
                 table_name: "bananas".to_string(),
                 existing_column_count: 42,
                 merged_column_count: 4242,
-                max_columns_per_table: 24,
+                max_columns_per_table: MaxColumnsPerTable::try_from(24).unwrap(),
             })))),
             "dml handler error: service limit reached: couldn't create columns in table `bananas`; table contains 42 \
             existing columns, applying this write would result in 4242 columns, limit is 24",
@@ -1541,7 +1542,7 @@ mod tests {
             DmlHandler(DmlError::Schema(SchemaError::ServiceLimit(Box::new(CachedServiceProtectionLimit::Table {
                 existing_table_count: 42,
                 merged_table_count: 4242,
-                table_count_limit: 24,
+                table_count_limit: MaxTables::try_from(24).unwrap(),
             })))),
             "dml handler error: service limit reached: couldn't create new table; namespace contains 42 existing \
             tables, applying this write would result in 4242 tables, limit is 24",

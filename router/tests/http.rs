@@ -229,7 +229,7 @@ async fn test_schema_limit() {
         .repositories()
         .await
         .namespaces()
-        .update_table_limit("bananas_test", MaxTables::new(1))
+        .update_table_limit("bananas_test", MaxTables::try_from(1).unwrap())
         .await
         .expect("failed to update table limit");
 
