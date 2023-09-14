@@ -203,36 +203,67 @@ where
     // If the table itself needs to be updated during column validation it
     // becomes a Cow::owned() copy and the modified copy should be inserted into
     // the schema before returning.
+    validate_and_insert_columns(
+        mb.columns()
+            .map(|(name, col)| (name, col.influx_type().into())),
+        &mut table,
+        repos,
+    )
+    .await?;
+
+    if let Cow::Owned(table) = table {
+        // The table schema was mutated and needs inserting into the namespace
+        // schema to make the changes visible to the caller.
+        assert!(schema
+            .to_mut()
+            .tables
+            .insert(table_name.to_string(), table)
+            .is_some());
+    }
+
+    Ok(())
+}
+
+// &mut Cow is used to avoid a copy, so allow it
+#[allow(clippy::ptr_arg)]
+async fn validate_and_insert_columns<R>(
+    columns: impl Iterator<Item = (&String, ColumnType)>,
+    table: &mut Cow<'_, TableSchema>,
+    repos: &mut R,
+) -> Result<()>
+where
+    R: RepoCollection + ?Sized,
+{
     let mut column_batch: HashMap<&str, ColumnType> = HashMap::new();
 
-    for (name, col) in mb.columns() {
+    for (name, column_type) in columns {
         // Check if the column exists in the cached schema.
         //
         // If it does, validate it. If it does not exist, create it and insert
         // it into the cached schema.
 
         match table.columns.get(name.as_str()) {
-            Some(existing) if existing.matches_type(col.influx_type()) => {
+            Some(existing) if existing.column_type == column_type => {
                 // No action is needed as the column matches the existing column
                 // schema.
             }
             Some(existing) => {
-                // The column schema, and the column in the mutable batch are of
+                // The column schema and the column in the schema change are of
                 // different types.
                 return ColumnTypeMismatchSnafu {
                     name,
                     existing: existing.column_type,
-                    new: col.influx_type(),
+                    new: column_type,
                 }
                 .fail();
             }
             None => {
                 // The column does not exist in the cache, add it to the column
                 // batch to be bulk inserted later.
-                let old = column_batch.insert(name.as_str(), ColumnType::from(col.influx_type()));
+                let old = column_batch.insert(name.as_str(), column_type);
                 assert!(
                     old.is_none(),
-                    "duplicate column name `{name}` in new column batch shouldn't be possible"
+                    "duplicate column name `{name}` in new column schema shouldn't be possible"
                 );
             }
         }
@@ -245,16 +276,6 @@ where
             .await?
             .into_iter()
             .for_each(|c| table.to_mut().add_column(c));
-    }
-
-    if let Cow::Owned(table) = table {
-        // The table schema was mutated and needs inserting into the namespace
-        // schema to make the changes visible to the caller.
-        assert!(schema
-            .to_mut()
-            .tables
-            .insert(table_name.to_string(), table)
-            .is_some());
     }
 
     Ok(())
