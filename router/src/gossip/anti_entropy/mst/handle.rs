@@ -2,6 +2,8 @@
 //!
 //! [`AntiEntropyActor`]: super::actor::AntiEntropyActor
 
+use std::ops::RangeInclusive;
+
 use data_types::NamespaceName;
 use merkle_search_tree::digest::RootHash;
 use observability_deps::tracing::error;
@@ -134,6 +136,26 @@ impl AntiEntropyHandle {
 
         self.op_tx
             .send(Op::Snapshot(tx))
+            .await
+            .expect("anti-entropy actor has stopped");
+
+        rx.await.expect("anti-entropy actor has stopped")
+    }
+
+    /// Compute the difference between the local [`MerkleSearchTree`] state, and
+    /// the provided [`MerkleSnapshot`], returning the inclusive key ranges that
+    /// contain inconsistencies.
+    ///
+    /// [`MerkleSearchTree`]: merkle_search_tree::MerkleSearchTree
+    #[allow(dead_code)]
+    pub(crate) async fn compute_diff(
+        &self,
+        snap: MerkleSnapshot,
+    ) -> Vec<RangeInclusive<NamespaceName<'static>>> {
+        let (tx, rx) = oneshot::channel();
+
+        self.op_tx
+            .send(Op::Diff(snap, tx))
             .await
             .expect("anti-entropy actor has stopped");
 

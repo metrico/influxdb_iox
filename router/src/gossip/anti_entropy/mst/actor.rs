@@ -1,5 +1,5 @@
 //! An actor task maintaining [`MerkleSearchTree`] state.
-use std::sync::Arc;
+use std::{ops::RangeInclusive, sync::Arc};
 
 use data_types::{NamespaceName, NamespaceSchema};
 use merkle_search_tree::{diff::PageRangeSnapshot, digest::RootHash, MerkleSearchTree};
@@ -21,6 +21,13 @@ pub(super) enum Op {
 
     /// Request a [`MerkleSnapshot`] of the current MST state.
     Snapshot(oneshot::Sender<MerkleSnapshot>),
+
+    /// Compute the diff between the local MST state and the provided snapshot,
+    /// returning the key ranges that contain inconsistencies.
+    Diff(
+        MerkleSnapshot,
+        oneshot::Sender<Vec<RangeInclusive<NamespaceName<'static>>>>,
+    ),
 }
 
 impl Op {
@@ -29,6 +36,7 @@ impl Op {
         match self {
             Op::ContentHash(tx) => tx.is_closed(),
             Op::Snapshot(tx) => tx.is_closed(),
+            Op::Diff(_, tx) => tx.is_closed(),
         }
     }
 }
@@ -177,6 +185,33 @@ where
                 );
 
                 let _ = tx.send(snap);
+            }
+            Op::Diff(snap, tx) => {
+                self.generate_root();
+
+                // Generate the local MST pages.
+                //
+                // In theory these pages could be cached and invalidated as
+                // necessary, but in practice the MST itself performs lazy hash
+                // invalidation when mutated, so generating the pages from an
+                // unchanged MST is extremely fast (microseconds) making the
+                // additional caching complexity unjustified.
+                let local_pages = self
+                    .mst
+                    .serialise_page_ranges()
+                    .expect("root hash generated");
+
+                // Compute the inconsistent key ranges and map them to an owned
+                // representation.
+                //
+                // This is also extremely fast (microseconds) so executing it on
+                // an I/O runtime thread is unlikely to cause problems.
+                let diff = merkle_search_tree::diff::diff(snap.iter(), local_pages)
+                    .into_iter()
+                    .map(|v| RangeInclusive::new(v.start().to_owned(), v.end().to_owned()))
+                    .collect();
+
+                let _ = tx.send(diff);
             }
         }
     }
