@@ -5,7 +5,6 @@ use gossip_schema::dispatcher::SchemaEventHandler;
 use hashbrown::{hash_map::Entry, HashMap};
 use observability_deps::tracing::warn;
 use thiserror::Error;
-use tokio::task::JoinHandle;
 
 use crate::gossip::anti_entropy::{mst::handle::AntiEntropyHandle, sync::traits::SyncRpcConnector};
 
@@ -22,6 +21,15 @@ pub(crate) enum Error {
 
     #[error("existing sync for peer already running")]
     ConcurrentSync,
+}
+
+/// A panic-safe way of aborting spawned when their handle reference is dropped.
+#[derive(Debug)]
+struct AbortOnDrop(tokio::task::JoinHandle<()>);
+impl Drop for AbortOnDrop {
+    fn drop(&mut self) {
+        self.0.abort()
+    }
 }
 
 /// A set of ongoing [`RpcWorker`] sync tasks.
@@ -52,7 +60,7 @@ pub(crate) struct MergeTaskSet<T, U> {
     /// The set of sync tasks previously started.
     ///
     /// This set may contain terminated tasks.
-    task_handles: HashMap<Identity, JoinHandle<()>>,
+    task_handles: HashMap<Identity, AbortOnDrop>,
 }
 
 impl<T, U> MergeTaskSet<T, U>
@@ -92,7 +100,7 @@ where
                     return Err(Error::MaxConcurrentSyncs);
                 }
             }
-            Entry::Occupied(ref v) if v.get().is_finished() => {
+            Entry::Occupied(ref v) if v.get().0.is_finished() => {
                 // The task has completed - re-use this slot.
             }
             Entry::Occupied(_) => {
@@ -102,13 +110,13 @@ where
         };
 
         // Spawn the task and place it into the free slot in the task set
-        let handle = tokio::spawn(start_sync(
+        let handle = AbortOnDrop(tokio::spawn(start_sync(
             self.connector.clone(),
             peer_addr,
             peer_identity,
             self.mst.clone(),
             self.merge_delegate.clone(),
-        ));
+        )));
 
         entry.insert(handle);
 
@@ -118,7 +126,7 @@ where
     /// Remove all terminated sync task handles from the task handle set.
     fn scrub_terminated(&mut self) {
         self.task_handles
-            .extract_if(|_k, v| v.is_finished())
+            .extract_if(|_k, v| v.0.is_finished())
             .for_each(drop)
     }
 }
