@@ -23,6 +23,16 @@ pub(super) enum Op {
     Snapshot(oneshot::Sender<MerkleSnapshot>),
 }
 
+impl Op {
+    /// Returns `true` if this [`Op`] no longer needs to be processed.
+    fn is_cancelled(&self) -> bool {
+        match self {
+            Op::ContentHash(tx) => tx.is_closed(),
+            Op::Snapshot(tx) => tx.is_closed(),
+        }
+    }
+}
+
 /// A [`NamespaceCache`] anti-entropy state tracking primitive.
 ///
 /// This actor maintains a [`MerkleSearchTree`] covering the content of
@@ -141,6 +151,15 @@ where
     }
 
     fn handle_op(&mut self, op: Op) {
+        // Optimisation: avoid doing work for a caller that gave up waiting for
+        // a response before the op was read.
+        //
+        // This might happen if a backlog of operations was enqueued, and the
+        // caller subsequently timed-out / disconnected.
+        if op.is_cancelled() {
+            return;
+        }
+
         match op {
             Op::ContentHash(tx) => {
                 // The caller may have stopped listening, so ignore any errors.
