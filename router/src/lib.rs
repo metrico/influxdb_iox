@@ -109,7 +109,7 @@
 //! [`NamespaceSchema`]: data_types::NamespaceSchema
 //! [`DmlHandler`]: crate::dml_handlers
 //! [`RetentionValidator`]: crate::dml_handlers::RetentionValidator
-//! [`SchemaValidator`]: crate::dml_handlers::SchemaValidator
+//! [`SchemaValidator`]: crate::schema_validator::SchemaValidator
 //! [`Partitioner`]: crate::dml_handlers::Partitioner
 //! [`RpcWrite`]: crate::dml_handlers::RpcWrite
 
@@ -137,6 +137,7 @@ pub mod dml_handlers;
 pub mod gossip;
 pub mod namespace_cache;
 pub mod namespace_resolver;
+pub mod schema_validator;
 pub mod server;
 
 #[cfg(test)]

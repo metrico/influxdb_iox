@@ -24,9 +24,10 @@ use self::write::{
 use crate::{
     dml_handlers::{
         client::RpcWriteClientError, DmlError, DmlHandler, PartitionError, RetentionError,
-        RpcWriteError, SchemaError,
+        RpcWriteError,
     },
     namespace_resolver::NamespaceResolver,
+    schema_validator::SchemaError,
 };
 
 /// Errors returned by the `router` HTTP request handler.
@@ -462,11 +463,9 @@ mod tests {
 
     use super::*;
     use crate::{
-        dml_handlers::{
-            mock::{MockDmlHandler, MockDmlHandlerCall},
-            CachedServiceProtectionLimit,
-        },
+        dml_handlers::mock::{MockDmlHandler, MockDmlHandlerCall},
         namespace_resolver::{mock::MockNamespaceResolver, NamespaceCreationError},
+        schema_validator::CachedServiceProtectionLimit,
         server::http::write::{
             mock::{MockUnifyingParseCall, MockWriteRequestUnifier},
             multi_tenant::MultiTenantRequestUnifier,

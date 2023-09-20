@@ -10,8 +10,9 @@ use iox_catalog::{interface::Catalog, mem::MemCatalog};
 use mutable_batch::MutableBatch;
 use once_cell::sync::Lazy;
 use router::{
-    dml_handlers::{DmlHandler, SchemaValidator},
+    dml_handlers::DmlHandler,
     namespace_cache::{MemoryNamespaceCache, NamespaceCache, ReadThroughCache, ShardedCache},
+    schema_validator::SchemaValidator,
 };
 use schema::Projection;
 use tokio::runtime::Runtime;

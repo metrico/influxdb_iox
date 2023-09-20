@@ -52,7 +52,7 @@ use object_store::DynObjectStore;
 use router::{
     dml_handlers::{
         lazy_connector::LazyConnector, DmlHandler, DmlHandlerChainExt, FanOutAdaptor,
-        InstrumentationDecorator, Partitioner, RetentionValidator, RpcWrite, SchemaValidator,
+        InstrumentationDecorator, Partitioner, RetentionValidator, RpcWrite,
     },
     gossip::{
         anti_entropy::mst::{
@@ -68,6 +68,7 @@ use router::{
     namespace_resolver::{
         MissingNamespaceAction, NamespaceAutocreation, NamespaceResolver, NamespaceSchemaResolver,
     },
+    schema_validator::SchemaValidator,
     server::{
         grpc::RpcWriteGrpcDelegate,
         http::{
