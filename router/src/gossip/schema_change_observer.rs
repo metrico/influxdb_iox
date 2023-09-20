@@ -4,13 +4,11 @@ use std::{collections::BTreeMap, fmt::Debug, sync::Arc};
 
 use async_trait::async_trait;
 use data_types::{ColumnsByName, NamespaceName, NamespaceSchema};
-use generated_types::influxdata::iox::gossip::v1::{
-    schema_message::Event, Column, TableCreated, TableUpdated,
-};
+use generated_types::influxdata::iox::gossip::v1::{schema_message::Event, Column, TableUpdated};
 
 use crate::namespace_cache::{ChangeStats, NamespaceCache};
 
-use super::{namespace_created, traits::SchemaBroadcast};
+use super::{namespace_created, table_created, traits::SchemaBroadcast};
 
 /// A [`NamespaceCache`] decorator implementing cluster-wide, best-effort
 /// propagation of local schema changes via the gossip subsystem.
@@ -129,24 +127,7 @@ where
         new_tables: &BTreeMap<String, data_types::TableSchema>,
     ) {
         for (table_name, schema) in new_tables {
-            let msg = TableCreated {
-                table: Some(TableUpdated {
-                    table_name: table_name.to_owned(),
-                    namespace_name: namespace_name.to_string(),
-                    table_id: schema.id.get(),
-                    columns: schema
-                        .columns
-                        .iter()
-                        .map(|(col_name, col_schema)| Column {
-                            column_id: col_schema.id.get(),
-                            name: col_name.to_owned(),
-                            column_type: col_schema.column_type as i32,
-                        })
-                        .collect(),
-                }),
-                partition_template: schema.partition_template.as_proto().cloned(),
-            };
-
+            let msg = table_created(table_name.to_string(), namespace_name, schema);
             self.tx.broadcast(Event::TableCreated(msg));
         }
     }
@@ -208,7 +189,7 @@ mod tests {
     use data_types::{
         partition_template::test_table_partition_override, ColumnId, TableId, TableSchema,
     };
-    use generated_types::influxdata::iox::gossip::v1::column::ColumnType;
+    use generated_types::influxdata::iox::gossip::v1::{column::ColumnType, TableCreated};
 
     macro_rules! test_observe {
         (

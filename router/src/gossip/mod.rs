@@ -52,8 +52,10 @@ pub mod namespace_cache;
 pub mod schema_change_observer;
 pub mod traits;
 
-use data_types::NamespaceSchema;
-use generated_types::influxdata::iox::gossip::v1::NamespaceCreated;
+use data_types::{NamespaceName, NamespaceSchema};
+use generated_types::influxdata::iox::gossip::v1::{
+    Column, NamespaceCreated, TableCreated, TableUpdated,
+};
 
 /// Make a `NamespaceCreated` protobuf instance from the specified name and schema.
 pub(crate) fn namespace_created(
@@ -67,6 +69,31 @@ pub(crate) fn namespace_created(
         max_tables: schema.max_tables.get() as u64,
         max_columns_per_table: schema.max_columns_per_table.get() as u64,
         retention_period_ns: schema.retention_period_ns,
+    }
+}
+
+/// Construct a [`TableCreated`] protobuf message for the given `schema`.
+pub(crate) fn table_created(
+    table_name: String,
+    namespace_name: &NamespaceName<'_>,
+    schema: &data_types::TableSchema,
+) -> TableCreated {
+    TableCreated {
+        table: Some(TableUpdated {
+            table_name,
+            namespace_name: namespace_name.into(),
+            table_id: schema.id.get(),
+            columns: schema
+                .columns
+                .iter()
+                .map(|(col_name, col_schema)| Column {
+                    column_id: col_schema.id.get(),
+                    name: col_name.to_owned(),
+                    column_type: col_schema.column_type as i32,
+                })
+                .collect(),
+        }),
+        partition_template: schema.partition_template.as_proto().cloned(),
     }
 }
 
