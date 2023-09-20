@@ -161,4 +161,21 @@ impl AntiEntropyHandle {
 
         rx.await.expect("anti-entropy actor has stopped")
     }
+
+    /// Request all [`NamespaceName`] known to the MST in the given inclusive
+    /// key range.
+    #[allow(dead_code)]
+    pub(crate) async fn get_keys_in_range(
+        &self,
+        range: RangeInclusive<NamespaceName<'static>>,
+    ) -> Vec<NamespaceName<'static>> {
+        let (tx, rx) = oneshot::channel();
+
+        self.op_tx
+            .send(Op::KeysInRange(range, tx))
+            .await
+            .expect("anti-entropy actor has stopped");
+
+        rx.await.expect("anti-entropy actor has stopped")
+    }
 }

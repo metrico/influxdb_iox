@@ -28,6 +28,12 @@ pub(super) enum Op {
         MerkleSnapshot,
         oneshot::Sender<Vec<RangeInclusive<NamespaceName<'static>>>>,
     ),
+
+    /// Return all MST keys within the specified inclusive range.
+    KeysInRange(
+        RangeInclusive<NamespaceName<'static>>,
+        oneshot::Sender<Vec<NamespaceName<'static>>>,
+    ),
 }
 
 impl Op {
@@ -37,6 +43,7 @@ impl Op {
             Op::ContentHash(tx) => tx.is_closed(),
             Op::Snapshot(tx) => tx.is_closed(),
             Op::Diff(_, tx) => tx.is_closed(),
+            Op::KeysInRange(_, tx) => tx.is_closed(),
         }
     }
 }
@@ -212,6 +219,19 @@ where
                     .collect();
 
                 let _ = tx.send(diff);
+            }
+            Op::KeysInRange(range, tx) => {
+                // Copy all the NamespaceNames within the MST (covered by the
+                // content hashes) in the specified range.
+                let keys = self
+                    .mst
+                    .node_iter()
+                    .skip_while(|v| v.key() < range.start())
+                    .take_while(|v| v.key() <= range.end())
+                    .map(|v| v.key().clone())
+                    .collect();
+
+                let _ = tx.send(keys);
             }
         }
     }
