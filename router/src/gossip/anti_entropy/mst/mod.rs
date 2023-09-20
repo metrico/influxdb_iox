@@ -21,6 +21,8 @@ mod tests {
     };
     use proptest::prelude::*;
 
+    use super::handle::AntiEntropyHandle;
+
     /// A set of table and column names from which arbitrary names are selected
     /// in prop tests, instead of using random values that have a low
     /// probability of overlap.
@@ -103,6 +105,8 @@ mod tests {
         NamespaceName::try_from(format!("ns-{}", schema.id)).unwrap()
     }
 
+    const N_NAMESPACES: usize = 10;
+
     proptest! {
         /// Assert that two distinct namespace cache instances return identical
         /// content hashes and snapshots after applying a given set of cache
@@ -171,6 +175,109 @@ mod tests {
                 // Invariant: and the serialised snapshot content converges
                 assert_eq!(handle_a.snapshot().await, handle_b.snapshot().await);
             });
+        }
+
+        /// Assert that two peers with arbitrary schema cache content can
+        /// identify inconsistencies and effectively converge them using the MST
+        /// subsystem.
+        #[test]
+        fn prop_cache_content_convergence(
+            a in prop::collection::vec(arbitrary_namespace_schema(0..20_i64), // IDs assigned
+                0..N_NAMESPACES // Number of updates
+            ),
+            b in prop::collection::vec(arbitrary_namespace_schema(0..20_i64), // IDs assigned
+                0..N_NAMESPACES // Number of updates
+            ),
+        ){
+            tokio::runtime::Runtime::new().unwrap().block_on(async move {
+                let cache_a = Arc::new(MemoryNamespaceCache::default());
+                let cache_b = Arc::new(MemoryNamespaceCache::default());
+
+                let (actor_a, handle_a) = AntiEntropyActor::new(Arc::clone(&cache_a));
+                let (actor_b, handle_b) = AntiEntropyActor::new(Arc::clone(&cache_b));
+
+                // Start the MST actors
+                tokio::spawn(actor_a.run());
+                tokio::spawn(actor_b.run());
+
+                let ns_a = MerkleTree::new(cache_a, handle_a.clone());
+                let ns_b = MerkleTree::new(cache_b, handle_b.clone());
+
+                for a in a {
+                    ns_a.put_schema(name_for_schema(&a), a);
+                }
+
+                for b in b {
+                    ns_b.put_schema(name_for_schema(&b), b);
+                }
+
+                // At this point the caches of A and B both contain a set of up
+                // to N_NAMESPACES potentially overlapping namespaces each, and
+                // may or may not be consistent with each other.
+                //
+                // After a number of sync rounds both caches MUST converge to
+                // the same content (as asserted by the MST root hash, which MAY
+                // cover a subset of the NamespaceSchema content).
+                //
+                // Further to correctness, this test forces the caches to
+                // converge within a number of sync rounds to match the number
+                // of namespaces, asserting an upper-bound on the convergence
+                // overhead.
+
+                for _ in 0..N_NAMESPACES {
+                    // Perform a bi-directional sync round, with A pulling from
+                    // B, and then B pulling from A.
+                    sync_round(&ns_a, &ns_b, &handle_a, &handle_b).await;
+                    sync_round(&ns_b, &ns_a, &handle_b, &handle_a).await;
+
+                    // Check if the caches have converged.
+                    if handle_a.content_hash().await == handle_b.content_hash().await {
+                        break;
+                    }
+                }
+
+                assert_eq!(handle_a.content_hash().await, handle_b.content_hash().await);
+            });
+        }
+    }
+
+    // Perform a one-way sync between two peer MST's & their caches.
+    //
+    // A sends a snapshot to B and pulls keys from B, inserting them into A's
+    // cache.
+    async fn sync_round<T>(
+        cache_a: &T,
+        cache_b: &T,
+        mst_a: &AntiEntropyHandle,
+        mst_b: &AntiEntropyHandle,
+    ) where
+        T: NamespaceCache,
+    {
+        // A generates a snapshot and sends it to B
+        let snap = mst_a.snapshot().await;
+
+        mst_b.snapshot().await;
+
+        // A --snap--> B
+        let diff = mst_b.compute_diff(snap).await;
+        // A <--diff-- B
+
+        for range in diff {
+            // A --range-->B
+
+            // A resolves the keys it needs and B sends the schemas
+            let inconsistent_keys = mst_b.get_keys_in_range(range).await;
+
+            for ns in inconsistent_keys {
+                // A reads the keys from it's local cache
+                let schema = cache_b
+                    .get_schema(&ns)
+                    .await
+                    .expect("must return schema in MST");
+
+                // A <--schema-- B
+                cache_a.put_schema(ns, NamespaceSchema::clone(&schema));
+            }
         }
     }
 }
