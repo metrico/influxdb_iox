@@ -49,7 +49,11 @@ where
     ) -> Result<Self::WriteOutput, Self::WriteError> {
         let namespace_id = namespace_schema.id;
 
-        self.validate_service_limits(namespace, &batches, &namespace_schema)?;
+        let column_names_by_table = batches
+            .iter()
+            .map(|(table_name, batch)| (table_name.as_str(), batch.column_names()));
+
+        self.validate_service_limits(namespace, &namespace_schema, column_names_by_table)?;
 
         let mut repos = self.catalog.repositories().await;
 
@@ -150,7 +154,7 @@ where
 
 #[cfg(test)]
 mod tests {
-    use std::sync::Arc;
+    use std::{collections::BTreeSet, sync::Arc};
 
     use assert_matches::assert_matches;
     use data_types::{ColumnType, MaxColumnsPerTable, MaxTables};
@@ -231,22 +235,23 @@ mod tests {
         let schema = namespace.schema().await;
 
         // Columns already existing is allowed
-        let batches = lp_to_writes("dragonfruit val=42i 123456");
+        let column_names_by_table = [("dragonfruit", BTreeSet::from(["val", "time"]))].into_iter();
         assert!(handler1
-            .validate_service_limits(&NAMESPACE, &batches, &schema)
+            .validate_service_limits(&NAMESPACE, &schema, column_names_by_table.clone())
             .is_ok());
         assert!(handler2
-            .validate_service_limits(&NAMESPACE, &batches, &schema)
+            .validate_service_limits(&NAMESPACE, &schema, column_names_by_table)
             .is_ok());
 
         // Adding more columns over the limit is an error
-        let batches = lp_to_writes("dragonfruit i_got_music=42i 123456");
+        let column_names_by_table =
+            [("dragonfruit", BTreeSet::from(["i_got_music", "time"]))].into_iter();
         assert_matches!(
-            handler1.validate_service_limits(&NAMESPACE, &batches, &schema),
+            handler1.validate_service_limits(&NAMESPACE, &schema, column_names_by_table.clone()),
             Err(SchemaError::ServiceLimit { .. })
         );
         assert_matches!(
-            handler2.validate_service_limits(&NAMESPACE, &batches, &schema),
+            handler2.validate_service_limits(&NAMESPACE, &schema, column_names_by_table),
             Err(SchemaError::ServiceLimit { .. })
         );
     }
