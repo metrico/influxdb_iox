@@ -3,7 +3,7 @@
 
 use std::{collections::BTreeSet, sync::Arc};
 
-use data_types::{NamespaceName, NamespaceSchema};
+use data_types::{NamespaceId, NamespaceName, NamespaceSchema};
 use iox_catalog::interface::Catalog;
 use metric::U64Counter;
 use observability_deps::tracing::*;
@@ -144,43 +144,51 @@ impl<C> SchemaValidator<C> {
     ) -> Result<(), SchemaError> {
         let namespace_id = namespace_schema.id;
 
-        validate_schema_limits(column_names_by_table, namespace_schema).map_err(|e| {
-            match &e {
-                CachedServiceProtectionLimit::Column {
-                    table_name,
-                    existing_column_count,
-                    merged_column_count,
-                    max_columns_per_table,
-                } => {
-                    warn!(
-                        %table_name,
-                        %existing_column_count,
-                        %merged_column_count,
-                        %max_columns_per_table,
-                        %namespace,
-                        %namespace_id,
-                        "service protection limit reached (columns)"
-                    );
-                    self.service_limit_hit_columns.inc(1);
-                }
-                CachedServiceProtectionLimit::Table {
-                    existing_table_count,
-                    merged_table_count,
-                    table_count_limit,
-                } => {
-                    warn!(
-                        %existing_table_count,
-                        %merged_table_count,
-                        %table_count_limit,
-                        %namespace,
-                        %namespace_id,
-                        "service protection limit reached (tables)"
-                    );
-                    self.service_limit_hit_tables.inc(1);
-                }
+        validate_schema_limits(column_names_by_table, namespace_schema)
+            .map_err(|e| self.record_service_protection_limit_error(e, namespace, namespace_id))
+    }
+
+    fn record_service_protection_limit_error(
+        &self,
+        e: CachedServiceProtectionLimit,
+        namespace: &NamespaceName<'static>,
+        namespace_id: NamespaceId,
+    ) -> SchemaError {
+        match &e {
+            CachedServiceProtectionLimit::Column {
+                table_name,
+                existing_column_count,
+                merged_column_count,
+                max_columns_per_table,
+            } => {
+                warn!(
+                    %table_name,
+                    %existing_column_count,
+                    %merged_column_count,
+                    %max_columns_per_table,
+                    %namespace,
+                    %namespace_id,
+                    "service protection limit reached (columns)"
+                );
+                self.service_limit_hit_columns.inc(1);
             }
-            SchemaError::ServiceLimit(Box::new(e))
-        })
+            CachedServiceProtectionLimit::Table {
+                existing_table_count,
+                merged_table_count,
+                table_count_limit,
+            } => {
+                warn!(
+                    %existing_table_count,
+                    %merged_table_count,
+                    %table_count_limit,
+                    %namespace,
+                    %namespace_id,
+                    "service protection limit reached (tables)"
+                );
+                self.service_limit_hit_tables.inc(1);
+            }
+        }
+        SchemaError::ServiceLimit(Box::new(e))
     }
 }
 
