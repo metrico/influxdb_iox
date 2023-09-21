@@ -56,8 +56,7 @@ where
 
     /// Return a 128-bit hash describing the content of the inner `T`.
     ///
-    /// This hash only covers a subset of schema fields (see
-    /// [`NamespaceContentHash`]).
+    /// This hash only covers a subset of schema fields.
     pub async fn content_hash(&self) -> merkle_search_tree::digest::RootHash {
         self.handle.content_hash().await
     }
@@ -91,121 +90,5 @@ where
 
         // And pass through the return value to the caller.
         (schema, diff)
-    }
-}
-
-/// A [`NamespaceSchema`] decorator that produces a content hash covering fields
-/// that SHOULD be converged across gossip peers.
-#[derive(Debug)]
-struct NamespaceContentHash<'a>(&'a NamespaceSchema);
-
-impl<'a> std::hash::Hash for NamespaceContentHash<'a> {
-    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
-        // Technically the ID does not need to be covered by the content hash
-        // (the namespace name -> namespace ID is immutable and asserted
-        // elsewhere) but it's not harmful to include it, and would drive
-        // detection of a broken mapping invariant.
-        self.0.id.hash(state);
-
-        // The set of tables, and their schemas MUST form part of the content
-        // hash as they are part of the content that must be converged.
-        self.0.tables.hash(state);
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use std::{collections::hash_map::DefaultHasher, hash::Hasher};
-
-    use crate::gossip::anti_entropy::prop_gen::arbitrary_namespace_schema;
-
-    use super::*;
-
-    use data_types::{
-        partition_template::test_table_partition_override, ColumnId, ColumnsByName, NamespaceId,
-        TableId, TableSchema,
-    };
-    use proptest::prelude::*;
-
-    proptest! {
-        /// Assert the [`NamespaceContentHash`] decorator results in hashes that
-        /// are equal iff the tables and namespace ID match.
-        ///
-        /// All other fields may vary without affecting the hash.
-        #[test]
-        fn prop_content_hash_coverage(
-            mut a in arbitrary_namespace_schema(Just(1)),
-            b in arbitrary_namespace_schema(Just(1))
-        ) {
-            assert_eq!(a.id, b.id); // Test invariant
-
-            let wrap_a = NamespaceContentHash(&a);
-            let wrap_b = NamespaceContentHash(&b);
-
-            // Invariant: if the schemas are equal, the content hashes match
-            if a == b {
-                assert_eq!(hash(&wrap_a), hash(&wrap_b));
-            }
-
-            // True if the content hashes of a and b are equal.
-            let is_hash_eq = hash(wrap_a) == hash(wrap_b);
-
-            // Invariant: if the tables and ID match, the content hashes match
-            assert_eq!(
-                ((a.tables == b.tables) && (a.id == b.id)),
-                is_hash_eq
-            );
-
-            // Invariant: the hashes chaange if the ID is modified
-            let new_id = NamespaceId::new(a.id.get().wrapping_add(1));
-            let hash_old_a = hash(&a);
-            a.id = new_id;
-            assert_ne!(hash_old_a, hash(a));
-        }
-
-        /// A fixture test that asserts the content hash of a given
-        /// [`NamespaceSchema`] does not change.
-        ///
-        /// This uses randomised inputs for fields that do not form part of the
-        /// content hash, proving they're not used, and fixes fields that do
-        /// form the hash to assert a static value given static content hash
-        /// inputs.
-        #[test]
-        fn prop_content_hash_fixture(
-            mut ns in arbitrary_namespace_schema(Just(42))
-        ) {
-            ns.tables = [(
-                "bananas".to_string(),
-                TableSchema {
-                    id: TableId::new(24),
-                    columns: ColumnsByName::new([data_types::Column {
-                        name: "platanos".to_string(),
-                        column_type: data_types::ColumnType::String,
-                        id: ColumnId::new(2442),
-                        table_id: TableId::new(24),
-                    }]),
-                    partition_template: test_table_partition_override(vec![
-                        data_types::partition_template::TemplatePart::TagValue("bananatastic"),
-                    ]),
-                },
-            )]
-            .into_iter()
-            .collect();
-
-            let wrap_ns = NamespaceContentHash(&ns);
-
-            // If this assert fails, the content hash for a given representation
-            // has changed, and this will cause peers to consider each other
-            // completely inconsistent regardless of actual content.
-            //
-            // You need to be careful about doing this!
-            assert_eq!(hash(wrap_ns), 13889074233458619864);
-        }
-    }
-
-    fn hash(v: impl std::hash::Hash) -> u64 {
-        let mut hasher = DefaultHasher::default();
-        v.hash(&mut hasher);
-        hasher.finish()
     }
 }
