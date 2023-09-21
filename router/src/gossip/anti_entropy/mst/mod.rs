@@ -8,102 +8,20 @@ pub mod merkle;
 
 #[cfg(test)]
 mod tests {
-    use std::{collections::BTreeMap, sync::Arc};
+    use std::sync::Arc;
 
     use crate::{
-        gossip::anti_entropy::mst::{actor::AntiEntropyActor, merkle::MerkleTree},
+        gossip::anti_entropy::{
+            mst::{actor::AntiEntropyActor, merkle::MerkleTree},
+            prop_gen::{arbitrary_namespace_schema, deterministic_name_for_schema},
+        },
         namespace_cache::{MemoryNamespaceCache, NamespaceCache},
     };
 
-    use data_types::{
-        ColumnId, ColumnSchema, ColumnType, ColumnsByName, MaxColumnsPerTable, MaxTables,
-        NamespaceId, NamespaceName, NamespaceSchema, TableId, TableSchema,
-    };
+    use data_types::NamespaceSchema;
     use proptest::prelude::*;
 
     use super::handle::AntiEntropyHandle;
-
-    /// A set of table and column names from which arbitrary names are selected
-    /// in prop tests, instead of using random values that have a low
-    /// probability of overlap.
-    const TEST_TABLE_NAME_SET: &[&str] = &[
-        "bananas", "quiero", "un", "platano", "donkey", "goose", "egg", "mr_toro",
-    ];
-
-    prop_compose! {
-        /// Generate a series of ColumnSchema assigned randomised IDs with a
-        /// stable mapping of `id -> data type`.
-        ///
-        /// This generates at most 255 unique columns.
-        pub fn arbitrary_column_schema_stable()(id in 0_i16..255) -> ColumnSchema {
-            // Provide a stable mapping of ID to data type to avoid column type
-            // conflicts by reducing the ID to the data type discriminant range
-            // and using that to assign the data type.
-            let col_type = ColumnType::try_from((id % 7) + 1).expect("valid discriminator range");
-
-            ColumnSchema { id: ColumnId::new(id as _), column_type: col_type }
-        }
-    }
-
-    prop_compose! {
-        /// Generate an arbitrary TableSchema with up to 255 columns that
-        /// contain stable `column name -> data type` and `column name -> column
-        /// id` mappings.
-        pub fn arbitrary_table_schema()(
-            id in any::<i64>(),
-            columns in proptest::collection::hash_set(
-                arbitrary_column_schema_stable(),
-                (0, 255) // Set size range
-            ),
-        ) -> TableSchema {
-            // Map the column schemas into `name -> schema`, generating a
-            // column name derived from the column ID to ensure a consistent
-            // mapping of name -> id, and in turn, name -> data type.
-            let columns = columns.into_iter()
-                .map(|v| (format!("col-{}", v.id.get()), v))
-                .collect::<BTreeMap<String, ColumnSchema>>();
-
-            let columns = ColumnsByName::from(columns);
-            TableSchema {
-                id: TableId::new(id),
-                partition_template: Default::default(),
-                columns,
-            }
-        }
-    }
-
-    prop_compose! {
-        /// Generate an arbitrary NamespaceSchema that contains tables from
-        /// [`TEST_TABLE_NAME_SET`], containing up to 255 columns with stable
-        /// `name -> (id, data type)` mappings.
-        ///
-        /// Namespace IDs are allocated from the specified strategy.
-        pub fn arbitrary_namespace_schema(namespace_ids: impl Strategy<Value = i64>)(
-            namespace_id in namespace_ids,
-            tables in proptest::collection::btree_map(
-                proptest::sample::select(TEST_TABLE_NAME_SET),
-                arbitrary_table_schema(),
-                (0, 10) // Set size range
-            ),
-            max_tables in any::<usize>(),
-            max_columns_per_table in any::<usize>(),
-            retention_period_ns in any::<Option<i64>>(),
-        ) -> NamespaceSchema {
-            let tables = tables.into_iter().map(|(k, v)| (k.to_string(), v)).collect();
-            NamespaceSchema {
-                id: NamespaceId::new(namespace_id),
-                tables,
-                max_tables: MaxTables::new(max_tables as i32),
-                max_columns_per_table: MaxColumnsPerTable::new(max_columns_per_table as i32),
-                retention_period_ns,
-                partition_template: Default::default(),
-            }
-        }
-    }
-
-    fn name_for_schema(schema: &NamespaceSchema) -> NamespaceName<'static> {
-        NamespaceName::try_from(format!("ns-{}", schema.id)).unwrap()
-    }
 
     const N_NAMESPACES: usize = 10;
 
@@ -142,7 +60,7 @@ mod tests {
 
                 for update in updates {
                     // Generate a unique, deterministic name for this namespace.
-                    let name = name_for_schema(&update);
+                    let name = deterministic_name_for_schema(&update);
 
                     // Apply the update (which may be a no-op) to both.
                     ns_a.put_schema(name.clone(), update.clone());
@@ -159,7 +77,7 @@ mod tests {
                 //
                 // Add a new cache entry that doesn't yet exist, and assert this
                 // causes the caches to diverge, and then once again reconverge.
-                let name = name_for_schema(&last_update);
+                let name = deterministic_name_for_schema(&last_update);
                 ns_a.put_schema(name.clone(), last_update.clone());
 
                 // Invariant: last_update definitely added new cache content,
@@ -204,11 +122,11 @@ mod tests {
                 let ns_b = MerkleTree::new(cache_b, handle_b.clone());
 
                 for a in a {
-                    ns_a.put_schema(name_for_schema(&a), a);
+                    ns_a.put_schema(deterministic_name_for_schema(&a), a);
                 }
 
                 for b in b {
-                    ns_b.put_schema(name_for_schema(&b), b);
+                    ns_b.put_schema(deterministic_name_for_schema(&b), b);
                 }
 
                 // At this point the caches of A and B both contain a set of up
