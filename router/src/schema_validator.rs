@@ -3,7 +3,7 @@
 
 use std::{collections::BTreeSet, sync::Arc};
 
-use data_types::{NamespaceName, NamespaceSchema};
+use data_types::{NamespaceId, NamespaceName, NamespaceSchema};
 use iox_catalog::interface::Catalog;
 use metric::U64Counter;
 use observability_deps::tracing::*;
@@ -144,43 +144,51 @@ impl<C> SchemaValidator<C> {
     ) -> Result<(), SchemaError> {
         let namespace_id = namespace_schema.id;
 
-        validate_schema_limits(column_names_by_table, namespace_schema).map_err(|e| {
-            match &e {
-                CachedServiceProtectionLimit::Column {
-                    table_name,
-                    existing_column_count,
-                    merged_column_count,
-                    max_columns_per_table,
-                } => {
-                    warn!(
-                        %table_name,
-                        %existing_column_count,
-                        %merged_column_count,
-                        %max_columns_per_table,
-                        %namespace,
-                        %namespace_id,
-                        "service protection limit reached (columns)"
-                    );
-                    self.service_limit_hit_columns.inc(1);
-                }
-                CachedServiceProtectionLimit::Table {
-                    existing_table_count,
-                    merged_table_count,
-                    table_count_limit,
-                } => {
-                    warn!(
-                        %existing_table_count,
-                        %merged_table_count,
-                        %table_count_limit,
-                        %namespace,
-                        %namespace_id,
-                        "service protection limit reached (tables)"
-                    );
-                    self.service_limit_hit_tables.inc(1);
-                }
+        validate_schema_limits(column_names_by_table, namespace_schema)
+            .map_err(|e| self.record_service_protection_limit_error(e, namespace, namespace_id))
+    }
+
+    fn record_service_protection_limit_error(
+        &self,
+        e: CachedServiceProtectionLimit,
+        namespace: &NamespaceName<'static>,
+        namespace_id: NamespaceId,
+    ) -> SchemaError {
+        match &e {
+            CachedServiceProtectionLimit::Column {
+                table_name,
+                existing_column_count,
+                merged_column_count,
+                max_columns_per_table,
+            } => {
+                warn!(
+                    %table_name,
+                    %existing_column_count,
+                    %merged_column_count,
+                    %max_columns_per_table,
+                    %namespace,
+                    %namespace_id,
+                    "service protection limit reached (columns)"
+                );
+                self.service_limit_hit_columns.inc(1);
             }
-            SchemaError::ServiceLimit(Box::new(e))
-        })
+            CachedServiceProtectionLimit::Table {
+                existing_table_count,
+                merged_table_count,
+                table_count_limit,
+            } => {
+                warn!(
+                    %existing_table_count,
+                    %merged_table_count,
+                    %table_count_limit,
+                    %namespace,
+                    %namespace_id,
+                    "service protection limit reached (tables)"
+                );
+                self.service_limit_hit_tables.inc(1);
+            }
+        }
+        SchemaError::ServiceLimit(Box::new(e))
     }
 }
 
@@ -241,9 +249,9 @@ fn validate_schema_limits<'a>(
     // This number of tables would be newly created when accepting the write.
     let mut new_tables = 0;
 
-    for (table_name, mut column_names) in column_names_by_table {
+    for (table_name, column_names) in column_names_by_table {
         // Get the column set for this table from the schema.
-        let mut existing_columns = match schema.tables.get(table_name) {
+        let existing_columns = match schema.tables.get(table_name) {
             Some(v) => v.column_names(),
             None if column_names.len() > schema.max_columns_per_table.get() as usize => {
                 // The table does not exist, therefore all the columns in this
@@ -284,31 +292,46 @@ fn validate_schema_limits<'a>(
             }
         };
 
-        // The union of existing columns and new columns in this write must be
-        // calculated to derive the total distinct column count for this table
-        // after this write applied.
-        let existing_column_count = existing_columns.len();
+        validate_column_limit(
+            table_name,
+            existing_columns,
+            column_names,
+            schema.max_columns_per_table.get() as usize,
+        )?;
+    }
 
-        let merged_column_count = {
-            existing_columns.append(&mut column_names);
-            existing_columns.len()
-        };
+    Ok(())
+}
 
-        // If the table is currently over the column limit but this write only
-        // includes existing columns and doesn't exceed the limit more, this is
-        // allowed.
-        let columns_were_added_in_this_batch = merged_column_count > existing_column_count;
-        let column_limit_exceeded =
-            merged_column_count > schema.max_columns_per_table.get() as usize;
+fn validate_column_limit<'a>(
+    table_name: &'a str,
+    mut existing_columns: BTreeSet<&'a str>,
+    mut column_names: BTreeSet<&'a str>,
+    max_columns_per_table: usize,
+) -> Result<(), CachedServiceProtectionLimit> {
+    // The union of existing columns and new columns in this write must be
+    // calculated to derive the total distinct column count for this table
+    // after this write applied.
+    let existing_column_count = existing_columns.len();
 
-        if columns_were_added_in_this_batch && column_limit_exceeded {
-            return Err(CachedServiceProtectionLimit::Column {
-                table_name: table_name.into(),
-                merged_column_count,
-                existing_column_count,
-                max_columns_per_table: schema.max_columns_per_table.get() as usize,
-            });
-        }
+    let merged_column_count = {
+        existing_columns.append(&mut column_names);
+        existing_columns.len()
+    };
+
+    // If the table is currently over the column limit but this write only
+    // includes existing columns and doesn't exceed the limit more, this is
+    // allowed.
+    let columns_were_added_in_this_batch = merged_column_count > existing_column_count;
+    let column_limit_exceeded = merged_column_count > max_columns_per_table;
+
+    if columns_were_added_in_this_batch && column_limit_exceeded {
+        return Err(CachedServiceProtectionLimit::Column {
+            table_name: table_name.into(),
+            merged_column_count,
+            existing_column_count,
+            max_columns_per_table,
+        });
     }
 
     Ok(())
