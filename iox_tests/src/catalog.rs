@@ -470,7 +470,7 @@ impl TestPartition {
             .partitions()
             .cas_sort_key(
                 &self.partition.transition_partition_id(),
-                Some(old_sort_key),
+                old_sort_key,
                 Some(old_sort_key_ids),
                 &sort_key.to_columns().collect::<Vec<_>>(),
                 sort_key_ids,

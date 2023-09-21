@@ -1326,7 +1326,7 @@ WHERE table_id = $1;
         old_sort_key_ids: Option<SortedColumnSet>,
         new_sort_key: &[&str],
         new_sort_key_ids: &SortedColumnSet,
-    ) -> Result<Partition, CasFailure<(Vec<String>, SortedColumnSet)>> {
+    ) -> Result<Partition, CasFailure<(Option<Vec<String>>, SortedColumnSet)>> {
         // These asserts are here to cacth bugs. They will be removed when we remove the sort_key
         // field from the Partition
         assert_eq!(

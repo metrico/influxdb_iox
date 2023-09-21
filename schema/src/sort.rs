@@ -251,6 +251,18 @@ impl SortKey {
     }
 }
 
+impl From<SortKey> for Vec<String> {
+    fn from(val: SortKey) -> Self {
+        val.columns.iter().map(|(id, _)| id.to_string()).collect()
+    }
+}
+
+impl From<Vec<String>> for SortKey {
+    fn from(val: Vec<String>) -> Self {
+        Self::from_columns(val)
+    }
+}
+
 // Produces a human-readable representation of a sort key that looks like:
 //
 //  "host, region DESC, env NULLS FIRST, time"

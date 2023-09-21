@@ -41,19 +41,26 @@ message Partition {
     reserved "shard_id";
     reserved 1;
     reserved "id";
+    reserved 6;
+    reserved "array_sort_key";
 
     // the table id the partition is in
     int64 table_id = 3;
     // the partition key
     string key = 4;
-    // the sort key for data in parquet files in the partition
-    repeated string array_sort_key = 6;
 
     PartitionIdentifier identifier = 8;
 
     // the sort key ids sort_key_ids for data in parquet files of this partition which
     // is an array of column ids of the sort keys
     optional SortKeyIds sort_key_ids = 9;
+
+    // sort key is now option before it is removed for good
+    optional SortKey optional_sort_key = 10;
+}
+
+message SortKey {
+    repeated string array_sort_key = 1;
 }
 
 message SortKeyIds {

@@ -824,13 +824,14 @@ struct PartitionPod {
     hash_id: Option<PartitionHashId>,
     table_id: TableId,
     partition_key: PartitionKey,
-    sort_key: Json<Vec<String>>,
+    sort_key: Option<Json<Vec<String>>>,
     sort_key_ids: Json<Vec<i64>>,
     new_file_at: Option<Timestamp>,
 }
 
 impl From<PartitionPod> for Partition {
     fn from(value: PartitionPod) -> Self {
+        let sort_key = value.sort_key.map(|sort_key| sort_key.0);
         let sort_key_ids = SortedColumnSet::from(value.sort_key_ids.0);
 
         Self::new_with_hash_id_from_sqlite_catalog_only(
@@ -838,7 +839,7 @@ impl From<PartitionPod> for Partition {
             value.hash_id,
             value.table_id,
             value.partition_key,
-            value.sort_key.0,
+            sort_key,
             sort_key_ids,
             value.new_file_at,
         )
@@ -1019,7 +1020,7 @@ WHERE table_id = $1;
         old_sort_key_ids: Option<SortedColumnSet>,
         new_sort_key: &[&str],
         new_sort_key_ids: &SortedColumnSet,
-    ) -> Result<Partition, CasFailure<(Vec<String>, SortedColumnSet)>> {
+    ) -> Result<Partition, CasFailure<(Option<Vec<String>>, SortedColumnSet)>> {
         // These asserts are here to cacth bugs. They will be removed when we remove the sort_key
         // field from the Partition
         assert_eq!(

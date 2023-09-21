@@ -519,11 +519,12 @@ impl PartitionData {
     /// [`SortKeyState::Provided`]  with the `new`.
     pub(crate) fn update_sort_key(
         &mut self,
-        new_sort_key: SortKey,
+        new_sort_key: Option<SortKey>,
         new_sort_key_ids: SortedColumnSet,
     ) {
-        assert_eq!(new_sort_key.len(), new_sort_key_ids.len());
-        self.sort_key = SortKeyState::Provided(Some(new_sort_key), Some(new_sort_key_ids));
+        assert!(new_sort_key.is_some());
+        assert_eq!(new_sort_key.as_ref().unwrap().len(), new_sort_key_ids.len());
+        self.sort_key = SortKeyState::Provided(new_sort_key, Some(new_sort_key_ids));
     }
 }
 
@@ -1116,7 +1117,7 @@ mod tests {
 
         let want_sort_key = SortKey::from_columns(["banana", "platanos", "time"]);
         let want_sort_key_ids = SortedColumnSet::from([1, 3, 2]);
-        p.update_sort_key(want_sort_key.clone(), want_sort_key_ids.clone());
+        p.update_sort_key(Some(want_sort_key.clone()), want_sort_key_ids.clone());
 
         assert_matches!(p.sort_key(), SortKeyState::Provided(_, _));
         assert_eq!(p.sort_key().get_sort_key().await.unwrap(), want_sort_key);
@@ -1189,7 +1190,7 @@ mod tests {
 
         let want_sort_key = SortKey::from_columns(["banana", "platanos", "time"]);
         let want_sort_key_ids = SortedColumnSet::from([1, 3, 2]);
-        p.update_sort_key(want_sort_key.clone(), want_sort_key_ids.clone());
+        p.update_sort_key(Some(want_sort_key.clone()), want_sort_key_ids.clone());
 
         assert_matches!(p.sort_key(), SortKeyState::Provided(_, _));
         assert_eq!(p.sort_key().get_sort_key().await.unwrap(), want_sort_key);

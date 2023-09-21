@@ -30,7 +30,7 @@ pub(super) enum PersistError {
     /// A concurrent sort key update was observed and the sort key update was
     /// aborted. The newly observed sort key is returned.
     #[error("detected concurrent sort key update")]
-    ConcurrentSortKeyUpdate(SortKey, SortedColumnSet),
+    ConcurrentSortKeyUpdate(Option<SortKey>, SortedColumnSet),
 }
 
 /// An internal type that contains all necessary information to run a persist
@@ -202,7 +202,7 @@ impl Context {
     /// remove the sort_key from the SortKeyState and remove it from this method, too
     pub(super) async fn set_partition_sort_key(
         &mut self,
-        new_sort_key: SortKey,
+        new_sort_key: Option<SortKey>,
         new_sort_key_ids: SortedColumnSet,
     ) {
         // Invalidate the sort key in the partition.
@@ -225,7 +225,7 @@ impl Context {
         );
 
         // Update the cached copy of the sort key in this Context.
-        self.sort_key = SortKeyState::Provided(Some(new_sort_key), Some(new_sort_key_ids));
+        self.sort_key = SortKeyState::Provided(new_sort_key, Some(new_sort_key_ids));
     }
 
     // Call [`PartitionData::mark_complete`] to finalise the persistence job,

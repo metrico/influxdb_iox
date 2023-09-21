@@ -427,7 +427,7 @@ pub trait PartitionRepo: Send + Sync {
         old_sort_key_ids: Option<SortedColumnSet>,
         new_sort_key: &[&str], //todo: remove this new_sort_key
         new_sort_key_ids: &SortedColumnSet,
-    ) -> Result<Partition, CasFailure<(Vec<String>, SortedColumnSet)>>;
+    ) -> Result<Partition, CasFailure<(Option<Vec<String>>, SortedColumnSet)>>;
 
     /// Record an instance of a partition being selected for compaction but compaction was not
     /// completed for the specified reason.
@@ -1674,7 +1674,10 @@ pub(crate) mod test_helpers {
         );
 
         // sort_key should be empty on creation
-        assert!(to_skip_partition.sort_key.is_empty());
+        assert!(
+            to_skip_partition.sort_key.is_some()
+                && to_skip_partition.sort_key.as_ref().unwrap().is_empty()
+        );
         assert!(to_skip_partition.sort_key_ids.as_ref().is_empty());
 
         // test that updates sort_key and sort_key_ids from None to Some
@@ -1691,7 +1694,14 @@ pub(crate) mod test_helpers {
             .unwrap();
 
         // verify sort_key and sort_key_ids are updated correctly
-        assert_eq!(updated_partition.sort_key, &["tag2", "tag1", "time"]);
+        assert_eq!(
+            updated_partition.sort_key,
+            Some(vec![
+                "tag2".to_string(),
+                "tag1".to_string(),
+                "time".to_string()
+            ])
+        );
         assert_eq!(
             updated_partition.sort_key_ids,
             SortedColumnSet::from([2, 1, 3])
@@ -1712,7 +1722,7 @@ pub(crate) mod test_helpers {
             .expect_err("CAS with incorrect value should fail");
         // verify the sort key is not updated
         assert_matches!(err, CasFailure::ValueMismatch((old_sort_key, old_sort_key_ids)) => {
-            assert_eq!(old_sort_key, &["tag2", "tag1", "time"]);
+            assert_eq!(old_sort_key, Some(vec!["tag2".to_string(), "tag1".to_string(), "time".to_string()]));
             assert_eq!(old_sort_key_ids, SortedColumnSet::from([2, 1, 3]));
         });
 
@@ -1731,7 +1741,7 @@ pub(crate) mod test_helpers {
             .expect_err("CAS with incorrect value should fail");
         // verify the sort key is not updated
         assert_matches!(err, CasFailure::ValueMismatch((old_sort_key, old_sort_key_ids)) => {
-            assert_eq!(old_sort_key, &["tag2", "tag1", "time"]);
+            assert_eq!(old_sort_key, Some(vec!["tag2".to_string(), "tag1".to_string(), "time".to_string()]));
             assert_eq!(old_sort_key_ids, SortedColumnSet::from([2, 1, 3]));
         });
 
@@ -1749,7 +1759,7 @@ pub(crate) mod test_helpers {
             .await
             .expect_err("CAS with incorrect value should fail");
         assert_matches!(err, CasFailure::ValueMismatch((old_sort_key, old_sort_key_ids)) => {
-            assert_eq!(old_sort_key, &["tag2", "tag1", "time"]);
+            assert_eq!(old_sort_key, Some(vec!["tag2".to_string(), "tag1".to_string(), "time".to_string()]));
             assert_eq!(old_sort_key_ids, SortedColumnSet::from([2, 1, 3]));
         });
 
@@ -1763,7 +1773,11 @@ pub(crate) mod test_helpers {
         // still has the old sort key
         assert_eq!(
             updated_other_partition.sort_key,
-            vec!["tag2", "tag1", "time"]
+            Some(vec![
+                "tag2".to_string(),
+                "tag1".to_string(),
+                "time".to_string()
+            ])
         );
         assert_eq!(
             updated_other_partition.sort_key_ids,
@@ -1780,7 +1794,11 @@ pub(crate) mod test_helpers {
         // still has the old sort key
         assert_eq!(
             updated_other_partition.sort_key,
-            vec!["tag2", "tag1", "time"]
+            Some(vec![
+                "tag2".to_string(),
+                "tag1".to_string(),
+                "time".to_string()
+            ])
         );
         assert_eq!(
             updated_other_partition.sort_key_ids,
@@ -1806,8 +1824,12 @@ pub(crate) mod test_helpers {
             .unwrap();
         // verify the new values are updated
         assert_eq!(
-            updated_partition.sort_key,
-            vec!["tag2", "tag1", "tag3 , with comma", "time"]
+            updated_other_partition.sort_key,
+            Some(vec![
+                "tag2".to_string(),
+                "tag1".to_string(),
+                "time".to_string()
+            ])
         );
         assert_eq!(
             updated_partition.sort_key_ids,
@@ -1823,7 +1845,12 @@ pub(crate) mod test_helpers {
             .unwrap();
         assert_eq!(
             updated_partition.sort_key,
-            vec!["tag2", "tag1", "tag3 , with comma", "time"]
+            Some(vec![
+                "tag2".to_string(),
+                "tag1".to_string(),
+                "tag3 , with comma".to_string(),
+                "time".to_string()
+            ])
         );
         assert_eq!(
             updated_partition.sort_key_ids,
@@ -1839,7 +1866,12 @@ pub(crate) mod test_helpers {
             .unwrap();
         assert_eq!(
             updated_partition.sort_key,
-            vec!["tag2", "tag1", "tag3 , with comma", "time"]
+            Some(vec![
+                "tag2".to_string(),
+                "tag1".to_string(),
+                "tag3 , with comma".to_string(),
+                "time".to_string()
+            ])
         );
         assert_eq!(
             updated_partition.sort_key_ids,
@@ -1848,7 +1880,10 @@ pub(crate) mod test_helpers {
 
         // use to_skip_partition_too to update sort key from empty old values
         // first make sure the old values are empty
-        assert!(to_skip_partition_too.sort_key.is_empty());
+        assert!(
+            to_skip_partition_too.sort_key.is_some()
+                && to_skip_partition_too.sort_key.as_ref().unwrap().is_empty()
+        );
         assert!(to_skip_partition_too.sort_key_ids.as_ref().is_empty());
 
         // test that provides empty old_sort_key and empty old_sort_key_ids
@@ -1865,7 +1900,10 @@ pub(crate) mod test_helpers {
             .await
             .unwrap();
         // verify the new values are updated
-        assert_eq!(updated_to_skip_partition_too.sort_key, vec!["tag3", "time"]);
+        assert_eq!(
+            updated_to_skip_partition_too.sort_key,
+            Some(vec!["tag3".to_string(), "time".to_string()])
+        );
         assert_eq!(
             updated_to_skip_partition_too.sort_key_ids,
             SortedColumnSet::from([3, 4])
@@ -2054,22 +2092,22 @@ pub(crate) mod test_helpers {
 
         // Test: sort_key_ids from most_recent_n
         // Only the first two partitions (represent to_skip_partition_too and to_skip_partition) have vallues, the others are empty
-        let empty_vec_string: Vec<String> = vec![];
+        let empty_vec_string: Option<Vec<String>> = Some(vec![]);
 
         assert_eq!(
             recent[0].sort_key,
-            vec!["tag3".to_string(), "time".to_string(),]
+            Some(vec!["tag3".to_string(), "time".to_string(),])
         );
         assert_eq!(recent[0].sort_key_ids, SortedColumnSet::from(vec![3, 4]));
 
         assert_eq!(
             recent[1].sort_key,
-            vec![
+            Some(vec![
                 "tag2".to_string(),
                 "tag1".to_string(),
                 "tag3 , with comma".to_string(),
                 "time".to_string()
-            ]
+            ])
         );
         assert_eq!(
             recent[1].sort_key_ids,

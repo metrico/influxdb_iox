@@ -508,7 +508,7 @@ impl RemoteImporter {
 
     /// Update sort keys of the partition
     ///
-    /// file shoudl be inserted.
+    /// file should be inserted.
     ///
     /// First attempts to use any available metadata from the
     /// catalog export, and falls back to what is in the iox
@@ -534,12 +534,11 @@ impl RemoteImporter {
             proto_partition.as_ref()
         {
             // Use the sort key from the source catalog
-            debug!(array_sort_key=?proto_partition.array_sort_key, "Using sort key from catalog export");
-            let new_sort_key = proto_partition
-                .array_sort_key
-                .iter()
-                .map(|s| s.as_str())
-                .collect::<Vec<&str>>();
+            debug!(array_sort_key=?proto_partition.optional_sort_key, "Using sort key from catalog export");
+            let new_sort_key = match &proto_partition.optional_sort_key {
+                Some(sort_key) => sort_key.array_sort_key.iter().map(|s| s.as_str()).collect(),
+                None => vec![],
+            };
 
             let new_sort_key_ids = match &proto_partition.sort_key_ids {
                 Some(sort_key_ids) => sort_key_ids.array_sort_key_ids.clone(),
@@ -564,9 +563,21 @@ impl RemoteImporter {
             (new_sort_key, new_sort_key_ids)
         };
 
-        if !partition.sort_key.is_empty() && partition.sort_key != new_sort_key {
+        if partition.sort_key_has_value()
+            && partition.sort_key
+                != Some(
+                    new_sort_key
+                        .iter()
+                        .map(|s| s.to_string())
+                        .collect::<Vec<_>>(),
+                )
+        {
             let exported = new_sort_key.join(",");
-            let existing = partition.sort_key.join(",");
+            let existing = partition
+                .sort_key
+                .as_ref()
+                .expect("sort key does not have value")
+                .join(",");
             return Err(Error::MismatchedSortKey { exported, existing });
         }
 
@@ -575,7 +586,7 @@ impl RemoteImporter {
                 .partitions()
                 .cas_sort_key(
                     &partition.transition_partition_id(),
-                    Some(partition.sort_key.clone()),
+                    partition.sort_key.clone(),
                     Some(partition.sort_key_ids.clone()),
                     &new_sort_key,
                     &new_sort_key_ids,
