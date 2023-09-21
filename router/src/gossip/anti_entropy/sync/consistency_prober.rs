@@ -146,3 +146,73 @@ impl SenderAddressResolver {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+
+    use std::{sync::Arc, time::Duration};
+
+    use gossip::{Builder, NopDispatcher};
+    use merkle_search_tree::MerkleSearchTree;
+    use test_helpers::timeout::FutureTimeout;
+    use tokio::net::UdpSocket;
+
+    use super::*;
+
+    /// Bind a UDP socket on a random port and return it alongside the socket
+    /// address.
+    async fn random_udp() -> (UdpSocket, SocketAddr) {
+        // Bind a UDP socket to a random port
+        let socket = UdpSocket::bind("127.0.0.1:0")
+            .await
+            .expect("failed to bind UDP socket");
+        let addr = socket.local_addr().expect("failed to read local addr");
+
+        (socket, addr)
+    }
+
+    #[tokio::test]
+    async fn test_gossip_consistency_probes() {
+        let metrics = Arc::new(metric::Registry::default());
+
+        let (a_socket, a_addr) = random_udp().await;
+        let (b_socket, b_addr) = random_udp().await;
+
+        // Initialise the dispatchers for the reactors
+        let (dispatcher, rx) = ProbeDispatcher::new();
+
+        // Initialise both reactors
+        let addrs = vec![a_addr.to_string(), b_addr.to_string()];
+        let a = Builder::<_, Topic>::new(addrs.clone(), NopDispatcher, Arc::clone(&metrics))
+            .build(a_socket);
+        let b = Arc::new(Builder::new(addrs, dispatcher, Arc::clone(&metrics)).build(b_socket));
+
+        let (resolver, mut rx) = SenderAddressResolver::new(Arc::clone(&b), rx);
+        tokio::spawn(resolver.run());
+
+        // Wait for peer discovery to occur
+        async {
+            loop {
+                if a.get_peers().await.len() == 1 {
+                    break;
+                }
+            }
+        }
+        .with_timeout_panic(Duration::from_secs(5))
+        .await;
+
+        let mut mst = MerkleSearchTree::<&[u8], &[u8]>::default();
+        let h = mst.root_hash();
+
+        // Send the probe
+        a.probe(h.clone(), 4242).await;
+
+        // Wait for it to be received
+        let (probe, sender, addr) = rx.recv().await.expect("should wait");
+
+        assert_eq!(sender, a.identity());
+        assert_eq!(addr, a_addr);
+        assert_eq!(probe.root_hash, h.as_bytes());
+        assert_eq!(probe.grpc_port, 4242);
+    }
+}
