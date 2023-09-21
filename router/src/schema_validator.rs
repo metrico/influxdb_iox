@@ -241,9 +241,9 @@ fn validate_schema_limits<'a>(
     // This number of tables would be newly created when accepting the write.
     let mut new_tables = 0;
 
-    for (table_name, mut column_names) in column_names_by_table {
+    for (table_name, column_names) in column_names_by_table {
         // Get the column set for this table from the schema.
-        let mut existing_columns = match schema.tables.get(table_name) {
+        let existing_columns = match schema.tables.get(table_name) {
             Some(v) => v.column_names(),
             None if column_names.len() > schema.max_columns_per_table.get() as usize => {
                 // The table does not exist, therefore all the columns in this
@@ -284,31 +284,46 @@ fn validate_schema_limits<'a>(
             }
         };
 
-        // The union of existing columns and new columns in this write must be
-        // calculated to derive the total distinct column count for this table
-        // after this write applied.
-        let existing_column_count = existing_columns.len();
+        validate_column_limit(
+            table_name,
+            existing_columns,
+            column_names,
+            schema.max_columns_per_table.get() as usize,
+        )?;
+    }
 
-        let merged_column_count = {
-            existing_columns.append(&mut column_names);
-            existing_columns.len()
-        };
+    Ok(())
+}
 
-        // If the table is currently over the column limit but this write only
-        // includes existing columns and doesn't exceed the limit more, this is
-        // allowed.
-        let columns_were_added_in_this_batch = merged_column_count > existing_column_count;
-        let column_limit_exceeded =
-            merged_column_count > schema.max_columns_per_table.get() as usize;
+fn validate_column_limit<'a>(
+    table_name: &'a str,
+    mut existing_columns: BTreeSet<&'a str>,
+    mut column_names: BTreeSet<&'a str>,
+    max_columns_per_table: usize,
+) -> Result<(), CachedServiceProtectionLimit> {
+    // The union of existing columns and new columns in this write must be
+    // calculated to derive the total distinct column count for this table
+    // after this write applied.
+    let existing_column_count = existing_columns.len();
 
-        if columns_were_added_in_this_batch && column_limit_exceeded {
-            return Err(CachedServiceProtectionLimit::Column {
-                table_name: table_name.into(),
-                merged_column_count,
-                existing_column_count,
-                max_columns_per_table: schema.max_columns_per_table.get() as usize,
-            });
-        }
+    let merged_column_count = {
+        existing_columns.append(&mut column_names);
+        existing_columns.len()
+    };
+
+    // If the table is currently over the column limit but this write only
+    // includes existing columns and doesn't exceed the limit more, this is
+    // allowed.
+    let columns_were_added_in_this_batch = merged_column_count > existing_column_count;
+    let column_limit_exceeded = merged_column_count > max_columns_per_table;
+
+    if columns_were_added_in_this_batch && column_limit_exceeded {
+        return Err(CachedServiceProtectionLimit::Column {
+            table_name: table_name.into(),
+            merged_column_count,
+            existing_column_count,
+            max_columns_per_table,
+        });
     }
 
     Ok(())
