@@ -227,7 +227,7 @@ where
 // &mut Cow is used to avoid a copy, so allow it
 #[allow(clippy::ptr_arg)]
 async fn validate_and_insert_columns<R>(
-    columns: impl Iterator<Item = (&String, ColumnType)>,
+    columns: impl Iterator<Item = (&String, ColumnType)> + Send,
     table: &mut Cow<'_, TableSchema>,
     repos: &mut R,
 ) -> Result<()>
