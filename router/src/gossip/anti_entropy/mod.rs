@@ -63,7 +63,10 @@ pub mod sync;
 
 #[cfg(test)]
 pub mod prop_gen {
-    use std::collections::BTreeMap;
+    use std::{
+        collections::{hash_map::DefaultHasher, BTreeMap},
+        hash::Hasher,
+    };
 
     use data_types::{
         ColumnId, ColumnSchema, ColumnType, ColumnsByName, MaxColumnsPerTable, MaxTables,
@@ -98,12 +101,12 @@ pub mod prop_gen {
         /// contain stable `column name -> data type` and `column name -> column
         /// id` mappings.
         pub fn arbitrary_table_schema()(
-            id in any::<i64>(),
+            name in proptest::sample::select(TEST_TABLE_NAME_SET),
             columns in proptest::collection::hash_set(
                 arbitrary_column_schema_stable(),
                 (0, 255) // Set size range
             ),
-        ) -> TableSchema {
+        ) -> (String, TableSchema) {
             // Map the column schemas into `name -> schema`, generating a
             // column name derived from the column ID to ensure a consistent
             // mapping of name -> id, and in turn, name -> data type.
@@ -112,11 +115,11 @@ pub mod prop_gen {
                 .collect::<BTreeMap<String, ColumnSchema>>();
 
             let columns = ColumnsByName::from(columns);
-            TableSchema {
-                id: TableId::new(id),
+            (name.to_string(), TableSchema {
+                id: deterministic_id_for_table_name(name),
                 partition_template: Default::default(),
                 columns,
-            }
+            })
         }
     }
 
@@ -128,8 +131,7 @@ pub mod prop_gen {
         /// Namespace IDs are allocated from the specified strategy.
         pub fn arbitrary_namespace_schema(namespace_ids: impl Strategy<Value = i64>)(
             namespace_id in namespace_ids,
-            tables in proptest::collection::btree_map(
-                proptest::sample::select(TEST_TABLE_NAME_SET),
+            tables in proptest::collection::vec(
                 arbitrary_table_schema(),
                 (0, 10) // Set size range
             ),
@@ -151,5 +153,11 @@ pub mod prop_gen {
 
     pub fn deterministic_name_for_schema(schema: &NamespaceSchema) -> NamespaceName<'static> {
         NamespaceName::try_from(format!("ns-{}", schema.id)).unwrap()
+    }
+
+    pub fn deterministic_id_for_table_name(name: &str) -> TableId {
+        let mut h = DefaultHasher::new();
+        h.write(name.as_bytes());
+        TableId::new(h.finish() as _)
     }
 }
