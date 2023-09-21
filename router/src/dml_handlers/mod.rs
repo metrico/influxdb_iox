@@ -39,6 +39,7 @@
 //! to the catalog and populates the [`NamespaceCache`], converging it to match
 //! the set of [`NamespaceSchema`] in the global catalog.
 //!
+//! [`SchemaValidator`]: crate::schema_validator::SchemaValidator
 //! [`NamespaceCache`]: crate::namespace_cache::NamespaceCache
 //! [`NamespaceSchema`]: data_types::NamespaceSchema
 
@@ -46,7 +47,6 @@ mod r#trait;
 pub use r#trait::*;
 
 mod schema_validation;
-pub use schema_validation::*;
 
 pub mod nop;
 

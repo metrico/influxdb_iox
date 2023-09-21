@@ -14,10 +14,10 @@ use router::{
     dml_handlers::{
         client::mock::MockWriteClient, Chain, DmlHandlerChainExt, FanOutAdaptor,
         InstrumentationDecorator, Partitioned, Partitioner, RetentionValidator, RpcWrite,
-        SchemaValidator,
     },
     namespace_cache::{MemoryNamespaceCache, ReadThroughCache, ShardedCache},
     namespace_resolver::{MissingNamespaceAction, NamespaceAutocreation, NamespaceSchemaResolver},
+    schema_validator::SchemaValidator,
     server::{
         grpc::RpcWriteGrpcDelegate,
         http::{write::multi_tenant::MultiTenantRequestUnifier, HttpDelegate},
