@@ -32,9 +32,11 @@ use ioxd_common::{
     setup_builder,
 };
 use metric::Registry;
+use observability_deps::tracing::{info, warn};
 use parquet_file::storage::ParquetStorage;
 use std::{
     fmt::{Debug, Display},
+    fs,
     sync::Arc,
     time::Duration,
 };
@@ -142,6 +144,48 @@ impl HttpApiErrorSource for IoxHttpError {
     fn to_http_api_error(&self) -> HttpApiError {
         HttpApiError::new(self.status_code(), self.to_string())
     }
+}
+
+/// derive the compactor's DF memory pool size, favoring a percentage of the pod limit if available,
+/// and falling back to a default size if not.
+pub fn derive_mem_pool_size(
+    default_size: usize, // comes from INFLUXDB_IOX_EXEC_MEM_POOL_BYTES, if we can't compute it based on percentage
+    percent: u64,        // from INFLUXDB_IOX_EXEC_MEM_POOL_PERCENT
+) -> usize {
+    let mut mem_pool_size = default_size;
+    let pod_limit_str = fs::read_to_string("/sys/fs/cgroup/memory/memory.limit_in_bytes");
+    if let Ok(pod_limit_str) = pod_limit_str {
+        let pod_limit_bytes = pod_limit_str.trim().parse::<i64>();
+        if let Ok(pod_limit_bytes) = pod_limit_bytes {
+            if (1024 * 1024 * 1024..=512 * 1024 * 1024 * 1024).contains(&pod_limit_bytes) {
+                let pod_df_limit = (pod_limit_bytes as f64 * percent as f64 / 100.0) as usize;
+
+                if (20..=90).contains(&percent) {
+                    mem_pool_size = pod_df_limit;
+                    info!(%mem_pool_size,
+                        pod_limit_bytes,
+                        percent,
+                        "computed memory pool size from the pod limit and specified percent");
+                } else {
+                    warn!("exec_mem_pool_percent set to unacceptable value ({}), using default memory pool size {}", percent, mem_pool_size);
+                }
+            } else {
+                warn!("pod_limit_bytes set to unacceptable value ({}), using default memory pool size {}", pod_limit_bytes, mem_pool_size);
+            }
+        } else {
+            warn!(
+                "could not parse pod memory limit, using default memory pool size {}",
+                mem_pool_size
+            );
+        }
+    } else {
+        warn!(
+            "could not read cgroup memory limit, using default memory pool size {}",
+            mem_pool_size
+        );
+    }
+
+    mem_pool_size
 }
 
 /// Instantiate a compactor server

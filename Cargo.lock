@@ -3146,6 +3146,7 @@ dependencies = [
  "iox_time",
  "ioxd_common",
  "metric",
+ "observability_deps",
  "parquet_file",
  "tokio-util",
  "trace",
