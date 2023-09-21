@@ -160,7 +160,7 @@ where
             }
         };
 
-        trace!(%name, ?schema, "applying schema");
+        trace!(%name, ?schema, "updating merkle tree");
 
         self.mst.upsert(name, &NamespaceContentHash(schema));
     }

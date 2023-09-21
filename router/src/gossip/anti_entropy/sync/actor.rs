@@ -199,7 +199,7 @@ where
     /// If the local node's MST root hash is equal to the peer root hash, this
     /// is a no-op.
     ///
-    /// If the hashes differ, this function switchs the exchange to gRPC/TCP,
+    /// If the hashes differ, this function switches the exchange to gRPC/TCP,
     /// and sends a serialised representation of the MST to the sender (request
     /// 2).
     async fn perform_consistency_check(
