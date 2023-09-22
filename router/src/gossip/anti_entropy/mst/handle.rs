@@ -130,7 +130,6 @@ impl AntiEntropyHandle {
     ///
     /// A [`MerkleSnapshot`] is a compact serialised representation of the MST
     /// state.
-    #[allow(dead_code)]
     pub(crate) async fn snapshot(&self) -> MerkleSnapshot {
         let (tx, rx) = oneshot::channel();
 
@@ -147,7 +146,6 @@ impl AntiEntropyHandle {
     /// contain inconsistencies.
     ///
     /// [`MerkleSearchTree`]: merkle_search_tree::MerkleSearchTree
-    #[allow(dead_code)]
     pub(crate) async fn compute_diff(
         &self,
         snap: MerkleSnapshot,
