@@ -239,53 +239,44 @@ mod tests {
     use super::*;
     use std::i32;
 
-    #[test]
-    fn max_tables_from_usize() {
-        assert_eq!(MaxTables::try_from(1usize).unwrap().get(), 1);
+    fn max_tables_success<T: TryInto<MaxTables>>(value: T, expected: usize)
+    where
+        <T as TryInto<MaxTables>>::Error: std::fmt::Debug,
+    {
+        assert_eq!(value.try_into().unwrap().get(), expected);
+    }
 
+    #[test]
+    fn max_tables_successful_conversions() {
+        max_tables_success(1usize, 1);
+        max_tables_success(1u64, 1);
+        max_tables_success(1i32, 1);
+        max_tables_success(i32::MAX, i32::MAX as usize);
+    }
+
+    fn max_tables_failure<T: TryInto<MaxTables>>(value: T, expected_error_message: &str)
+    where
+        <T as TryInto<MaxTables>>::Error: std::fmt::Debug + std::fmt::Display,
+    {
         assert_eq!(
-            MaxTables::try_from(0usize).unwrap_err().to_string(),
-            "service limit values must be greater than 0"
-        );
-        assert_eq!(
-            MaxTables::try_from(i32::MAX as usize + 1)
-                .unwrap_err()
-                .to_string(),
-            "service limit values must fit in a 32-bit signed integer (`i32`)"
+            value.try_into().unwrap_err().to_string(),
+            expected_error_message
         );
     }
 
     #[test]
-    fn max_tables_from_u64() {
-        assert_eq!(MaxTables::try_from(1u64).unwrap().get(), 1);
-
-        assert_eq!(
-            MaxTables::try_from(0u64).unwrap_err().to_string(),
-            "service limit values must be greater than 0"
+    fn max_tables_failed_conversions() {
+        max_tables_failure(0usize, "service limit values must be greater than 0");
+        max_tables_failure(0u64, "service limit values must be greater than 0");
+        max_tables_failure(0i32, "service limit values must be greater than 0");
+        max_tables_failure(-1i32, "service limit values must be greater than 0");
+        max_tables_failure(
+            i32::MAX as usize + 1,
+            "service limit values must fit in a 32-bit signed integer (`i32`)",
         );
-        assert_eq!(
-            MaxTables::try_from(i32::MAX as u64 + 1)
-                .unwrap_err()
-                .to_string(),
-            "service limit values must fit in a 32-bit signed integer (`i32`)"
-        );
-    }
-
-    #[test]
-    fn max_tables_from_i32() {
-        assert_eq!(MaxTables::try_from(1i32).unwrap().get(), 1);
-        assert_eq!(
-            MaxTables::try_from(i32::MAX).unwrap().get(),
-            i32::MAX as usize
-        );
-
-        assert_eq!(
-            MaxTables::try_from(0i32).unwrap_err().to_string(),
-            "service limit values must be greater than 0"
-        );
-        assert_eq!(
-            MaxTables::try_from(-1i32).unwrap_err().to_string(),
-            "service limit values must be greater than 0"
+        max_tables_failure(
+            i32::MAX as u64 + 1,
+            "service limit values must fit in a 32-bit signed integer (`i32`)",
         );
     }
 }
