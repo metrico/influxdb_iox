@@ -8,7 +8,7 @@ use thiserror::Error;
 
 use crate::gossip::anti_entropy::mst::handle::AntiEntropyHandle;
 
-use super::traits::{BoxedError, SyncRpcClient};
+use super::super::traits::{BoxedError, SyncRpcClient};
 
 #[derive(Debug, Error)]
 enum SyncError {
@@ -50,7 +50,7 @@ where
     T: SyncRpcClient,
     U: SchemaEventHandler,
 {
-    pub(super) fn new(
+    pub(crate) fn new(
         rpc_client: T,
         schema_event_delegate: U,
         mst: AntiEntropyHandle,
@@ -66,7 +66,7 @@ where
         }
     }
 
-    pub(super) async fn run(mut self) {
+    pub(crate) async fn run(mut self) {
         debug!(
             peer_addr=%self.peer_addr,
             peer_identity=%self.identity,
