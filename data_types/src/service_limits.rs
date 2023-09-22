@@ -237,67 +237,75 @@ impl TryFrom<Option<LimitUpdate>> for ServiceLimitUpdate {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::i32;
 
-    fn max_tables_success<T: TryInto<MaxTables>>(value: T, expected: usize)
-    where
-        <T as TryInto<MaxTables>>::Error: std::fmt::Debug,
-    {
-        assert_eq!(value.try_into().unwrap().get(), expected);
-    }
-
-    #[test]
-    fn max_tables_successful_conversions() {
-        max_tables_success(1usize, 1);
-        max_tables_success(1u64, 1);
-        max_tables_success(1i32, 1);
-        max_tables_success(i32::MAX, i32::MAX as usize);
-    }
-
-    fn max_tables_failure<T: TryInto<MaxTables>>(value: T, expected_error_message: &str)
-    where
-        <T as TryInto<MaxTables>>::Error: std::fmt::Debug + std::fmt::Display,
-    {
-        assert_eq!(
-            value.try_into().unwrap_err().to_string(),
-            expected_error_message
-        );
-    }
-
-    #[test]
-    fn max_tables_failed_conversions() {
-        max_tables_failure(0usize, "service limit values must be greater than 0");
-        max_tables_failure(0u64, "service limit values must be greater than 0");
-        max_tables_failure(0i32, "service limit values must be greater than 0");
-        max_tables_failure(-1i32, "service limit values must be greater than 0");
-        max_tables_failure(
-            i32::MAX as usize + 1,
-            "service limit values must fit in a 32-bit signed integer (`i32`)",
-        );
-        max_tables_failure(
-            i32::MAX as u64 + 1,
-            "service limit values must fit in a 32-bit signed integer (`i32`)",
-        );
-    }
-
-    fn extract_sqlite_argument_i32(
-        argument_value: &sqlx::sqlite::SqliteArgumentValue,
-    ) -> i32 {
+    fn extract_sqlite_argument_i32(argument_value: &sqlx::sqlite::SqliteArgumentValue) -> i32 {
         match argument_value {
             sqlx::sqlite::SqliteArgumentValue::Int(i) => *i,
             other => panic!("Expected Int values, got: {other:?}"),
         }
     }
 
-    #[test]
-    fn max_tables_encode() {
-        let max_tables = MaxTables::try_from(10).unwrap();
-        let mut buf = Default::default();
-        let _ = <MaxTables as sqlx::Encode<'_, sqlx::Sqlite>>::encode_by_ref(
-            &max_tables, &mut buf,
-        );
+    macro_rules! service_limit_test {
+        ($type_name:ident, $module_name: ident) => {
+            mod $module_name {
+                use super::*;
 
-        let encoded_max_tables: Vec<_> = buf.iter().map(extract_sqlite_argument_i32).collect();
-        assert_eq!(encoded_max_tables, &[max_tables.get_i32()]);
+                fn success<T: TryInto<$type_name>>(value: T, expected: usize)
+                where
+                    <T as TryInto<$type_name>>::Error: std::fmt::Debug,
+                {
+                    assert_eq!(value.try_into().unwrap().get(), expected);
+                }
+
+                #[test]
+                fn successful_conversions() {
+                    success(1usize, 1);
+                    success(1u64, 1);
+                    success(1i32, 1);
+                    success(i32::MAX, i32::MAX as usize);
+                }
+
+                fn failure<T: TryInto<$type_name>>(value: T, expected_error_message: &str)
+                where
+                    <T as TryInto<$type_name>>::Error: std::fmt::Debug + std::fmt::Display,
+                {
+                    assert_eq!(
+                        value.try_into().unwrap_err().to_string(),
+                        expected_error_message
+                    );
+                }
+
+                #[test]
+                fn failed_conversions() {
+                    failure(0usize, "service limit values must be greater than 0");
+                    failure(0u64, "service limit values must be greater than 0");
+                    failure(0i32, "service limit values must be greater than 0");
+                    failure(-1i32, "service limit values must be greater than 0");
+                    failure(
+                        i32::MAX as usize + 1,
+                        "service limit values must fit in a 32-bit signed integer (`i32`)",
+                    );
+                    failure(
+                        i32::MAX as u64 + 1,
+                        "service limit values must fit in a 32-bit signed integer (`i32`)",
+                    );
+                }
+
+                #[test]
+                fn encode() {
+                    let value = $type_name::try_from(10).unwrap();
+                    let mut buf = Default::default();
+                    let _ = <$type_name as sqlx::Encode<'_, sqlx::Sqlite>>::encode_by_ref(
+                        &value, &mut buf,
+                    );
+
+                    let encoded: Vec<_> = buf.iter().map(extract_sqlite_argument_i32).collect();
+                    assert_eq!(encoded, &[value.get_i32()]);
+                }
+            }
+        };
     }
+
+    service_limit_test!(MaxTables, max_tables);
+    service_limit_test!(MaxColumnsPerTable, max_columns_per_table);
 }
