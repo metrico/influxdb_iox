@@ -7,282 +7,159 @@ use observability_deps::tracing::*;
 use std::num::NonZeroUsize;
 use thiserror::Error;
 
-/// Max tables allowed in a namespace.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub struct MaxTables(NonZeroUsize);
+/// Definitions that apply to both MaxColumnsPerTable and MaxTables. Note that the hardcoded
+/// default value specified in the macro invocation must be greater than 0 and fit in an `i32`.
+macro_rules! define_service_limit {
+    ($type_name:ident, $default_value:expr, $documentation:expr) => {
+        /// $documentation
+        #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+        pub struct $type_name(NonZeroUsize);
 
-impl TryFrom<usize> for MaxTables {
-    type Error = ServiceLimitError;
+        impl TryFrom<usize> for $type_name {
+            type Error = ServiceLimitError;
 
-    fn try_from(value: usize) -> Result<Self, Self::Error> {
-        // Even though the value is stored as a `usize`, service limits are stored as `i32` in the
-        // database and transferred as i32 over protobuf. So try to convert to an `i32` (and throw
-        // away the result) so that we know about invalid values before trying to use them.
-        if i32::try_from(value).is_err() {
-            return Err(ServiceLimitError::MustFitInI32);
+            fn try_from(value: usize) -> Result<Self, Self::Error> {
+                // Even though the value is stored as a `usize`, service limits are stored as `i32`
+                // in the database and transferred as i32 over protobuf. So try to convert to an
+                // `i32` (and throw away the result) so that we know about invalid values before
+                // trying to use them.
+                if i32::try_from(value).is_err() {
+                    return Err(ServiceLimitError::MustFitInI32);
+                }
+
+                let nonzero_value =
+                    NonZeroUsize::new(value).ok_or(ServiceLimitError::MustBeGreaterThanZero)?;
+
+                Ok(Self(nonzero_value))
+            }
         }
 
-        let nonzero_value =
-            NonZeroUsize::new(value).ok_or(ServiceLimitError::MustBeGreaterThanZero)?;
+        impl TryFrom<u64> for $type_name {
+            type Error = ServiceLimitError;
 
-        Ok(Self(nonzero_value))
-    }
-}
+            fn try_from(value: u64) -> Result<Self, Self::Error> {
+                // Even though the value is stored as a `usize`, service limits are stored as `i32`
+                // in the database and transferred as i32 over protobuf. So try to convert to an
+                // `i32` (and throw away the result) so that we know about invalid values before
+                // trying to use them.
+                if i32::try_from(value).is_err() {
+                    return Err(ServiceLimitError::MustFitInI32);
+                }
 
-impl TryFrom<u64> for MaxTables {
-    type Error = ServiceLimitError;
+                let nonzero_value = usize::try_from(value)
+                    .ok()
+                    .and_then(NonZeroUsize::new)
+                    .ok_or(ServiceLimitError::MustBeGreaterThanZero)?;
 
-    fn try_from(value: u64) -> Result<Self, Self::Error> {
-        // Even though the value is stored as a `usize`, service limits are stored as `i32` in the
-        // database and transferred as i32 over protobuf. So try to convert to an `i32` (and throw
-        // away the result) so that we know about invalid values before trying to use them.
-        if i32::try_from(value).is_err() {
-            return Err(ServiceLimitError::MustFitInI32);
+                Ok(Self(nonzero_value))
+            }
         }
 
-        let nonzero_value = usize::try_from(value)
-            .ok()
-            .and_then(NonZeroUsize::new)
-            .ok_or(ServiceLimitError::MustBeGreaterThanZero)?;
+        impl TryFrom<i32> for $type_name {
+            type Error = ServiceLimitError;
 
-        Ok(Self(nonzero_value))
-    }
-}
+            fn try_from(value: i32) -> Result<Self, Self::Error> {
+                let nonzero_value = usize::try_from(value)
+                    .ok()
+                    .and_then(NonZeroUsize::new)
+                    .ok_or(ServiceLimitError::MustBeGreaterThanZero)?;
 
-impl TryFrom<i32> for MaxTables {
-    type Error = ServiceLimitError;
-
-    fn try_from(value: i32) -> Result<Self, Self::Error> {
-        let nonzero_value = usize::try_from(value)
-            .ok()
-            .and_then(NonZeroUsize::new)
-            .ok_or(ServiceLimitError::MustBeGreaterThanZero)?;
-
-        Ok(Self(nonzero_value))
-    }
-}
-
-#[allow(missing_docs)]
-impl MaxTables {
-    pub fn get(&self) -> usize {
-        self.0.get()
-    }
-
-    /// For use by the database and some protobuf representations. It should not be possible to
-    /// construct a `MaxTables` instance that contains a `NonZeroUsize` that won't fit in an `i32`.
-    pub fn get_i32(&self) -> i32 {
-        self.0.get() as i32
-    }
-
-    /// Default per-namespace table count service protection limit.
-    pub const fn const_default() -> Self {
-        // This is safe because the hardcoded 500 is not 0.
-        let value = unsafe { NonZeroUsize::new_unchecked(500) };
-
-        Self(value)
-    }
-}
-
-impl Default for MaxTables {
-    fn default() -> Self {
-        Self::const_default()
-    }
-}
-
-impl std::fmt::Display for MaxTables {
-    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
-        write!(f, "{}", self.0)
-    }
-}
-
-// Tell sqlx this is an i32 in the database.
-impl<DB> sqlx::Type<DB> for MaxTables
-where
-    i32: sqlx::Type<DB>,
-    DB: sqlx::Database,
-{
-    fn type_info() -> DB::TypeInfo {
-        <i32 as sqlx::Type<DB>>::type_info()
-    }
-}
-
-impl<'q, DB> sqlx::Encode<'q, DB> for MaxTables
-where
-    DB: sqlx::Database,
-    i32: sqlx::Encode<'q, DB>,
-{
-    fn encode_by_ref(
-        &self,
-        buf: &mut <DB as sqlx::database::HasArguments<'q>>::ArgumentBuffer,
-    ) -> sqlx::encode::IsNull {
-        <i32 as sqlx::Encode<'_, DB>>::encode_by_ref(&self.get_i32(), buf)
-    }
-}
-
-// The database stores i32s, so there's a chance of invalid values already being stored in there.
-// When deserializing those values, rather than panicking or returning an error, log and use the
-// default instead.
-impl<'r, DB: ::sqlx::Database> ::sqlx::decode::Decode<'r, DB> for MaxTables
-where
-    i32: sqlx::Decode<'r, DB>,
-{
-    fn decode(
-        value: <DB as ::sqlx::database::HasValueRef<'r>>::ValueRef,
-    ) -> ::std::result::Result<
-        Self,
-        ::std::boxed::Box<
-            dyn ::std::error::Error + 'static + ::std::marker::Send + ::std::marker::Sync,
-        >,
-    > {
-        let data = <i32 as ::sqlx::decode::Decode<'r, DB>>::decode(value)?;
-
-        let data = Self::try_from(data).unwrap_or_else(|_| {
-            error!("database contains invalid max_tables value {data}");
-            Self::default()
-        });
-
-        Ok(data)
-    }
-}
-
-/// Max columns per table allowed in a namespace.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub struct MaxColumnsPerTable(NonZeroUsize);
-
-impl TryFrom<usize> for MaxColumnsPerTable {
-    type Error = ServiceLimitError;
-
-    fn try_from(value: usize) -> Result<Self, Self::Error> {
-        // Even though the value is stored as a `usize`, service limits are stored as `i32` in the
-        // database and transferred as i32 over protobuf. So try to convert to an `i32` (and throw
-        // away the result) so that we know about invalid values before trying to use them.
-        if i32::try_from(value).is_err() {
-            return Err(ServiceLimitError::MustFitInI32);
+                Ok(Self(nonzero_value))
+            }
         }
 
-        let nonzero_value =
-            NonZeroUsize::new(value).ok_or(ServiceLimitError::MustBeGreaterThanZero)?;
+        #[allow(missing_docs)]
+        impl $type_name {
+            pub fn get(&self) -> usize {
+                self.0.get()
+            }
 
-        Ok(Self(nonzero_value))
-    }
-}
+            /// For use by the database and some protobuf representations. It should not be
+            /// possible to construct an instance that contains a `NonZeroUsize` that won't fit in
+            /// an `i32`.
+            pub fn get_i32(&self) -> i32 {
+                self.0.get() as i32
+            }
 
-impl TryFrom<u64> for MaxColumnsPerTable {
-    type Error = ServiceLimitError;
+            /// Constant-time default for use in constructing test constants.
+            pub const fn const_default() -> Self {
+                // This is safe because the hardcoded value is not 0.
+                let value = unsafe { NonZeroUsize::new_unchecked($default_value) };
 
-    fn try_from(value: u64) -> Result<Self, Self::Error> {
-        // Even though the value is stored as a `usize`, service limits are stored as `i32` in the
-        // database and transferred as i32 over protobuf. So try to convert to an `i32` (and throw
-        // away the result) so that we know about invalid values before trying to use them.
-        if i32::try_from(value).is_err() {
-            return Err(ServiceLimitError::MustFitInI32);
+                Self(value)
+            }
         }
 
-        let nonzero_value = usize::try_from(value)
-            .ok()
-            .and_then(NonZeroUsize::new)
-            .ok_or(ServiceLimitError::MustBeGreaterThanZero)?;
+        impl Default for $type_name {
+            fn default() -> Self {
+                Self::const_default()
+            }
+        }
 
-        Ok(Self(nonzero_value))
-    }
+        impl std::fmt::Display for $type_name {
+            fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+                write!(f, "{}", self.0)
+            }
+        }
+
+        // Tell sqlx this is an i32 in the database.
+        impl<DB> sqlx::Type<DB> for $type_name
+        where
+            i32: sqlx::Type<DB>,
+            DB: sqlx::Database,
+        {
+            fn type_info() -> DB::TypeInfo {
+                <i32 as sqlx::Type<DB>>::type_info()
+            }
+        }
+
+        impl<'q, DB> sqlx::Encode<'q, DB> for $type_name
+        where
+            DB: sqlx::Database,
+            i32: sqlx::Encode<'q, DB>,
+        {
+            fn encode_by_ref(
+                &self,
+                buf: &mut <DB as sqlx::database::HasArguments<'q>>::ArgumentBuffer,
+            ) -> sqlx::encode::IsNull {
+                <i32 as sqlx::Encode<'_, DB>>::encode_by_ref(&self.get_i32(), buf)
+            }
+        }
+
+        // The database stores i32s, so there's a chance of invalid values already being stored in
+        // there. When deserializing those values, rather than panicking or returning an error, log
+        // and use the default instead.
+        impl<'r, DB: ::sqlx::Database> ::sqlx::decode::Decode<'r, DB> for $type_name
+        where
+            i32: sqlx::Decode<'r, DB>,
+        {
+            fn decode(
+                value: <DB as ::sqlx::database::HasValueRef<'r>>::ValueRef,
+            ) -> ::std::result::Result<
+                Self,
+                ::std::boxed::Box<
+                    dyn ::std::error::Error + 'static + ::std::marker::Send + ::std::marker::Sync,
+                >,
+            > {
+                let data = <i32 as ::sqlx::decode::Decode<'r, DB>>::decode(value)?;
+
+                let data = Self::try_from(data).unwrap_or_else(|_| {
+                    error!("database contains invalid $type_name value {data}");
+                    Self::default()
+                });
+
+                Ok(data)
+            }
+        }
+    };
 }
 
-impl TryFrom<i32> for MaxColumnsPerTable {
-    type Error = ServiceLimitError;
-
-    fn try_from(value: i32) -> Result<Self, Self::Error> {
-        let nonzero_value = usize::try_from(value)
-            .ok()
-            .and_then(NonZeroUsize::new)
-            .ok_or(ServiceLimitError::MustBeGreaterThanZero)?;
-
-        Ok(Self(nonzero_value))
-    }
-}
-
-#[allow(missing_docs)]
-impl MaxColumnsPerTable {
-    pub fn get(&self) -> usize {
-        self.0.get()
-    }
-
-    /// For use by the database and some protobuf representations. It should not be possible to
-    /// construct a `MaxColumnsPerTable` instance that contains a `NonZeroUsize` that won't fit in
-    /// an `i32`.
-    pub fn get_i32(&self) -> i32 {
-        self.0.get() as i32
-    }
-
-    /// Default per-table column count service protection limit.
-    pub const fn const_default() -> Self {
-        // This is safe because the hardcoded 200 is not 0.
-        let value = unsafe { NonZeroUsize::new_unchecked(200) };
-
-        Self(value)
-    }
-}
-
-impl Default for MaxColumnsPerTable {
-    fn default() -> Self {
-        Self::const_default()
-    }
-}
-
-impl std::fmt::Display for MaxColumnsPerTable {
-    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
-        write!(f, "{}", self.0)
-    }
-}
-
-// Tell sqlx this is an i32 in the database.
-impl<DB> sqlx::Type<DB> for MaxColumnsPerTable
-where
-    i32: sqlx::Type<DB>,
-    DB: sqlx::Database,
-{
-    fn type_info() -> DB::TypeInfo {
-        <i32 as sqlx::Type<DB>>::type_info()
-    }
-}
-
-impl<'q, DB> sqlx::Encode<'q, DB> for MaxColumnsPerTable
-where
-    DB: sqlx::Database,
-    i32: sqlx::Encode<'q, DB>,
-{
-    fn encode_by_ref(
-        &self,
-        buf: &mut <DB as sqlx::database::HasArguments<'q>>::ArgumentBuffer,
-    ) -> sqlx::encode::IsNull {
-        <i32 as sqlx::Encode<'_, DB>>::encode_by_ref(&self.get_i32(), buf)
-    }
-}
-
-// The database stores i32s, so there's a chance of invalid values already being stored in there.
-// When deserializing those values, rather than panicking or returning an error, log and use the
-// default instead.
-impl<'r, DB: ::sqlx::Database> ::sqlx::decode::Decode<'r, DB> for MaxColumnsPerTable
-where
-    i32: sqlx::Decode<'r, DB>,
-{
-    fn decode(
-        value: <DB as ::sqlx::database::HasValueRef<'r>>::ValueRef,
-    ) -> ::std::result::Result<
-        Self,
-        ::std::boxed::Box<
-            dyn ::std::error::Error + 'static + ::std::marker::Send + ::std::marker::Sync,
-        >,
-    > {
-        let data = <i32 as ::sqlx::decode::Decode<'r, DB>>::decode(value)?;
-
-        let data = Self::try_from(data).unwrap_or_else(|_| {
-            error!("database contains invalid max_columns_per_table value {data}");
-            Self::default()
-        });
-
-        Ok(data)
-    }
-}
+define_service_limit!(MaxTables, 500, "Max tables allowed in a namespace.");
+define_service_limit!(
+    MaxColumnsPerTable,
+    200,
+    "Max columns per table allowed in a namespace."
+);
 
 /// Overrides for service protection limits.
 #[derive(Debug, Copy, Clone)]
