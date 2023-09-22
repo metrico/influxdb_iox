@@ -443,7 +443,7 @@ pub struct Partition {
     // TODO: remove this field once the sort_key_ids is fully imlemented
     /// vector of column names that describes how *every* parquet file
     /// in this [`Partition`] is sorted.
-    pub sort_key: Vec<String>,
+    pub sort_key: Option<Vec<String>>,
 
     /// vector of column ids that describes how *every* parquet file
     /// in this [`Partition`] is sorted. The sort_key contains all the
@@ -485,7 +485,7 @@ impl Partition {
         id: PartitionId,
         table_id: TableId,
         partition_key: PartitionKey,
-        sort_key: Vec<String>,
+        sort_key: Option<Vec<String>>,
         sort_key_ids: SortedColumnSet,
         new_file_at: Option<Timestamp>,
     ) -> Self {
@@ -512,7 +512,7 @@ impl Partition {
         hash_id: Option<PartitionHashId>,
         table_id: TableId,
         partition_key: PartitionKey,
-        sort_key: Vec<String>,
+        sort_key: Option<Vec<String>>,
         sort_key_ids: SortedColumnSet,
         new_file_at: Option<Timestamp>,
     ) -> Self {
@@ -538,15 +538,22 @@ impl Partition {
         self.hash_id.as_ref()
     }
 
+    /// return true if the sort_key is not null and not empty
+    pub fn sort_key_has_value(&self) -> bool {
+        self.sort_key.is_some() && !self.sort_key.as_ref().unwrap().is_empty()
+    }
+
     // TODO: remove this function after all PRs that teach compactor, ingester,
     // and querier to use sort_key_ids are merged.
     /// The sort key for the partition, if present, structured as a `SortKey`
     pub fn sort_key(&self) -> Option<SortKey> {
-        if self.sort_key.is_empty() {
+        if self.sort_key.is_some() && self.sort_key.as_ref().unwrap().is_empty() {
             return None;
         }
 
-        Some(SortKey::from_columns(self.sort_key.iter().map(|s| &**s)))
+        self.sort_key
+            .as_ref()
+            .map(|sort_key| SortKey::from_columns(sort_key.iter().map(|s| &**s)))
     }
 
     /// The sort_key_ids if present

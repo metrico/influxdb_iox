@@ -13,7 +13,7 @@ use ioxd_common::{
     server_type::{CommonServerState, CommonServerStateError},
     Service,
 };
-use ioxd_compactor::create_compactor_server_type;
+use ioxd_compactor::{create_compactor_server_type, derive_mem_pool_size};
 use object_store::DynObjectStore;
 use object_store_metrics::ObjectStoreMetrics;
 use observability_deps::tracing::*;
@@ -105,6 +105,11 @@ pub async fn command(config: Config) -> Result<(), Error> {
         });
     info!(%num_threads, "using specified number of threads");
 
+    let mem_pool_size = derive_mem_pool_size(
+        config.compactor_config.exec_mem_pool_bytes.bytes(),
+        config.compactor_config.exec_mem_pool_percent,
+    );
+
     let exec = Arc::new(Executor::new_with_config(ExecutorConfig {
         num_threads,
         target_query_partitions: num_threads,
@@ -113,7 +118,7 @@ pub async fn command(config: Config) -> Result<(), Error> {
             .map(|store| (store.id(), Arc::clone(store.object_store())))
             .collect(),
         metric_registry: Arc::clone(&metric_registry),
-        mem_pool_size: config.compactor_config.exec_mem_pool_bytes.bytes(),
+        mem_pool_size,
     }));
     let time_provider = Arc::new(SystemProvider::new());
 

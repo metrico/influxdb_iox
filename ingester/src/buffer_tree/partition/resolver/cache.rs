@@ -301,7 +301,7 @@ mod tests {
             ARBITRARY_CATALOG_PARTITION_ID,
             ARBITRARY_TABLE_ID,
             stored_partition_key.clone(),
-            vec!["dos".to_string(), "bananas".to_string()],
+            Some(vec!["dos".to_string(), "bananas".to_string()]),
             SortedColumnSet::from([1, 2]),
             Default::default(),
         );

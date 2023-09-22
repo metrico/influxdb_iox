@@ -73,10 +73,29 @@ pub struct CompactorConfig {
     #[clap(
         long = "exec-mem-pool-bytes",
         env = "INFLUXDB_IOX_EXEC_MEM_POOL_BYTES",
-        default_value = "8589934592",  // 8GB
+        default_value = "17179869184",  // 16GB
         action
     )]
     pub exec_mem_pool_bytes: MemorySize,
+
+    /// Overrides INFLUXDB_IOX_EXEC_MEM_POOL_BYTES to set the size of memory pool
+    /// used during compaction DF plan execution.  This value is expressed as a percent
+    /// of the memory limit for the cgroup (e.g. 70 = 70% of the cgroup memory limit).
+    /// This is converted to a byte limit as the compactor starts.
+    ///
+    /// Extreme values (<20% or >90%) are ignored and INFLUXDB_IOX_EXEC_MEM_POOL_BYTES
+    /// is used.  It will also use INFLUXDB_IOX_EXEC_MEM_POOL_BYTES if we fail to read
+    /// the cgroup limit, or it doesn't parse to a sane value.
+    ///
+    /// If compaction plans attempt to allocate more than the computed byte limit
+    /// during execution, they will error with "ResourcesExhausted".
+    #[clap(
+        long = "exec-mem-pool-percent",
+        env = "INFLUXDB_IOX_EXEC_MEM_POOL_PERCENT",
+        default_value = "70",
+        action
+    )]
+    pub exec_mem_pool_percent: u64,
 
     /// Desired max size of compacted parquet files.
     ///

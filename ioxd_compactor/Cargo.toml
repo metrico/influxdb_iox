@@ -18,7 +18,8 @@ iox_time = { path = "../iox_time" }
 iox_query = { path = "../iox_query" }
 ioxd_common = { path = "../ioxd_common" }
 metric = { path = "../metric" }
+observability_deps = { path = "../observability_deps" }
 parquet_file = { path = "../parquet_file" }
-tokio-util = "0.7.8"
+tokio-util = "0.7.9"
 trace = { path = "../trace" }
 workspace-hack = { version = "0.1", path = "../workspace-hack" }

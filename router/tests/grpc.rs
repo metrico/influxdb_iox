@@ -15,8 +15,9 @@ use hyper::StatusCode;
 use iox_catalog::interface::{Error as CatalogError, SoftDeletedRows};
 use iox_time::{SystemProvider, TimeProvider};
 use router::{
-    dml_handlers::{CachedServiceProtectionLimit, DmlError, RetentionError, SchemaError},
+    dml_handlers::{DmlError, RetentionError},
     namespace_resolver::{self, NamespaceCreationError},
+    schema_validator::{CachedServiceProtectionLimit, SchemaError},
     server::http::Error,
 };
 use service_grpc_namespace::namespace_to_proto;

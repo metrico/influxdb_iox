@@ -573,7 +573,7 @@ impl PartitionRepo for MemTxn {
                     PartitionId::new(stage.partitions.len() as i64 + 1),
                     table_id,
                     key,
-                    vec![],
+                    Some(vec![]),
                     SortedColumnSet::new(vec![]),
                     None,
                 );
@@ -672,7 +672,7 @@ impl PartitionRepo for MemTxn {
         old_sort_key_ids: Option<SortedColumnSet>,
         new_sort_key: &[&str],
         new_sort_key_ids: &SortedColumnSet,
-    ) -> Result<Partition, CasFailure<(Vec<String>, SortedColumnSet)>> {
+    ) -> Result<Partition, CasFailure<(Option<Vec<String>>, SortedColumnSet)>> {
         // These asserts are here to cacth bugs. They will be removed when we remove the sort_key
         // field from the Partition
         assert_eq!(
@@ -693,8 +693,8 @@ impl PartitionRepo for MemTxn {
         }) {
             Some(p) if p.sort_key_ids == old_sort_key_ids => {
                 // This is here to catch bugs. It will be removed when we remove the sort_key
-                assert_eq!(p.sort_key, old_sort_key);
-                p.sort_key = new_sort_key.iter().map(|s| s.to_string()).collect();
+                assert_eq!(p.sort_key, Some(old_sort_key));
+                p.sort_key = Some(new_sort_key.iter().map(|s| s.to_string()).collect());
                 p.sort_key_ids = new_sort_key_ids.clone();
                 Ok(p.clone())
             }

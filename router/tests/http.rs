@@ -8,7 +8,10 @@ use hyper::{Body, Request, StatusCode};
 use iox_catalog::{interface::SoftDeletedRows, test_helpers::arbitrary_namespace};
 use iox_time::{SystemProvider, TimeProvider};
 use metric::{Attributes, DurationHistogram, Metric, U64Counter};
-use router::dml_handlers::{DmlError, RetentionError, SchemaError};
+use router::{
+    dml_handlers::{DmlError, RetentionError},
+    schema_validator::SchemaError,
+};
 use std::sync::Arc;
 
 pub mod common;

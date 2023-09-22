@@ -1,5 +1,8 @@
 # InfluxDB IOx
 
+> [!NOTE]
+> This repo will be made private on September 28, 2023. All code has been moved to the InfluxDB repo ([see this commit](https://github.com/influxdata/influxdb/commit/aa458ed1661a9e0ea58e5f999d383c08f8309c36)).
+
 InfluxDB IOx (short for Iron Oxide, pronounced InfluxDB "eye-ox") is the core of InfluxDB, an open source time series database.
 The name is in homage to Rust, the language this project is written in.
 It is built using [Apache Arrow](https://arrow.apache.org/) and [DataFusion](https://arrow.apache.org/datafusion/) among other technologies.

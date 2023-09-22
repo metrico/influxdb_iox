@@ -256,6 +256,7 @@ impl CachedPartition {
     fn new(partition: Partition, table: &CachedTable) -> Self {
         // build sort_key from the partition's sort_key_ids and table columns
         let sort_key = partition.sort_key_ids_none_if_empty().map(|sort_key_ids| {
+            let sort_key_ids = sort_key_ids.clone();
             Arc::new(PartitionSortKey::new(sort_key_ids, &table.column_id_map))
         });
 
@@ -409,7 +410,7 @@ pub struct PartitionSortKey {
 }
 
 impl PartitionSortKey {
-    fn new(sort_key_ids: &SortedColumnSet, column_id_map: &HashMap<ColumnId, Arc<str>>) -> Self {
+    fn new(sort_key_ids: SortedColumnSet, column_id_map: &HashMap<ColumnId, Arc<str>>) -> Self {
         let column_order: Box<[ColumnId]> = sort_key_ids.iter().copied().collect();
 
         // build sort_key from the column order
@@ -459,7 +460,7 @@ mod tests {
         ram::test_util::test_ram_pool, test_util::assert_catalog_access_metric_count,
     };
     use async_trait::async_trait;
-    use chrono::{Datelike, TimeZone, Utc};
+    use chrono::Datelike;
     use data_types::{
         partition_template::TablePartitionTemplateOverride, ColumnType, PartitionId, PartitionKey,
         SortedColumnSet, TableId,
@@ -1316,7 +1317,7 @@ mod tests {
 
         // same order of the columns
         let sort_key_ids = SortedColumnSet::from(vec![1, 2, 3, 4]);
-        let p_sort_key = PartitionSortKey::new(&sort_key_ids, &column_id_map);
+        let p_sort_key = PartitionSortKey::new(sort_key_ids, &column_id_map);
         assert_eq!(
             p_sort_key,
             PartitionSortKey {
@@ -1339,7 +1340,7 @@ mod tests {
 
         // different order
         let sort_key_ids = SortedColumnSet::from(vec![3, 1, 4]);
-        let p_sort_key = PartitionSortKey::new(&sort_key_ids, &column_id_map);
+        let p_sort_key = PartitionSortKey::new(sort_key_ids, &column_id_map);
         assert_eq!(
             p_sort_key,
             PartitionSortKey {
@@ -1351,7 +1352,7 @@ mod tests {
 
         // only time
         let sort_key_ids = SortedColumnSet::from(vec![4]);
-        let p_sort_key = PartitionSortKey::new(&sort_key_ids, &column_id_map);
+        let p_sort_key = PartitionSortKey::new(sort_key_ids, &column_id_map);
         assert_eq!(
             p_sort_key,
             PartitionSortKey {
@@ -1377,7 +1378,7 @@ mod tests {
 
         // same order of the columns
         let sort_key_ids = SortedColumnSet::from(vec![1, 9]);
-        let _sort_key = PartitionSortKey::new(&sort_key_ids, &column_id_map);
+        let _sort_key = PartitionSortKey::new(sort_key_ids, &column_id_map);
     }
 
     /// Actually implementation of [`test_multi_table_concurrent_get`] that is tried multiple times.

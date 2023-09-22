@@ -1,6 +1,5 @@
-use super::{
-    partitioner::PartitionError, retention_validation::RetentionError, RpcWriteError, SchemaError,
-};
+use super::{partitioner::PartitionError, retention_validation::RetentionError, RpcWriteError};
+use crate::schema_validator::SchemaError;
 use async_trait::async_trait;
 use data_types::{NamespaceName, NamespaceSchema};
 use std::{error::Error, fmt::Debug, sync::Arc};
