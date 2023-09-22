@@ -1,4 +1,5 @@
 mod catalog;
+pub(crate) use catalog::*;
 
 use std::fmt::Debug;
 
@@ -10,7 +11,7 @@ use schema::sort::SortKey;
 /// [`ColumnsByName`] of any given table, verified against the associated
 /// [`SortKey`].
 #[async_trait]
-trait ColumnMapResolver: Debug + Send + Sync {
+pub(crate) trait ColumnMapResolver: Debug + Send + Sync {
     /// Loads the mapping of column name to column ID for the given `table_id`
     /// and its `sort_key`.
     ///
