@@ -236,9 +236,18 @@ where
         debug!(%peer_identity, %peer_addr, ?rpc_addr, "derived peer rpc address");
 
         // Spawn a task the drive the cache synchronisation.
-        match self.merge_task_set.start_sync(rpc_addr, peer_identity) {
+        match self
+            .merge_task_set
+            .start_sync(rpc_addr, peer_identity.clone())
+        {
             Ok(()) => {}
-            Err(e) => debug!(error=%e, "sync not started"),
+            Err(e) => debug!(
+                error=%e,
+                %peer_identity,
+                %peer_addr,
+                ?rpc_addr,
+                "sync not started"
+            ),
         }
     }
 }
