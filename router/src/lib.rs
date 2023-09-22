@@ -126,7 +126,10 @@
     missing_debug_implementations,
     unreachable_pub,
 )]
-#![allow(clippy::missing_docs_in_private_items)]
+#![allow(
+    clippy::missing_docs_in_private_items,
+    clippy::default_constructed_unit_structs
+)]
 
 // Workaround for "unused crate" lint false positives.
 #[cfg(test)]
