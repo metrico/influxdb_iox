@@ -11,7 +11,7 @@ use hyper::{header::CONTENT_ENCODING, Body, Method, Request, Response, StatusCod
 use iox_time::{SystemProvider, TimeProvider};
 use metric::{DurationHistogram, U64Counter};
 use mutable_batch::MutableBatch;
-use mutable_batch_lp::LinesConverter;
+use mutable_batch_lp::{LineError, LinesConverter};
 use observability_deps::tracing::*;
 use thiserror::Error;
 use tokio::sync::{Semaphore, TryAcquireError};
@@ -130,6 +130,27 @@ impl Error {
             Error::Forbidden => StatusCode::FORBIDDEN,
             Error::SingleTenantError(e) => StatusCode::from(e),
             Error::MultiTenantError(e) => StatusCode::from(e),
+        }
+    }
+
+    /// Return the line number of the first line that failed to parse,
+    /// if the error is a line protocol error.
+    ///
+    /// Line number is index 1 based.
+    pub fn get_parse_error_line_index(&self) -> Option<usize> {
+        match self {
+            Self::ParseLineProtocol(mutable_batch_lp::Error::PerLine { lines }) => {
+                let line = match lines
+                    .get(0)
+                    .expect("PerLine error must have at least one line")
+                {
+                    LineError::LineProtocol { source: _, line }
+                    | LineError::TimestampOverflow { line }
+                    | LineError::Write { source: _, line } => *line,
+                };
+                Some(line)
+            }
+            _ => None,
         }
     }
 }
@@ -351,7 +372,7 @@ where
                 debug!("nothing to write");
                 return Ok(());
             }
-            Err(e) => return Err(Error::ParseLineProtocol(e)),
+            Err(line_errors) => return Err(Error::ParseLineProtocol(line_errors)),
         };
 
         let num_tables = batches.len();
@@ -514,7 +535,7 @@ mod tests {
             body = $body:expr,                              // Request body content
             dml_write_handler = $dml_write_handler:expr,    // DML write handler response (if called)
             dml_delete_handler = $dml_delete_handler:expr,  // DML delete handler response (if called)
-            want_result = $want_result:pat,                 // Expected handler return value (as pattern)
+            want_result = [$($want_result:tt )+],           // Expected handler return value (as pattern)
             want_dml_calls = $($want_dml_calls:tt )+        // assert_matches slice pattern for expected DML calls
         ) => {
             // Generate the three test cases by feed the same inputs, but varying
@@ -526,7 +547,7 @@ mod tests {
                 body = $body,
                 dml_write_handler = $dml_write_handler,
                 dml_delete_handler = $dml_delete_handler,
-                want_result = $want_result,
+                want_result = [$($want_result)+],
                 want_dml_calls = $($want_dml_calls)+
             );
             test_http_handler!(
@@ -536,7 +557,7 @@ mod tests {
                 body = $body,
                 dml_write_handler = $dml_write_handler,
                 dml_delete_handler = $dml_delete_handler,
-                want_result = $want_result,
+                want_result = [$($want_result)+],
                 want_dml_calls = $($want_dml_calls)+
             );
             test_http_handler!(
@@ -546,7 +567,7 @@ mod tests {
                 body = $body,
                 dml_write_handler = $dml_write_handler,
                 dml_delete_handler = $dml_delete_handler,
-                want_result = $want_result,
+                want_result = [$($want_result)+],
                 want_dml_calls = $($want_dml_calls)+
             );
         };
@@ -558,7 +579,7 @@ mod tests {
             body = $body:expr,
             dml_write_handler = $dml_write_handler:expr,
             dml_delete_handler = $dml_delete_handler:expr,
-            want_result = $want_result:pat,
+            want_result = [$($want_result:tt)+],
             want_dml_calls = $($want_dml_calls:tt )+
         ) => {
             paste::paste! {
@@ -596,20 +617,23 @@ mod tests {
                     );
 
                     let got = delegate.route(request).await;
-                    assert_matches!(got, $want_result);
+                    assert_matches!(&got, $($want_result)+);
 
                     // All successful responses should have a NO_CONTENT code
                     // and metrics should be recorded.
-                    if let Ok(v) = got {
-                        assert_eq!(v.status(), StatusCode::NO_CONTENT);
-                        if $uri.contains("/api/v2/write") {
-                            assert_metric_hit(&metrics, "http_write_lines", None);
-                            assert_metric_hit(&metrics, "http_write_fields", None);
-                            assert_metric_hit(&metrics, "http_write_tables", None);
-                            assert_metric_hit(&metrics, "http_write_body_bytes", Some($body.len() as _));
-                        } else {
-                            assert_metric_hit(&metrics, "http_delete_body_bytes", Some($body.len() as _));
+                    match got {
+                        Ok(v) => {
+                            assert_eq!(v.status(), StatusCode::NO_CONTENT);
+                            if $uri.contains("/api/v2/write") {
+                                assert_metric_hit(&metrics, "http_write_lines", None);
+                                assert_metric_hit(&metrics, "http_write_fields", None);
+                                assert_metric_hit(&metrics, "http_write_tables", None);
+                                assert_metric_hit(&metrics, "http_write_body_bytes", Some($body.len() as _));
+                            } else {
+                                assert_metric_hit(&metrics, "http_delete_body_bytes", Some($body.len() as _));
+                            }
                         }
+                        Err(_) => {}
                     }
 
                     let calls = dml_handler.calls();
@@ -651,7 +675,7 @@ mod tests {
             query_string = $query_string:expr,   // Request URI query string
             body = $body:expr,                   // Request body content
             dml_handler = $dml_handler:expr,     // DML write handler response (if called)
-            want_result = $want_result:pat,
+            want_result = [$($want_result:tt )+],
             want_dml_calls = $($want_dml_calls:tt )+
         ) => {
             paste::paste! {
@@ -661,7 +685,7 @@ mod tests {
                     body = $body,
                     dml_write_handler = $dml_handler,
                     dml_delete_handler = [],
-                    want_result = $want_result,
+                    want_result = [$($want_result)+],
                     want_dml_calls = $($want_dml_calls)+
                 );
             }
@@ -673,7 +697,7 @@ mod tests {
         query_string = "?org=bananas&bucket=test",
         body = "platanos,tag1=A,tag2=B val=42i 123456".as_bytes(),
         dml_handler = [Ok(())],
-        want_result = Ok(_),
+        want_result = [Ok(_)],
         want_dml_calls = [
             MockDmlHandlerCall::Write { namespace, .. }
         ] => {
@@ -686,7 +710,7 @@ mod tests {
         query_string = "?org=bananas&bucket=test&precision=s",
         body = "platanos,tag1=A,tag2=B val=42i 1647622847".as_bytes(),
         dml_handler = [Ok(())],
-        want_result = Ok(_),
+        want_result = [Ok(_)],
         want_dml_calls = [
             MockDmlHandlerCall::Write { namespace, namespace_schema, write_input, .. }
         ] => {
@@ -704,7 +728,7 @@ mod tests {
         query_string = "?org=bananas&bucket=test&precision=ms",
         body = "platanos,tag1=A,tag2=B val=42i 1647622847000".as_bytes(),
         dml_handler = [Ok(())],
-        want_result = Ok(_),
+        want_result = [Ok(_)],
         want_dml_calls = [
             MockDmlHandlerCall::Write { namespace, namespace_schema, write_input, .. }
         ] => {
@@ -722,7 +746,7 @@ mod tests {
         query_string = "?org=bananas&bucket=test&precision=us",
         body = "platanos,tag1=A,tag2=B val=42i 1647622847000000".as_bytes(),
         dml_handler = [Ok(())],
-        want_result = Ok(_),
+        want_result = [Ok(_)],
         want_dml_calls = [
             MockDmlHandlerCall::Write { namespace, namespace_schema, write_input, .. }
         ] => {
@@ -740,7 +764,7 @@ mod tests {
         query_string = "?org=bananas&bucket=test&precision=ns",
         body = "platanos,tag1=A,tag2=B val=42i 1647622847000000000".as_bytes(),
         dml_handler = [Ok(())],
-        want_result = Ok(_),
+        want_result = [Ok(_)],
         want_dml_calls = [
             MockDmlHandlerCall::Write { namespace, namespace_schema, write_input, .. }
         ] => {
@@ -759,7 +783,7 @@ mod tests {
         query_string = "?org=bananas&bucket=test&precision=s",
         body = "platanos,tag1=A,tag2=B val=42i 1647622847000000000".as_bytes(),
         dml_handler = [Ok(())],
-        want_result = Err(Error::ParseLineProtocol(_)),
+        want_result = [Err(Error::ParseLineProtocol { .. })],
         want_dml_calls = []
     );
 
@@ -768,9 +792,9 @@ mod tests {
         query_string = "",
         body = "platanos,tag1=A,tag2=B val=42i 123456".as_bytes(),
         dml_handler = [Ok(())],
-        want_result = Err(Error::MultiTenantError(
+        want_result = [Err(Error::MultiTenantError(
             MultiTenantExtractError::ParseV2Request(V2WriteParseError::NoQueryParams)
-        )),
+        ))],
         want_dml_calls = [] // None
     );
 
@@ -779,11 +803,11 @@ mod tests {
         query_string = "?",
         body = "platanos,tag1=A,tag2=B val=42i 123456".as_bytes(),
         dml_handler = [Ok(())],
-        want_result = Err(Error::MultiTenantError(
+        want_result = [Err(Error::MultiTenantError(
             MultiTenantExtractError::InvalidOrgAndBucket(
                 OrgBucketMappingError::NoOrgBucketSpecified
             )
-        )),
+        ))],
         want_dml_calls = [] // None
     );
 
@@ -792,11 +816,11 @@ mod tests {
         query_string = "?org=&bucket=",
         body = "platanos,tag1=A,tag2=B val=42i 123456".as_bytes(),
         dml_handler = [Ok(())],
-        want_result = Err(Error::MultiTenantError(
+        want_result = [Err(Error::MultiTenantError(
             MultiTenantExtractError::InvalidOrgAndBucket(
                 OrgBucketMappingError::NoOrgBucketSpecified
             )
-        )),
+        ))],
         want_dml_calls = [] // None
     );
 
@@ -805,13 +829,13 @@ mod tests {
         query_string = format!("?org=test&bucket={}", "A".repeat(1000)),
         body = "platanos,tag1=A,tag2=B val=42i 123456".as_bytes(),
         dml_handler = [Ok(())],
-        want_result = Err(Error::MultiTenantError(
+        want_result = [Err(Error::MultiTenantError(
             MultiTenantExtractError::InvalidOrgAndBucket(
                 OrgBucketMappingError::InvalidNamespaceName(
                     NamespaceNameError::LengthConstraint { .. }
                 )
             )
-        )),
+        ))],
         want_dml_calls = [] // None
     );
 
@@ -820,7 +844,7 @@ mod tests {
         query_string = "?org=bananas&bucket=test",
         body = "not line protocol".as_bytes(),
         dml_handler = [Ok(())],
-        want_result = Err(Error::ParseLineProtocol(_)),
+        want_result = [Err(Error::ParseLineProtocol { .. })],
         want_dml_calls = [] // None
     );
 
@@ -829,7 +853,7 @@ mod tests {
         query_string = "?org=bananas&bucket=test",
         body = vec![0xc3, 0x28],
         dml_handler = [Ok(())],
-        want_result = Err(Error::NonUtf8Body(_)),
+        want_result = [Err(Error::NonUtf8Body(_))],
         want_dml_calls = [] // None
     );
 
@@ -857,7 +881,7 @@ mod tests {
                 .collect::<Vec<u8>>()
         },
         dml_handler = [Ok(())],
-        want_result = Err(Error::RequestSizeExceeded(_)),
+        want_result = [Err(Error::RequestSizeExceeded(_))],
         want_dml_calls = [] // None
     );
 
@@ -866,7 +890,7 @@ mod tests {
         query_string = "?org=bananas&bucket=test",
         body = "platanos,tag1=A,tag2=B val=42i 123456".as_bytes(),
         dml_handler = [Err(DmlError::NamespaceNotFound(NAMESPACE_NAME.to_string()))],
-        want_result = Err(Error::DmlHandler(DmlError::NamespaceNotFound(_))),
+        want_result = [Err(Error::DmlHandler(DmlError::NamespaceNotFound(_)))],
         want_dml_calls = [MockDmlHandlerCall::Write { namespace, .. }] => {
             assert_eq!(namespace, NAMESPACE_NAME);
         }
@@ -877,7 +901,7 @@ mod tests {
         query_string = "?org=bananas&bucket=test",
         body = "platanos,tag1=A,tag2=B val=42i 123456".as_bytes(),
         dml_handler = [Err(DmlError::Internal("💣".into()))],
-        want_result = Err(Error::DmlHandler(DmlError::Internal(_))),
+        want_result = [Err(Error::DmlHandler(DmlError::Internal(_)))],
         want_dml_calls = [MockDmlHandlerCall::Write { namespace, .. }] => {
             assert_eq!(namespace, NAMESPACE_NAME);
         }
@@ -888,7 +912,7 @@ mod tests {
         query_string = "?org=bananas&bucket=test",
         body = "test field=1u 100\ntest field=2u 100".as_bytes(),
         dml_handler = [Ok(())],
-        want_result = Ok(_),
+        want_result = [Ok(_)],
         want_dml_calls = [
             MockDmlHandlerCall::Write { namespace, namespace_schema, write_input, .. }
         ] => {
@@ -908,7 +932,7 @@ mod tests {
         query_string = "?org=bananas&bucket=test",
         body = "test field=1u,time=42u 100".as_bytes(),
         dml_handler = [],
-        want_result = Err(_),
+        want_result = [Err(_)],
         want_dml_calls = []
     );
 
@@ -918,7 +942,7 @@ mod tests {
         body = "".as_bytes(),
         dml_write_handler = [],
         dml_delete_handler = [],
-        want_result = Err(Error::NoHandler),
+        want_result = [Err(Error::NoHandler)],
         want_dml_calls = []
     );
 
@@ -931,7 +955,7 @@ mod tests {
             query_string = "?org=bananas&bucket=test",
             body = "whydo InputPower=300i,InputPower=300i".as_bytes(),
             dml_handler = [Ok(())],
-            want_result = Ok(_),
+            want_result = [Ok(_)],
             want_dml_calls = [MockDmlHandlerCall::Write { namespace, write_input, .. }] => {
                 assert_eq!(namespace, NAMESPACE_NAME);
                 let table = write_input.get("whydo").expect("table not in write");
@@ -948,7 +972,7 @@ mod tests {
             query_string = "?org=bananas&bucket=test",
             body = "whydo InputPower=300i,InputPower=42i".as_bytes(),
             dml_handler = [Ok(())],
-            want_result = Ok(_),
+            want_result = [Ok(_)],
             want_dml_calls = [MockDmlHandlerCall::Write { namespace, write_input, .. }] => {
                 assert_eq!(namespace, NAMESPACE_NAME);
                 let table = write_input.get("whydo").expect("table not in write");
@@ -965,10 +989,13 @@ mod tests {
             query_string = "?org=bananas&bucket=test",
             body = "whydo InputPower=300i,InputPower=4.2".as_bytes(),
             dml_handler = [],
-            want_result = Err(Error::ParseLineProtocol(mutable_batch_lp::Error::Write {
-                source: LineWriteError::ConflictedFieldTypes { .. },
-                ..
-            })),
+            want_result = [Err(Error::ParseLineProtocol(mutable_batch_lp::Error::PerLine { lines })) if matches!(
+                &lines[..],
+                [mutable_batch_lp::LineError::Write {
+                    source: LineWriteError::ConflictedFieldTypes { .. },
+                    ..
+                }],
+            )],
             want_dml_calls = []
         );
 
@@ -977,10 +1004,13 @@ mod tests {
             query_string = "?org=bananas&bucket=test",
             body = "whydo,InputPower=300i,InputPower=300i field=42i".as_bytes(),
             dml_handler = [],
-            want_result = Err(Error::ParseLineProtocol(mutable_batch_lp::Error::Write {
-                source: LineWriteError::DuplicateTag { .. },
-                ..
-            })),
+            want_result = [Err(Error::ParseLineProtocol(mutable_batch_lp::Error::PerLine { lines })) if matches!(
+                &lines[..],
+                [mutable_batch_lp::LineError::Write {
+                    source: LineWriteError::DuplicateTag { .. },
+                    ..
+                }],
+            )],
             want_dml_calls = []
         );
 
@@ -989,10 +1019,13 @@ mod tests {
             query_string = "?org=bananas&bucket=test",
             body = "whydo,InputPower=300i,InputPower=42i field=42i".as_bytes(),
             dml_handler = [],
-            want_result = Err(Error::ParseLineProtocol(mutable_batch_lp::Error::Write {
-                source: LineWriteError::DuplicateTag { .. },
-                ..
-            })),
+            want_result = [Err(Error::ParseLineProtocol(mutable_batch_lp::Error::PerLine { lines })) if matches!(
+                &lines[..],
+                [mutable_batch_lp::LineError::Write {
+                    source: LineWriteError::DuplicateTag { .. },
+                    ..
+                }]
+            )],
             want_dml_calls = []
         );
 
@@ -1001,10 +1034,13 @@ mod tests {
             query_string = "?org=bananas&bucket=test",
             body = "whydo,InputPower=300i,InputPower=4.2 field=42i".as_bytes(),
             dml_handler = [],
-            want_result = Err(Error::ParseLineProtocol(mutable_batch_lp::Error::Write {
-                source: LineWriteError::DuplicateTag { .. },
-                ..
-            })),
+            want_result = [Err(Error::ParseLineProtocol(mutable_batch_lp::Error::PerLine {lines })) if matches!(
+                &lines[..],
+                [mutable_batch_lp::LineError::Write {
+                    source: LineWriteError::DuplicateTag { .. },
+                    ..
+                }],
+            )],
             want_dml_calls = []
         );
 
@@ -1013,12 +1049,15 @@ mod tests {
             query_string = "?org=bananas&bucket=test",
             body = "whydo,InputPower=300i InputPower=300i".as_bytes(),
             dml_handler = [],
-            want_result = Err(Error::ParseLineProtocol(mutable_batch_lp::Error::Write {
-                source: LineWriteError::MutableBatch {
-                    source: mutable_batch::writer::Error::TypeMismatch { .. }
-                },
-                ..
-            })),
+            want_result = [Err(Error::ParseLineProtocol(mutable_batch_lp::Error::PerLine {lines})) if matches!(
+                &lines[..],
+                [mutable_batch_lp::LineError::Write {
+                    source: LineWriteError::MutableBatch {
+                        source: mutable_batch::writer::Error::TypeMismatch { .. }
+                    },
+                    ..
+                }]
+            )],
             want_dml_calls = []
         );
 
@@ -1027,12 +1066,15 @@ mod tests {
             query_string = "?org=bananas&bucket=test",
             body = "whydo,InputPower=300i InputPower=30.0".as_bytes(),
             dml_handler = [],
-            want_result = Err(Error::ParseLineProtocol(mutable_batch_lp::Error::Write {
-                source: LineWriteError::MutableBatch {
-                    source: mutable_batch::writer::Error::TypeMismatch { .. }
-                },
-                ..
-            })),
+            want_result = [Err(Error::ParseLineProtocol(mutable_batch_lp::Error::PerLine {lines})) if matches!(
+                &lines[..],
+                [mutable_batch_lp::LineError::Write {
+                    source: LineWriteError::MutableBatch {
+                        source: mutable_batch::writer::Error::TypeMismatch { .. }
+                    },
+                    ..
+                }]
+            )],
             want_dml_calls = []
         );
     }
@@ -1372,36 +1414,43 @@ mod tests {
         ),
 
         (
-            ParseLineProtocol(mutable_batch_lp::Error::LineProtocol {
-                source: influxdb_line_protocol::Error::FieldSetMissing,
-                line: 42,
+            ParseLineProtocol(mutable_batch_lp::Error::PerLine {
+                lines: vec![mutable_batch_lp::LineError::LineProtocol {
+                    source: influxdb_line_protocol::Error::FieldSetMissing,
+                    line: 42,
+                }]
             }),
             "failed to parse line protocol: \
-            error parsing line 42 (1-based): No fields were provided",
+            errors encountered on line(s):\
+            \nerror parsing line 42 (1-based): No fields were provided",
         ),
 
         (
-            ParseLineProtocol(mutable_batch_lp::Error::Write {
-                source: mutable_batch_lp::LineWriteError::DuplicateTag {
-                    name: "host".into(),
-                },
-                line: 42,
+            ParseLineProtocol(mutable_batch_lp::Error::PerLine {
+                lines: vec![mutable_batch_lp::LineError::Write {
+                    source: mutable_batch_lp::LineWriteError::DuplicateTag {
+                        name: "host".into(),
+                    },
+                    line: 42,
+                }]
             }),
             "failed to parse line protocol: \
-            error writing line 42: \
-            the tag 'host' is specified more than once with conflicting values",
+            errors encountered on line(s):\
+            \nerror writing line 42 (1-based): the tag 'host' is specified more than once with conflicting values",
         ),
 
         (
-            ParseLineProtocol(mutable_batch_lp::Error::Write {
-                source: mutable_batch_lp::LineWriteError::ConflictedFieldTypes {
-                    name: "bananas".into(),
-                },
-                line: 42,
+            ParseLineProtocol(mutable_batch_lp::Error::PerLine {
+                lines: vec![mutable_batch_lp::LineError::Write {
+                    source: mutable_batch_lp::LineWriteError::ConflictedFieldTypes {
+                        name: "bananas".into(),
+                    },
+                    line: 42,
+                }]
             }),
             "failed to parse line protocol: \
-            error writing line 42: \
-            the field 'bananas' is specified more than once with conflicting types",
+            errors encountered on line(s):\
+            \nerror writing line 42 (1-based): the field 'bananas' is specified more than once with conflicting types",
         ),
 
         (
@@ -1410,8 +1459,35 @@ mod tests {
         ),
 
         (
-            ParseLineProtocol(mutable_batch_lp::Error::TimestampOverflow),
-            "failed to parse line protocol: timestamp overflows i64",
+            ParseLineProtocol(mutable_batch_lp::Error::PerLine {
+                lines: vec![mutable_batch_lp::LineError::TimestampOverflow { line: 42 }]
+            }),
+            "failed to parse line protocol: \
+            errors encountered on line(s):\
+            \ntimestamp overflows i64 on line 42 (1-based)",
+        ),
+
+        (
+            ParseLineProtocol(mutable_batch_lp::Error::PerLine {
+                lines: vec![
+                    mutable_batch_lp::LineError::LineProtocol {
+                        source: influxdb_line_protocol::Error::FieldSetMissing,
+                        line: 42,
+                    },
+                    mutable_batch_lp::LineError::TimestampOverflow { line: 43 },
+                    mutable_batch_lp::LineError::Write {
+                        source: mutable_batch_lp::LineWriteError::ConflictedFieldTypes {
+                            name: "bananas".into(),
+                        },
+                        line: 44,
+                    },
+                ]
+            }),
+            "failed to parse line protocol: \
+            errors encountered on line(s):\
+            \nerror parsing line 42 (1-based): No fields were provided\
+            \ntimestamp overflows i64 on line 43 (1-based)\
+            \nerror writing line 44 (1-based): the field 'bananas' is specified more than once with conflicting types",
         ),
 
         (
