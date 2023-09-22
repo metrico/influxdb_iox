@@ -181,7 +181,7 @@ where
     // defined in the sort key are present in the map. If the values were
     // fetched in reverse order, a race exists where the sort key could be
     // updated to include a column that does not exist in the column map.
-    let column_map = fetch_column_map(ctx, worker_state, sort_key.as_ref()).await?;
+    let column_map = fetch_column_map(ctx, worker_state, sort_key.as_ref()).await;
 
     let compacted = compact(ctx, worker_state, sort_key.as_ref()).await;
     let (sort_key_update, parquet_table_data) =
@@ -336,7 +336,7 @@ async fn fetch_column_map<O>(
     // The purpose to put the sort_key as a param here is to make sure the caller has already loaded the sort key
     // and the same sort_key is returned
     sort_key: Option<&SortKey>,
-) -> Result<ColumnsByName, PersistError>
+) -> ColumnsByName
 where
     O: Send + Sync,
 {
@@ -363,7 +363,7 @@ where
         }
     }
 
-    Ok(column_map)
+    column_map
 }
 
 /// Update the sort key value stored in the catalog for this [`Context`].
