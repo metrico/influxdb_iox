@@ -279,4 +279,25 @@ mod tests {
             "service limit values must fit in a 32-bit signed integer (`i32`)",
         );
     }
+
+    fn extract_sqlite_argument_i32(
+        argument_value: &sqlx::sqlite::SqliteArgumentValue,
+    ) -> i32 {
+        match argument_value {
+            sqlx::sqlite::SqliteArgumentValue::Int(i) => *i,
+            other => panic!("Expected Int values, got: {other:?}"),
+        }
+    }
+
+    #[test]
+    fn max_tables_encode() {
+        let max_tables = MaxTables::try_from(10).unwrap();
+        let mut buf = Default::default();
+        let _ = <MaxTables as sqlx::Encode<'_, sqlx::Sqlite>>::encode_by_ref(
+            &max_tables, &mut buf,
+        );
+
+        let encoded_max_tables: Vec<_> = buf.iter().map(extract_sqlite_argument_i32).collect();
+        assert_eq!(encoded_max_tables, &[max_tables.get_i32()]);
+    }
 }
