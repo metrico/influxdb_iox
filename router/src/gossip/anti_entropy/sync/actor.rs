@@ -13,7 +13,8 @@ use tokio::sync::mpsc;
 use crate::gossip::anti_entropy::mst::handle::AntiEntropyHandle;
 
 use super::{
-    consistency_prober::ConsistencyProber, rpc_worker::RpcWorker, traits::SyncRpcConnector,
+    consistency_prober::ConsistencyProber, rpc_worker::task_set::MergeTaskSet,
+    traits::SyncRpcConnector,
 };
 
 /// How often to perform a consistency check with random peers.
@@ -120,19 +121,6 @@ const SYNC_ROUND_INTERVAL: Duration = Duration::from_secs(5);
 /// [`NamespaceCache`]: crate::namespace_cache::NamespaceCache
 #[derive(Debug)]
 pub struct ConvergenceActor<T, U, C> {
-    /// An abstract connector returning a [`SyncRpcClient`] instance for a given
-    /// peer RPC address.
-    ///
-    /// [`SyncRpcClient`]: super::traits::SyncRpcClient
-    connector: T,
-
-    /// An abstract [`SchemaEventHandler`] responsible for processing the
-    /// incoming stream of gossip events, merging their payloads into the local
-    /// [`NamespaceCache`].
-    ///
-    /// [`NamespaceCache`]: crate::namespace_cache::NamespaceCache
-    schema_event_handler: U,
-
     /// A handle to the Merkle Search Tree state actor.
     mst: AntiEntropyHandle,
 
@@ -148,6 +136,8 @@ pub struct ConvergenceActor<T, U, C> {
     /// An incoming stream of consistency probes from other peers, containing
     /// the sender's [`SocketAddr`].
     probe_rx: mpsc::Receiver<(ConsistencyProbe, Identity, SocketAddr)>,
+
+    merge_task_set: MergeTaskSet<T, U>,
 }
 
 impl<T, U, C> ConvergenceActor<T, U, C>
@@ -168,8 +158,7 @@ where
         probe_rx: mpsc::Receiver<(ConsistencyProbe, Identity, SocketAddr)>,
     ) -> Self {
         Self {
-            connector,
-            schema_event_handler,
+            merge_task_set: MergeTaskSet::new(connector, schema_event_handler, mst.clone()),
             mst,
             grpc_bind_port,
             prober,
@@ -247,43 +236,20 @@ where
         debug!(%peer_identity, %peer_addr, ?rpc_addr, "derived peer rpc address");
 
         // Spawn a task the drive the cache synchronisation.
-        tokio::spawn(start_sync(
-            self.connector.clone(),
-            rpc_addr,
-            peer_identity,
-            self.mst.clone(),
-            self.schema_event_handler.clone(),
-        ));
-    }
-}
-
-/// Connect to the given `peer_addr` and being a sync round.
-async fn start_sync<T, U>(
-    connector: T,
-    peer_addr: SocketAddr,
-    peer_identity: Identity,
-    mst: AntiEntropyHandle,
-    merge_delegate: U,
-) where
-    T: SyncRpcConnector,
-    U: SchemaEventHandler,
-{
-    let client = match connector.connect(peer_addr).await {
-        Ok(v) => v,
-        Err(error) => {
-            warn!(
-                %error,
-                %peer_addr,
+        match self
+            .merge_task_set
+            .start_sync(rpc_addr, peer_identity.clone())
+        {
+            Ok(()) => {}
+            Err(e) => debug!(
+                error=%e,
                 %peer_identity,
-                "failed to connect to sync rpc peer"
-            );
-            return;
+                %peer_addr,
+                ?rpc_addr,
+                "sync not started"
+            ),
         }
-    };
-
-    RpcWorker::new(client, merge_delegate, mst, peer_addr, peer_identity)
-        .run()
-        .await
+    }
 }
 
 #[cfg(test)]

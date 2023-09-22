@@ -6,6 +6,7 @@ use async_trait::async_trait;
 use data_types::NamespaceName;
 use generated_types::influxdata::iox::gossip::v1::NamespaceSchemaEntry;
 use parking_lot::Mutex;
+use tokio::sync::mpsc;
 
 use crate::gossip::anti_entropy::mst::actor::MerkleSnapshot;
 
@@ -62,6 +63,9 @@ pub enum MockCalls {
 pub struct MockSyncRpcClient {
     calls: Mutex<Vec<MockCalls>>,
 
+    /// An optional [`MockCalls`] notification blocking sent within each call.
+    notify: Option<mpsc::Sender<MockCalls>>,
+
     ret_find_inconsistent_ranges:
         Mutex<VecDeque<Result<Vec<RangeInclusive<NamespaceName<'static>>>, BoxedError>>>,
 
@@ -85,6 +89,11 @@ impl MockSyncRpcClient {
         self
     }
 
+    pub fn with_notify(mut self, notify: mpsc::Sender<MockCalls>) -> Self {
+        self.notify = Some(notify);
+        self
+    }
+
     pub fn calls(&self) -> Vec<MockCalls> {
         self.calls.lock().clone()
     }
@@ -96,6 +105,13 @@ impl SyncRpcClient for Arc<MockSyncRpcClient> {
         &mut self,
         pages: MerkleSnapshot,
     ) -> Result<Vec<RangeInclusive<NamespaceName<'static>>>, BoxedError> {
+        // Send on the notification channel, if any.
+        if let Some(n) = &self.notify {
+            n.send(MockCalls::FindInconsistentRanges(pages.clone()))
+                .await
+                .unwrap();
+        }
+
         self.calls
             .lock()
             .push(MockCalls::FindInconsistentRanges(pages));
@@ -110,6 +126,13 @@ impl SyncRpcClient for Arc<MockSyncRpcClient> {
         &mut self,
         range: RangeInclusive<NamespaceName<'static>>,
     ) -> Result<Vec<NamespaceSchemaEntry>, BoxedError> {
+        // Send on the notification channel, if any.
+        if let Some(n) = &self.notify {
+            n.send(MockCalls::GetSchemasInRange(range.clone()))
+                .await
+                .unwrap();
+        }
+
         self.calls.lock().push(MockCalls::GetSchemasInRange(range));
 
         self.ret_get_schemas_in_range
