@@ -22,15 +22,14 @@ use datafusion::{
     physical_expr::create_physical_expr,
     physical_plan::{
         expressions::{col as physical_col, PhysicalSortExpr},
-        ColumnStatistics, ExecutionPlan, PhysicalExpr, Statistics,
+        ExecutionPlan, PhysicalExpr,
     },
     prelude::{Column, Expr},
-    scalar::ScalarValue,
 };
 
 use itertools::Itertools;
 use observability_deps::tracing::trace;
-use schema::{sort::SortKey, InfluxColumnType, Schema, TIME_COLUMN_NAME};
+use schema::{sort::SortKey, TIME_COLUMN_NAME};
 use snafu::{ensure, OptionExt, ResultExt, Snafu};
 
 #[derive(Debug, Snafu)]
@@ -186,138 +185,4 @@ pub fn compute_timenanosecond_min_max_for_one_record_batch(
     };
 
     Ok((min, max))
-}
-
-/// Create basic table summary.
-///
-/// This contains:
-/// - correct column types
-/// - [total count](Statistics::num_rows)
-/// - [min](ColumnStatistics::min_value)/[max](ColumnStatistics::max_value) for the timestamp column
-pub fn create_basic_summary(
-    row_count: u64,
-    schema: &Schema,
-    ts_min_max: Option<TimestampMinMax>,
-) -> Statistics {
-    let mut columns = Vec::with_capacity(schema.len());
-
-    for (t, _field) in schema.iter() {
-        let stats = match t {
-            InfluxColumnType::Timestamp => ColumnStatistics {
-                null_count: Some(0),
-                max_value: Some(ScalarValue::TimestampNanosecond(
-                    ts_min_max.map(|v| v.max),
-                    None,
-                )),
-                min_value: Some(ScalarValue::TimestampNanosecond(
-                    ts_min_max.map(|v| v.min),
-                    None,
-                )),
-                distinct_count: None,
-            },
-            _ => ColumnStatistics::default(),
-        };
-        columns.push(stats)
-    }
-
-    Statistics {
-        num_rows: Some(row_count as usize),
-        total_byte_size: None,
-        column_statistics: Some(columns),
-        is_exact: true,
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use datafusion::scalar::ScalarValue;
-    use schema::{builder::SchemaBuilder, InfluxFieldType};
-
-    use super::*;
-
-    #[test]
-    fn test_create_basic_summary_no_columns_no_rows() {
-        let schema = SchemaBuilder::new().build().unwrap();
-        let row_count = 0;
-
-        let actual = create_basic_summary(row_count, &schema, None);
-        let expected = Statistics {
-            num_rows: Some(row_count as usize),
-            total_byte_size: None,
-            column_statistics: Some(vec![]),
-            is_exact: true,
-        };
-        assert_eq!(actual, expected);
-    }
-
-    #[test]
-    fn test_create_basic_summary_no_rows() {
-        let schema = full_schema();
-        let row_count = 0;
-        let ts_min_max = TimestampMinMax { min: 10, max: 20 };
-
-        let actual = create_basic_summary(row_count, &schema, Some(ts_min_max));
-        let expected = Statistics {
-            num_rows: Some(0),
-            total_byte_size: None,
-            column_statistics: Some(vec![
-                ColumnStatistics::default(),
-                ColumnStatistics::default(),
-                ColumnStatistics::default(),
-                ColumnStatistics::default(),
-                ColumnStatistics::default(),
-                ColumnStatistics::default(),
-                ColumnStatistics {
-                    null_count: Some(0),
-                    min_value: Some(ScalarValue::TimestampNanosecond(Some(10), None)),
-                    max_value: Some(ScalarValue::TimestampNanosecond(Some(20), None)),
-                    distinct_count: None,
-                },
-            ]),
-            is_exact: true,
-        };
-        assert_eq!(actual, expected);
-    }
-
-    #[test]
-    fn test_create_basic_summary() {
-        let schema = full_schema();
-        let row_count = 3;
-        let ts_min_max = TimestampMinMax { min: 42, max: 42 };
-
-        let actual = create_basic_summary(row_count, &schema, Some(ts_min_max));
-        let expected = Statistics {
-            num_rows: Some(3),
-            total_byte_size: None,
-            column_statistics: Some(vec![
-                ColumnStatistics::default(),
-                ColumnStatistics::default(),
-                ColumnStatistics::default(),
-                ColumnStatistics::default(),
-                ColumnStatistics::default(),
-                ColumnStatistics::default(),
-                ColumnStatistics {
-                    null_count: Some(0),
-                    min_value: Some(ScalarValue::TimestampNanosecond(Some(42), None)),
-                    max_value: Some(ScalarValue::TimestampNanosecond(Some(42), None)),
-                    distinct_count: None,
-                },
-            ]),
-            is_exact: true,
-        };
-        assert_eq!(actual, expected);
-    }
-
-    fn full_schema() -> Schema {
-        SchemaBuilder::new()
-            .tag("tag")
-            .influx_field("field_bool", InfluxFieldType::Boolean)
-            .influx_field("field_float", InfluxFieldType::Float)
-            .influx_field("field_integer", InfluxFieldType::Integer)
-            .influx_field("field_string", InfluxFieldType::String)
-            .influx_field("field_uinteger", InfluxFieldType::UInteger)
-            .timestamp()
-            .build()
-            .unwrap()
-    }
 }

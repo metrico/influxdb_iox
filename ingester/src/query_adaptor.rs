@@ -8,8 +8,8 @@ use arrow_util::util::ensure_schema;
 use data_types::{ChunkId, ChunkOrder, TimestampMinMax, TransitionPartitionId};
 use datafusion::physical_plan::Statistics;
 use iox_query::{
-    util::{compute_timenanosecond_min_max, create_basic_summary},
-    QueryChunk, QueryChunkData,
+    chunk_statistics::create_chunk_statistics, util::compute_timenanosecond_min_max, QueryChunk,
+    QueryChunkData,
 };
 use once_cell::sync::OnceCell;
 use schema::{merge::merge_record_batch_schemas, sort::SortKey, Schema};
@@ -87,8 +87,8 @@ impl QueryAdaptor {
     }
 
     /// Number of rows, useful for building stats
-    pub(crate) fn num_rows(&self) -> u64 {
-        self.data.iter().map(|b| b.num_rows()).sum::<usize>() as u64
+    pub(crate) fn num_rows(&self) -> usize {
+        self.data.iter().map(|b| b.num_rows()).sum::<usize>()
     }
 
     /// The (inclusive) time range covered by all data in this [`QueryAdaptor`],
@@ -104,10 +104,11 @@ impl QueryChunk for QueryAdaptor {
         Arc::clone(self.stats.get_or_init(|| {
             let ts_min_max = self.ts_min_max();
 
-            Arc::new(create_basic_summary(
-                self.num_rows(),
+            Arc::new(create_chunk_statistics(
+                Some(self.num_rows()),
                 self.schema(),
                 ts_min_max,
+                None,
             ))
         }))
     }

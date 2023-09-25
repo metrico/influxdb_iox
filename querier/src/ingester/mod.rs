@@ -131,12 +131,12 @@ impl IngesterPartition {
                 .batches
                 .iter()
                 .map(|batch| batch.num_rows())
-                .sum::<usize>() as u64;
+                .sum::<usize>();
             let stats = Arc::new(create_chunk_statistics(
-                row_count,
+                Some(row_count),
                 &chunk.schema,
                 Some(ts_min_max),
-                partition_column_ranges,
+                Some(partition_column_ranges),
             ));
             chunk.stats = Some(stats);
         }

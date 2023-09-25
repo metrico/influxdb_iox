@@ -25,10 +25,10 @@ pub type ColumnRanges = Arc<HashMap<Arc<str>, ColumnRange>>;
 
 /// Create chunk [statistics](Statistics).
 pub fn create_chunk_statistics(
-    row_count: u64,
+    row_count: Option<usize>,
     schema: &Schema,
     ts_min_max: Option<TimestampMinMax>,
-    ranges: &ColumnRanges,
+    ranges: Option<&ColumnRanges>,
 ) -> Statistics {
     let mut columns = Vec::with_capacity(schema.len());
 
@@ -42,7 +42,8 @@ pub fn create_chunk_statistics(
                         Some(ScalarValue::TimestampNanosecond(Some(ts_min_max.max), None)),
                     ),
                     None => {
-                        let range = ranges.get::<str>(field.name().as_ref());
+                        let range =
+                            ranges.and_then(|ranges| ranges.get::<str>(field.name().as_ref()));
                         (
                             range.map(|r| r.min_value.as_ref().clone()),
                             range.map(|r| r.max_value.as_ref().clone()),
@@ -58,7 +59,7 @@ pub fn create_chunk_statistics(
                 }
             }
             _ => ranges
-                .get::<str>(field.name().as_ref())
+                .and_then(|ranges| ranges.get::<str>(field.name().as_ref()))
                 .map(|range| ColumnStatistics {
                     null_count: None,
                     max_value: Some(range.max_value.as_ref().clone()),
@@ -71,7 +72,7 @@ pub fn create_chunk_statistics(
     }
 
     Statistics {
-        num_rows: Some(row_count as usize),
+        num_rows: row_count,
         total_byte_size: None,
         column_statistics: Some(columns),
         is_exact: true,
@@ -89,9 +90,23 @@ mod tests {
         let schema = SchemaBuilder::new().build().unwrap();
         let row_count = 0;
 
-        let actual = create_chunk_statistics(row_count, &schema, None, &Default::default());
+        let actual = create_chunk_statistics(Some(row_count), &schema, None, None);
         let expected = Statistics {
-            num_rows: Some(row_count as usize),
+            num_rows: Some(row_count),
+            total_byte_size: None,
+            column_statistics: Some(vec![]),
+            is_exact: true,
+        };
+        assert_eq!(actual, expected);
+    }
+
+    #[test]
+    fn test_create_chunk_statistics_no_columns_null_rows() {
+        let schema = SchemaBuilder::new().build().unwrap();
+
+        let actual = create_chunk_statistics(None, &schema, None, None);
+        let expected = Statistics {
+            num_rows: None,
             total_byte_size: None,
             column_statistics: Some(vec![]),
             is_exact: true,
@@ -127,10 +142,11 @@ mod tests {
             ),
         ]));
 
-        for row_count in [0u64, 1337u64] {
-            let actual = create_chunk_statistics(row_count, &schema, Some(ts_min_max), &ranges);
+        for row_count in [0usize, 1337usize] {
+            let actual =
+                create_chunk_statistics(Some(row_count), &schema, Some(ts_min_max), Some(&ranges));
             let expected = Statistics {
-                num_rows: Some(row_count as usize),
+                num_rows: Some(row_count),
                 total_byte_size: None,
                 column_statistics: Some(vec![
                     ColumnStatistics {
@@ -166,7 +182,7 @@ mod tests {
     #[test]
     fn test_create_chunk_statistics_ts_min_max_overrides_column_range() {
         let schema = full_schema();
-        let row_count = 42u64;
+        let row_count = 42usize;
         let ts_min_max = TimestampMinMax { min: 10, max: 20 };
         let ranges = Arc::new(HashMap::from([(
             Arc::from(TIME_COLUMN_NAME),
@@ -176,9 +192,10 @@ mod tests {
             },
         )]));
 
-        let actual = create_chunk_statistics(row_count, &schema, Some(ts_min_max), &ranges);
+        let actual =
+            create_chunk_statistics(Some(row_count), &schema, Some(ts_min_max), Some(&ranges));
         let expected = Statistics {
-            num_rows: Some(row_count as usize),
+            num_rows: Some(row_count),
             total_byte_size: None,
             column_statistics: Some(vec![
                 ColumnStatistics::default(),
@@ -203,7 +220,7 @@ mod tests {
     #[test]
     fn test_create_chunk_statistics_ts_min_max_none_so_fallback_to_column_range() {
         let schema = full_schema();
-        let row_count = 42u64;
+        let row_count = 42usize;
         let ranges = Arc::new(HashMap::from([(
             Arc::from(TIME_COLUMN_NAME),
             ColumnRange {
@@ -212,9 +229,9 @@ mod tests {
             },
         )]));
 
-        let actual = create_chunk_statistics(row_count, &schema, None, &ranges);
+        let actual = create_chunk_statistics(Some(row_count), &schema, None, Some(&ranges));
         let expected = Statistics {
-            num_rows: Some(row_count as usize),
+            num_rows: Some(row_count),
             total_byte_size: None,
             column_statistics: Some(vec![
                 ColumnStatistics::default(),

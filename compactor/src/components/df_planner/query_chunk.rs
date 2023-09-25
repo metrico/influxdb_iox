@@ -3,7 +3,7 @@ use std::{any::Any, sync::Arc};
 
 use data_types::{ChunkId, ChunkOrder, TransitionPartitionId};
 use datafusion::physical_plan::Statistics;
-use iox_query::{util::create_basic_summary, QueryChunk, QueryChunkData};
+use iox_query::{chunk_statistics::create_chunk_statistics, QueryChunk, QueryChunkData};
 use observability_deps::tracing::debug;
 use parquet_file::{chunk::ParquetChunk, storage::ParquetStorage};
 use schema::{merge::SchemaMerger, sort::SortKey, Schema};
@@ -30,10 +30,11 @@ impl QueryableParquetChunk {
         sort_key: Option<SortKey>,
         order: ChunkOrder,
     ) -> Self {
-        let stats = Arc::new(create_basic_summary(
-            data.rows() as u64,
+        let stats = Arc::new(create_chunk_statistics(
+            Some(data.rows()),
             data.schema(),
             Some(data.timestamp_min_max()),
+            None,
         ));
         Self {
             data,

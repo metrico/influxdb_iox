@@ -337,7 +337,7 @@ impl PartitionData {
         // the row count reported by the rows() method.
         //
         // The row count is never affected by projection.
-        debug_assert_eq!(q.num_rows(), self.rows() as u64);
+        debug_assert_eq!(q.num_rows(), self.rows());
 
         // Invariant: the timestamp min/max MUST match the values reported by
         // timestamp_stats(), iff the projection contains the "time" column.

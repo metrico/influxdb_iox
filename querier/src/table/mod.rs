@@ -473,7 +473,8 @@ impl QuerierTable {
                 let ts_min_max = (!p.column_ranges.contains_key(TIME_COLUMN_NAME))
                     .then(|| TimestampMinMax::new(MIN_NANO_TIME, MAX_NANO_TIME));
 
-                let stats = create_chunk_statistics(1, schema, ts_min_max, &p.column_ranges);
+                let stats =
+                    create_chunk_statistics(None, schema, ts_min_max, Some(&p.column_ranges));
                 (Arc::new(stats), Arc::clone(schema.inner()))
             })
             .collect::<Vec<_>>();
