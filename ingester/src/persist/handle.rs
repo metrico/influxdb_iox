@@ -506,7 +506,7 @@ mod tests {
         dml_sink::DmlSink,
         ingest_state::IngestStateError,
         persist::{
-            column_map_resolver::CatalogMapResolver,
+            column_map_resolver::CatalogColumnMapResolver,
             completion_observer::{mock::MockCompletionObserver, NopObserver},
             tests::{assert_metric_counter, assert_metric_gauge},
         },
@@ -565,7 +565,7 @@ mod tests {
             storage,
             Arc::clone(&catalog),
             Arc::new(MockCompletionObserver::default()),
-            CatalogMapResolver::new(catalog),
+            CatalogColumnMapResolver::new(catalog),
             &metrics,
         );
 
@@ -642,7 +642,7 @@ mod tests {
             storage,
             Arc::clone(&catalog),
             Arc::new(MockCompletionObserver::default()),
-            CatalogMapResolver::new(catalog),
+            CatalogColumnMapResolver::new(catalog),
             &metrics,
         );
 
@@ -731,7 +731,7 @@ mod tests {
             storage,
             Arc::clone(&catalog),
             Arc::new(MockCompletionObserver::default()),
-            CatalogMapResolver::new(catalog),
+            CatalogColumnMapResolver::new(catalog),
             &metrics,
         );
 
@@ -824,7 +824,7 @@ mod tests {
             storage,
             Arc::clone(&catalog),
             Arc::new(MockCompletionObserver::default()),
-            CatalogMapResolver::new(catalog),
+            CatalogColumnMapResolver::new(catalog),
             &metrics,
         );
 
@@ -911,7 +911,7 @@ mod tests {
             storage,
             Arc::clone(&catalog),
             NopObserver,
-            CatalogMapResolver::new(catalog),
+            CatalogColumnMapResolver::new(catalog),
             &metrics,
         );
         assert!(ingest_state.read().is_ok());
@@ -992,7 +992,7 @@ mod tests {
             storage,
             Arc::clone(&catalog),
             NopObserver,
-            CatalogMapResolver::new(catalog),
+            CatalogColumnMapResolver::new(catalog),
             &metrics,
         );
 

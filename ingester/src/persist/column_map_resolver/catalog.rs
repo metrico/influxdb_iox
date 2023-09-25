@@ -9,18 +9,18 @@ use schema::sort::SortKey;
 use super::ColumnMapResolver;
 
 #[derive(Debug)]
-pub(crate) struct CatalogMapResolver {
+pub(crate) struct CatalogColumnMapResolver {
     catalog: Arc<dyn Catalog>,
 }
 
-impl CatalogMapResolver {
+impl CatalogColumnMapResolver {
     pub(crate) fn new(catalog: Arc<dyn Catalog>) -> Self {
         Self { catalog }
     }
 }
 
 #[async_trait]
-impl ColumnMapResolver for CatalogMapResolver {
+impl ColumnMapResolver for CatalogColumnMapResolver {
     async fn load_verified_column_map(
         &self,
         table_id: TableId,
@@ -82,7 +82,7 @@ mod tests {
         )
         .await;
 
-        let resolver = CatalogMapResolver::new(catalog);
+        let resolver = CatalogColumnMapResolver::new(catalog);
 
         let got_map = resolver
             .load_verified_column_map(table_id, Some(&SortKey::from_columns(columns)))
@@ -120,7 +120,7 @@ mod tests {
         )
         .await;
 
-        let resolver = CatalogMapResolver::new(catalog);
+        let resolver = CatalogColumnMapResolver::new(catalog);
 
         // Load with a on
         resolver

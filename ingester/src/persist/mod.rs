@@ -46,7 +46,7 @@ mod tests {
         ingest_state::IngestState,
         persist::handle::PersistHandle,
         persist::{
-            column_map_resolver::CatalogMapResolver,
+            column_map_resolver::CatalogColumnMapResolver,
             completion_observer::mock::MockCompletionObserver, queue::PersistQueue,
         },
         test_util::{
@@ -176,7 +176,7 @@ mod tests {
         let storage = ParquetStorage::new(Arc::clone(&object_storage), StorageId::from("iox"));
         let metrics = Arc::new(metric::Registry::default());
         let catalog: Arc<dyn Catalog> = Arc::new(MemCatalog::new(Arc::clone(&metrics)));
-        let column_map_resolver = CatalogMapResolver::new(Arc::clone(&catalog));
+        let column_map_resolver = CatalogColumnMapResolver::new(Arc::clone(&catalog));
         let ingest_state = Arc::new(IngestState::default());
         let completion_observer = Arc::new(MockCompletionObserver::default());
 
@@ -339,7 +339,7 @@ mod tests {
         let storage = ParquetStorage::new(Arc::clone(&object_storage), StorageId::from("iox"));
         let metrics = Arc::new(metric::Registry::default());
         let catalog: Arc<dyn Catalog> = Arc::new(MemCatalog::new(Arc::clone(&metrics)));
-        let column_map_resolver = CatalogMapResolver::new(Arc::clone(&catalog));
+        let column_map_resolver = CatalogColumnMapResolver::new(Arc::clone(&catalog));
         let ingest_state = Arc::new(IngestState::default());
         let completion_observer = Arc::new(MockCompletionObserver::default());
 
