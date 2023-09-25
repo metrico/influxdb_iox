@@ -20,6 +20,7 @@ use workspace_hack as _;
 
 use std::{
     fmt::{Debug, Display},
+    net::SocketAddr,
     sync::Arc,
 };
 
@@ -62,7 +63,7 @@ use router::{
         schema_change_observer::SchemaChangeObserver,
     },
     namespace_cache::{
-        metrics::InstrumentedCache, MaybeLayer, MemoryNamespaceCache, NamespaceCache,
+        metrics::InstrumentedCache, CacheMissErr, MaybeLayer, MemoryNamespaceCache, NamespaceCache,
         ReadThroughCache, ShardedCache,
     },
     namespace_resolver::{
@@ -294,73 +295,16 @@ pub async fn create_router_server_type(
     let ns_cache = MerkleTree::new(ns_cache, mst);
 
     // Optionally initialise the schema gossip subsystem.
-    //
-    // The schema gossip primitives sit in the stack of NamespaceCache layers:
-    //
-    //                   ┌───────────────────────────┐
-    //                   │     ReadThroughCache      │
-    //                   └───────────────────────────┘
-    //                                 │
-    //                                 ▼
-    //                   ┌───────────────────────────┐
-    //                   │   SchemaChangeObserver    │◀ ─ ─ ─ ─
-    //                   └───────────────────────────┘         │
-    //                                 │                     peers
-    //                                 ▼                       ▲
-    //                   ┌───────────────────────────┐         │
-    //                   │   Incoming Gossip Apply   │─ ─ ─ ─ ─
-    //                   └───────────────────────────┘
-    //                                 │
-    //                                 ▼
-    //                   ┌───────────────────────────┐
-    //                   │      Underlying Impl      │
-    //                   └───────────────────────────┘
-    //
-    //
-    //   - SchemaChangeObserver: sends outgoing gossip schema diffs
-    //   - NamespaceSchemaGossip: applies incoming gossip diffs locally
-    //
-    // The SchemaChangeObserver is responsible for gossiping any diffs that pass
-    // through it - it MUST sit above the NamespaceSchemaGossip layer
-    // responsible for applying gossip diffs from peers (otherwise the local
-    // node will receive a gossip diff and apply it, which passes through the
-    // diff layer, and causes the local node to gossip it again).
-    //
-    // These gossip layers sit below the catalog lookups, so that they do not
-    // drive catalog queries themselves (defeating the point of the gossiping!).
-    // If a local node has to perform a catalog lookup, it gossips the result to
-    // other peers, helping converge them.
     let ns_cache = match gossip_config.gossip_bind_address {
-        Some(bind_addr) => {
-            let ns_cache = Arc::new(ns_cache);
-
-            // Initialise the NamespaceSchemaGossip responsible for applying the
-            // incoming gossip schema diffs.
-            let gossip_reader = Arc::new(NamespaceSchemaGossip::new(Arc::clone(&ns_cache)));
-            // Adapt it to the gossip subsystem via the "Dispatcher" trait
-            let dispatcher = SchemaRx::new(Arc::clone(&gossip_reader), 100);
-
-            // Initialise the gossip subsystem, delegating message processing to
-            // the above dispatcher.
-            let handle = gossip::Builder::<_, Topic>::new(
+        Some(bind_addr) => MaybeLayer::With(
+            init_gossip(
+                ns_cache,
+                *bind_addr,
                 gossip_config.seed_list.clone(),
-                dispatcher,
-                Arc::clone(&metrics),
+                &metrics,
             )
-            // Configure the router to listen to SchemaChange messages.
-            .with_topic_filter(TopicInterests::default().with_topic(Topic::SchemaChanges))
-            .bind(*bind_addr)
-            .await
-            .map_err(Error::GossipBind)?;
-
-            // Initialise the local diff observer responsible for gossiping any
-            // local changes made to the cache content.
-            //
-            // This sits above / wraps the NamespaceSchemaGossip layer.
-            let ns_cache = SchemaChangeObserver::new(ns_cache, SchemaTx::new(handle));
-
-            MaybeLayer::With(ns_cache)
-        }
+            .await?,
+        ),
         None => MaybeLayer::Without(ns_cache),
     };
 
@@ -521,6 +465,88 @@ where
     info!(%root_hash, "initialised anti-entropy merkle tree");
 
     Ok(())
+}
+
+// Initialise the gossip subsystem.
+//
+// The schema gossip primitives sit in the stack of NamespaceCache layers:
+//
+//                   ┌───────────────────────────┐
+//                   │     ReadThroughCache      │
+//                   └───────────────────────────┘
+//                                 │
+//                                 ▼
+//                   ┌───────────────────────────┐
+//                   │   SchemaChangeObserver    │◀ ─ ─ ─ ─
+//                   └───────────────────────────┘         │
+//                                 │                     peers
+//                                 ▼                       ▲
+//                   ┌───────────────────────────┐         │
+//                   │   Incoming Gossip Apply   │─ ─ ─ ─ ─
+//                   └───────────────────────────┘
+//                                 │
+//                                 ▼
+//                   ┌───────────────────────────┐
+//                   │      Underlying Impl      │
+//                   └───────────────────────────┘
+//
+//
+//   - SchemaChangeObserver: sends outgoing gossip schema diffs
+//   - NamespaceSchemaGossip: applies incoming gossip diffs locally
+//
+// The SchemaChangeObserver is responsible for gossiping any diffs that pass
+// through it - it MUST sit above the NamespaceSchemaGossip layer
+// responsible for applying gossip diffs from peers (otherwise the local
+// node will receive a gossip diff and apply it, which passes through the
+// diff layer, and causes the local node to gossip it again).
+//
+// These gossip layers sit below the catalog lookups, so that they do not
+// drive catalog queries themselves (defeating the point of the gossiping!).
+// If a local node has to perform a catalog lookup, it gossips the result to
+// other peers, helping converge them.
+async fn init_gossip<T>(
+    ns_cache: MerkleTree<T>,
+    bind_addr: SocketAddr,
+    seed_list: Vec<String>,
+    metrics: &Arc<metric::Registry>,
+) -> Result<impl NamespaceCache<ReadError = CacheMissErr>, Error>
+where
+    T: NamespaceCache<ReadError = CacheMissErr> + 'static,
+{
+    let ns_cache = Arc::new(ns_cache);
+
+    // Initialise the NamespaceSchemaGossip responsible for applying the
+    // incoming gossip schema diffs (if any) and applying any schema updates
+    // received during anti-entropy syncs.
+    //
+    // This sits above / decorates the MerkleTree wrapper, so that any changes
+    // applied by NamespaceSchemaGossip are observed by the MerkleTree wrapper
+    // and in turn cause the MST to observe the new schema content.
+    let gossip_apply = Arc::new(NamespaceSchemaGossip::new(Arc::clone(&ns_cache)));
+
+    // Connect the gossip subsystem (via the "Dispatcher" trait) to the
+    // NamespaceSchemaGossip layer, which will apply any incoming gossip
+    // messages to the cache it decorates.
+    let dispatcher = SchemaRx::new(Arc::clone(&gossip_apply), 100);
+
+    // Initialise the gossip subsystem, delegating message processing to
+    // the above dispatcher.
+    let handle = gossip::Builder::<_, Topic>::new(seed_list, dispatcher, Arc::clone(metrics))
+        // Configure the router to listen to SchemaChange messages.
+        .with_topic_filter(TopicInterests::default().with_topic(Topic::SchemaChanges))
+        .bind(bind_addr)
+        .await
+        .map_err(Error::GossipBind)?;
+
+    // Initialise the local cache diff observer responsible for gossiping any
+    // local changes made to the cache content.
+    //
+    // This sits above / wraps the NamespaceSchemaGossip layer, ensuring
+    // incoming messages processed by that layer are not then broadcast by this
+    // node (creating a feedback loop).
+    let ns_cache = SchemaChangeObserver::new(ns_cache, SchemaTx::new(handle));
+
+    Ok(ns_cache)
 }
 
 #[cfg(test)]
