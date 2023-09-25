@@ -55,7 +55,9 @@ pub struct CatalogDsnConfig {
     ///
     /// PostgreSQL: `postgresql://postgres@localhost:5432/postgres`
     ///
-    /// Sqlite (a local filename /tmp/foo.sqlite): `sqlite:///tmp/foo.sqlite`
+    /// Sqlite (a local filename /tmp/foo.sqlite): `sqlite:///tmp/foo.sqlite` -
+    /// note sqlite is for development/testing only and should not be used for
+    /// production workloads.
     ///
     /// Memory (ephemeral, only useful for testing): `memory`
     ///
