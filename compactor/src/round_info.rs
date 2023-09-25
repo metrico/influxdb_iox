@@ -157,7 +157,7 @@ impl CompactType {
 #[derive(Debug)]
 pub struct CompactRange {
     // The type of operation required for this range.
-    pub op: CompactType,
+    pub op: Option<CompactType>,
     /// The minimum time of any file in the range
     pub min: i64,
     /// The maximum time of any file in the range
@@ -179,7 +179,11 @@ impl Display for CompactRange {
         write!(
             f,
             "CompactRange: {}, {}->{}, {}, has_l0s:{}, {}, {}, {}",
-            self.op,
+            if let Some(op) = &self.op {
+                format!("{}", op)
+            } else {
+                "None".to_string()
+            },
             self.min,
             self.max,
             self.cap,

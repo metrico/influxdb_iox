@@ -223,6 +223,7 @@ async fn try_compact_partition(
     let partition_info = components.partition_info_source.fetch(partition_id).await?;
     let transmit_progress_signal = Arc::new(transmit_progress_signal);
     let mut last_round_info: Option<Arc<RoundInfo>> = None;
+    let concurrency_limit = df_semaphore.total_permits();
 
     if files.is_empty() {
         // This should be unreachable, but can happen when someone is manually activiting partitions for compaction.
@@ -255,6 +256,7 @@ async fn try_compact_partition(
                 Arc::<Components>::clone(&components),
                 last_round_info,
                 &partition_info,
+                concurrency_limit,
                 files,
             )
             .await?;
@@ -276,15 +278,16 @@ async fn try_compact_partition(
             // For each range, we'll consume branches from the range_info and put the output into files_for_later in the range_info.
             let branches = range.branches.lock().unwrap().take();
             let branches_cnt = branches.as_ref().map(|v| v.len()).unwrap_or(0);
+            let op = range.op.as_ref().expect("op must be set before compacting");
 
             info!(
                 partition_id = partition_info.partition_id.get(),
-                op = range.op.to_string(),
+                op = op.to_string(),
                 min = range.min,
                 max = range.max,
                 cap = range.cap,
                 branch_count = branches_cnt,
-                concurrency_limit = df_semaphore.total_permits(),
+                concurrency_limit,
                 "compacting branches concurrently",
             );
 
@@ -304,7 +307,7 @@ async fn try_compact_partition(
                         let job = job.clone();
                         let branch_span = round_span.child("branch");
                         let gossip_handle = gossip_handle.clone();
-                        let op = range.op.clone();
+                        let op = op.clone();
 
                         async move {
                             execute_branch(
@@ -322,7 +325,7 @@ async fn try_compact_partition(
                             .await
                         }
                     })
-                    .buffer_unordered(df_semaphore.total_permits())
+                    .buffer_unordered(concurrency_limit)
                     .try_collect()
                     .await?;
 
