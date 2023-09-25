@@ -15,8 +15,9 @@ use tokio::{
 };
 
 use super::{
-    backpressure::PersistState, completion_observer::PersistCompletionObserver,
-    context::PersistRequest, queue::PersistQueue, worker::SharedWorkerState,
+    backpressure::PersistState, column_map_resolver::ColumnMapResolver,
+    completion_observer::PersistCompletionObserver, context::PersistRequest, queue::PersistQueue,
+    worker::SharedWorkerState,
 };
 use crate::{
     buffer_tree::partition::{persisting::PersistingData, PartitionData, SortKeyState},
@@ -169,7 +170,7 @@ pub(crate) struct PersistHandle {
 impl PersistHandle {
     /// Initialise a new persist actor & obtain the first handle.
     #[allow(clippy::too_many_arguments)]
-    pub(crate) fn new<O>(
+    pub(crate) fn new<O, C>(
         n_workers: usize,
         persist_queue_depth: usize,
         ingest_state: Arc<IngestState>,
@@ -177,10 +178,12 @@ impl PersistHandle {
         store: ParquetStorage,
         catalog: Arc<dyn Catalog>,
         completion_observer: O,
+        column_map_resolver: C,
         metrics: &metric::Registry,
     ) -> Self
     where
         O: PersistCompletionObserver + 'static,
+        C: ColumnMapResolver + 'static,
     {
         assert_ne!(n_workers, 0, "must run at least 1 persist worker");
         assert_ne!(
@@ -195,6 +198,7 @@ impl PersistHandle {
             exec,
             store,
             catalog,
+            column_map_resolver,
             completion_observer,
         });
 
@@ -502,6 +506,7 @@ mod tests {
         dml_sink::DmlSink,
         ingest_state::IngestStateError,
         persist::{
+            column_map_resolver::CatalogColumnMapResolver,
             completion_observer::{mock::MockCompletionObserver, NopObserver},
             tests::{assert_metric_counter, assert_metric_gauge},
         },
@@ -550,7 +555,7 @@ mod tests {
     async fn test_persist_sort_key_provided_none() {
         let storage = ParquetStorage::new(Arc::new(InMemory::default()), StorageId::from("iox"));
         let metrics = Arc::new(metric::Registry::default());
-        let catalog = Arc::new(MemCatalog::new(Arc::clone(&metrics)));
+        let catalog: Arc<dyn Catalog> = Arc::new(MemCatalog::new(Arc::clone(&metrics)));
 
         let mut handle = PersistHandle::new(
             1,
@@ -558,8 +563,9 @@ mod tests {
             Arc::new(IngestState::default()),
             Arc::new(Executor::new_testing()),
             storage,
-            catalog,
+            Arc::clone(&catalog),
             Arc::new(MockCompletionObserver::default()),
+            CatalogColumnMapResolver::new(catalog),
             &metrics,
         );
 
@@ -626,7 +632,7 @@ mod tests {
     async fn test_persist_sort_key_deferred_resolved_none_update_necessary() {
         let storage = ParquetStorage::new(Arc::new(InMemory::default()), StorageId::from("iox"));
         let metrics = Arc::new(metric::Registry::default());
-        let catalog = Arc::new(MemCatalog::new(Arc::clone(&metrics)));
+        let catalog: Arc<dyn Catalog> = Arc::new(MemCatalog::new(Arc::clone(&metrics)));
 
         let mut handle = PersistHandle::new(
             1,
@@ -634,8 +640,9 @@ mod tests {
             Arc::new(IngestState::default()),
             Arc::new(Executor::new_testing()),
             storage,
-            catalog,
+            Arc::clone(&catalog),
             Arc::new(MockCompletionObserver::default()),
+            CatalogColumnMapResolver::new(catalog),
             &metrics,
         );
 
@@ -714,7 +721,7 @@ mod tests {
     async fn test_persist_sort_key_deferred_resolved_some_update_necessary() {
         let storage = ParquetStorage::new(Arc::new(InMemory::default()), StorageId::from("iox"));
         let metrics = Arc::new(metric::Registry::default());
-        let catalog = Arc::new(MemCatalog::new(Arc::clone(&metrics)));
+        let catalog: Arc<dyn Catalog> = Arc::new(MemCatalog::new(Arc::clone(&metrics)));
 
         let mut handle = PersistHandle::new(
             1,
@@ -722,8 +729,9 @@ mod tests {
             Arc::new(IngestState::default()),
             Arc::new(Executor::new_testing()),
             storage,
-            catalog,
+            Arc::clone(&catalog),
             Arc::new(MockCompletionObserver::default()),
+            CatalogColumnMapResolver::new(catalog),
             &metrics,
         );
 
@@ -806,7 +814,7 @@ mod tests {
     async fn test_persist_sort_key_no_update_necessary() {
         let storage = ParquetStorage::new(Arc::new(InMemory::default()), StorageId::from("iox"));
         let metrics = Arc::new(metric::Registry::default());
-        let catalog = Arc::new(MemCatalog::new(Arc::clone(&metrics)));
+        let catalog: Arc<dyn Catalog> = Arc::new(MemCatalog::new(Arc::clone(&metrics)));
 
         let mut handle = PersistHandle::new(
             1,
@@ -814,8 +822,9 @@ mod tests {
             Arc::new(IngestState::default()),
             Arc::new(Executor::new_testing()),
             storage,
-            catalog,
+            Arc::clone(&catalog),
             Arc::new(MockCompletionObserver::default()),
+            CatalogColumnMapResolver::new(catalog),
             &metrics,
         );
 
@@ -891,7 +900,7 @@ mod tests {
     async fn test_persist_saturated_enqueue_counter() {
         let storage = ParquetStorage::new(Arc::new(InMemory::default()), StorageId::from("iox"));
         let metrics = Arc::new(metric::Registry::default());
-        let catalog = Arc::new(MemCatalog::new(Arc::clone(&metrics)));
+        let catalog: Arc<dyn Catalog> = Arc::new(MemCatalog::new(Arc::clone(&metrics)));
         let ingest_state = Arc::new(IngestState::default());
 
         let mut handle = PersistHandle::new(
@@ -900,8 +909,9 @@ mod tests {
             Arc::clone(&ingest_state),
             Arc::new(Executor::new_testing()),
             storage,
-            catalog,
+            Arc::clone(&catalog),
             NopObserver,
+            CatalogColumnMapResolver::new(catalog),
             &metrics,
         );
         assert!(ingest_state.read().is_ok());
@@ -971,7 +981,7 @@ mod tests {
     async fn test_static_config_metrics() {
         let storage = ParquetStorage::new(Arc::new(InMemory::default()), StorageId::from("iox"));
         let metrics = Arc::new(metric::Registry::default());
-        let catalog = Arc::new(MemCatalog::new(Arc::clone(&metrics)));
+        let catalog: Arc<dyn Catalog> = Arc::new(MemCatalog::new(Arc::clone(&metrics)));
         let ingest_state = Arc::new(IngestState::default());
 
         let _handle = PersistHandle::new(
@@ -980,8 +990,9 @@ mod tests {
             Arc::clone(&ingest_state),
             Arc::new(Executor::new_testing()),
             storage,
-            catalog,
+            Arc::clone(&catalog),
             NopObserver,
+            CatalogColumnMapResolver::new(catalog),
             &metrics,
         );
 

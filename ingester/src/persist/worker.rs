@@ -3,7 +3,7 @@ use std::{ops::ControlFlow, sync::Arc};
 use async_channel::RecvError;
 use backoff::Backoff;
 use data_types::{ColumnsByName, CompactionLevel, ParquetFile, ParquetFileParams, SortedColumnSet};
-use iox_catalog::interface::{get_table_columns_by_id, CasFailure, Catalog};
+use iox_catalog::interface::{CasFailure, Catalog};
 use iox_query::exec::Executor;
 use iox_time::{SystemProvider, TimeProvider};
 use metric::DurationHistogram;
@@ -16,6 +16,7 @@ use uuid::Uuid;
 use crate::persist::compact::compact_persisting_batch;
 
 use super::{
+    column_map_resolver::ColumnMapResolver,
     compact::CompactedStream,
     completion_observer::PersistCompletionObserver,
     context::{Context, PersistError, PersistRequest},
@@ -23,11 +24,12 @@ use super::{
 
 /// State shared across workers.
 #[derive(Debug)]
-pub(super) struct SharedWorkerState<O> {
+pub(super) struct SharedWorkerState<O, C> {
     pub(super) exec: Arc<Executor>,
     pub(super) store: ParquetStorage,
     pub(super) catalog: Arc<dyn Catalog>,
     pub(super) completion_observer: O,
+    pub(super) column_map_resolver: C,
 }
 
 /// The worker routine that drives a [`PersistRequest`] to completion,
@@ -71,14 +73,15 @@ pub(super) struct SharedWorkerState<O> {
 /// [`PersistingData`]:
 ///     crate::buffer_tree::partition::persisting::PersistingData
 /// [`PartitionData`]: crate::buffer_tree::partition::PartitionData
-pub(super) async fn run_task<O>(
-    worker_state: Arc<SharedWorkerState<O>>,
+pub(super) async fn run_task<O, C>(
+    worker_state: Arc<SharedWorkerState<O, C>>,
     global_queue: async_channel::Receiver<PersistRequest>,
     mut rx: mpsc::UnboundedReceiver<PersistRequest>,
     queue_duration: DurationHistogram,
     persist_duration: DurationHistogram,
 ) where
     O: PersistCompletionObserver,
+    C: ColumnMapResolver,
 {
     loop {
         let req = tokio::select! {
@@ -162,12 +165,13 @@ pub(super) async fn run_task<O>(
 ///
 /// [`PersistingData`]:
 ///     crate::buffer_tree::partition::persisting::PersistingData
-async fn compact_and_upload<O>(
+async fn compact_and_upload<O, C>(
     ctx: &mut Context,
-    worker_state: &SharedWorkerState<O>,
+    worker_state: &SharedWorkerState<O, C>,
 ) -> Result<ParquetFileParams, PersistError>
 where
     O: Send + Sync,
+    C: ColumnMapResolver,
 {
     // Read the partition sort key from the catalog.
     //
@@ -181,7 +185,10 @@ where
     // defined in the sort key are present in the map. If the values were
     // fetched in reverse order, a race exists where the sort key could be
     // updated to include a column that does not exist in the column map.
-    let column_map = fetch_column_map(ctx, worker_state, sort_key.as_ref()).await?;
+    let column_map = worker_state
+        .column_map_resolver
+        .load_verified_column_map(ctx.table_id(), sort_key.as_ref())
+        .await;
 
     let compacted = compact(ctx, worker_state, sort_key.as_ref()).await;
     let (sort_key_update, parquet_table_data) =
@@ -205,13 +212,14 @@ where
 
 /// Compact the data in `ctx` using sorted by the sort key returned from
 /// [`Context::sort_key()`].
-async fn compact<O>(
+async fn compact<O, C>(
     ctx: &Context,
-    worker_state: &SharedWorkerState<O>,
+    worker_state: &SharedWorkerState<O, C>,
     sort_key: Option<&SortKey>,
 ) -> CompactedStream
 where
     O: Send + Sync,
+    C: Send + Sync,
 {
     debug!(
         namespace_id = %ctx.namespace_id(),
@@ -241,14 +249,15 @@ where
 
 /// Upload the compacted data in `compacted`, returning the new sort key value
 /// and parquet metadata to be upserted into the catalog.
-async fn upload<O>(
+async fn upload<O, C>(
     ctx: &Context,
-    worker_state: &SharedWorkerState<O>,
+    worker_state: &SharedWorkerState<O, C>,
     compacted: CompactedStream,
     columns: &ColumnsByName,
 ) -> (Option<SortKey>, ParquetFileParams)
 where
     O: Send + Sync,
+    C: Send + Sync,
 {
     let CompactedStream {
         stream: record_stream,
@@ -327,45 +336,6 @@ where
     (catalog_sort_key_update, parquet_table_data)
 }
 
-/// Fetch the table column map from the catalog and verify if they contain all columns in the sort key
-async fn fetch_column_map<O>(
-    ctx: &Context,
-    worker_state: &SharedWorkerState<O>,
-    // NOTE: CALLER MUST LOAD SORT KEY BEFORE CALLING THIS FUNCTION EVEN IF THE sort key IS NONE.
-    // THIS IS A MUST TO GUARANTEE THE RETURNED COLUMN MAP CONTAINS ALL COLUMNS IN THE SORT KEY
-    // The purpose to put the sort_key as a param here is to make sure the caller has already loaded the sort key
-    // and the same sort_key is returned
-    sort_key: Option<&SortKey>,
-) -> Result<ColumnsByName, PersistError>
-where
-    O: Send + Sync,
-{
-    // Read the table's columns from the catalog to get a map of column name -> column IDs.
-    let column_map = Backoff::new(&Default::default())
-        .retry_all_errors("get table schema", || async {
-            let mut repos = worker_state.catalog.repositories().await;
-            get_table_columns_by_id(ctx.table_id(), repos.as_mut()).await
-        })
-        .await
-        .expect("retry forever");
-
-    // Verify that the sort key columns are in the column map
-    if let Some(sort_key) = &sort_key {
-        for sort_key_column in sort_key.to_columns() {
-            if !column_map.contains_column_name(sort_key_column) {
-                panic!(
-                    "sort key column {} of partition id {} is not in the column map {:?}",
-                    sort_key_column,
-                    ctx.partition_id(),
-                    column_map
-                );
-            }
-        }
-    }
-
-    Ok(column_map)
-}
-
 /// Update the sort key value stored in the catalog for this [`Context`].
 ///
 /// # Concurrent Updates
@@ -381,9 +351,9 @@ where
 /// Similarly, to avoid too much changes, we will compute new_sort_key_ids from
 /// the provided new_sort_key and the columns. In the future, we will optimize to use
 /// new_sort_key_ids directly.
-async fn update_catalog_sort_key<O>(
+async fn update_catalog_sort_key<O, C>(
     ctx: &mut Context,
-    worker_state: &SharedWorkerState<O>,
+    worker_state: &SharedWorkerState<O, C>,
     old_sort_key: Option<SortKey>, // todo: remove this argument in the future
     old_sort_key_ids: Option<SortedColumnSet>,
     new_sort_key: SortKey,
@@ -392,6 +362,7 @@ async fn update_catalog_sort_key<O>(
 ) -> Result<(), PersistError>
 where
     O: Send + Sync,
+    C: Send + Sync,
 {
     // convert old_sort_key into a vector of string
     let old_sort_key =
@@ -550,13 +521,14 @@ where
     Ok(())
 }
 
-async fn update_catalog_parquet<O>(
+async fn update_catalog_parquet<O, C>(
     ctx: &Context,
-    worker_state: &SharedWorkerState<O>,
+    worker_state: &SharedWorkerState<O, C>,
     parquet_table_data: &ParquetFileParams,
 ) -> ParquetFile
 where
     O: Send + Sync,
+    C: Send + Sync,
 {
     // Extract the object store ID to the local scope so that it can easily
     // be referenced in debug logging to aid correlation of persist events

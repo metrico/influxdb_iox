@@ -45,8 +45,9 @@ use crate::{
     ingest_state::IngestState,
     ingester_id::IngesterId,
     persist::{
-        completion_observer::MaybeLayer, file_metrics::ParquetFileInstrumentation,
-        handle::PersistHandle, hot_partitions::HotPartitionPersister,
+        column_map_resolver::CatalogColumnMapResolver, completion_observer::MaybeLayer,
+        file_metrics::ParquetFileInstrumentation, handle::PersistHandle,
+        hot_partitions::HotPartitionPersister,
     },
     query::{
         exec_instrumentation::QueryExecInstrumentation,
@@ -409,6 +410,7 @@ where
         object_store,
         Arc::clone(&catalog),
         persist_observer,
+        CatalogColumnMapResolver::new(Arc::clone(&catalog)),
         &metrics,
     );
     let persist_handle = Arc::new(persist_handle);
