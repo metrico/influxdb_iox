@@ -123,9 +123,10 @@ impl QuerierDatabase {
 
         let backoff_config = BackoffConfig::default();
 
+        let prune_metrics = Arc::new(PruneMetrics::new(&metric_registry));
         let chunk_adapter = Arc::new(ChunkAdapter::new(
             Arc::clone(&catalog_cache),
-            Arc::clone(&metric_registry),
+            Arc::clone(&prune_metrics),
         ));
         let query_log = Arc::new(QueryLog::new(QUERY_LOG_SIZE, catalog_cache.time_provider()));
         let semaphore_metrics = Arc::new(AsyncSemaphoreMetrics::new(
@@ -134,8 +135,6 @@ impl QuerierDatabase {
         ));
         let query_execution_semaphore =
             Arc::new(semaphore_metrics.new_semaphore(max_concurrent_queries));
-
-        let prune_metrics = Arc::new(PruneMetrics::new(&metric_registry));
 
         Ok(Self {
             backoff_config,
