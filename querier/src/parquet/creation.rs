@@ -339,10 +339,10 @@ impl PreparedParquetFileWithStats {
             max: file.max_time.get(),
         };
         let stats = Arc::new(create_chunk_statistics(
-            file.row_count as u64,
+            Some(file.row_count as usize),
             &schema,
             Some(ts_min_max),
-            &cached_partition.column_ranges,
+            Some(&cached_partition.column_ranges),
         ));
 
         Self {
