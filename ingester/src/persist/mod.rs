@@ -1,6 +1,7 @@
 //! The persistence subsystem; abstractions, types, and implementation.
 
 pub(crate) mod backpressure;
+pub(crate) mod column_map_resolver;
 pub(super) mod compact;
 pub(crate) mod completion_observer;
 mod context;
@@ -44,7 +45,10 @@ mod tests {
         dml_sink::DmlSink,
         ingest_state::IngestState,
         persist::handle::PersistHandle,
-        persist::{completion_observer::mock::MockCompletionObserver, queue::PersistQueue},
+        persist::{
+            column_map_resolver::CatalogColumnMapResolver,
+            completion_observer::mock::MockCompletionObserver, queue::PersistQueue,
+        },
         test_util::{
             make_write_op, populate_catalog, ARBITRARY_NAMESPACE_NAME,
             ARBITRARY_NAMESPACE_NAME_PROVIDER, ARBITRARY_PARTITION_KEY, ARBITRARY_TABLE_NAME,
@@ -172,6 +176,7 @@ mod tests {
         let storage = ParquetStorage::new(Arc::clone(&object_storage), StorageId::from("iox"));
         let metrics = Arc::new(metric::Registry::default());
         let catalog: Arc<dyn Catalog> = Arc::new(MemCatalog::new(Arc::clone(&metrics)));
+        let column_map_resolver = CatalogColumnMapResolver::new(Arc::clone(&catalog));
         let ingest_state = Arc::new(IngestState::default());
         let completion_observer = Arc::new(MockCompletionObserver::default());
 
@@ -184,6 +189,7 @@ mod tests {
             storage,
             Arc::clone(&catalog),
             Arc::clone(&completion_observer),
+            column_map_resolver,
             &metrics,
         );
         assert!(ingest_state.read().is_ok());
@@ -333,6 +339,7 @@ mod tests {
         let storage = ParquetStorage::new(Arc::clone(&object_storage), StorageId::from("iox"));
         let metrics = Arc::new(metric::Registry::default());
         let catalog: Arc<dyn Catalog> = Arc::new(MemCatalog::new(Arc::clone(&metrics)));
+        let column_map_resolver = CatalogColumnMapResolver::new(Arc::clone(&catalog));
         let ingest_state = Arc::new(IngestState::default());
         let completion_observer = Arc::new(MockCompletionObserver::default());
 
@@ -345,6 +352,7 @@ mod tests {
             storage,
             Arc::clone(&catalog),
             Arc::clone(&completion_observer),
+            column_map_resolver,
             &metrics,
         );
         assert!(ingest_state.read().is_ok());
