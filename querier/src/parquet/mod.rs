@@ -2,7 +2,6 @@
 
 use data_types::{ChunkId, ChunkOrder, TransitionPartitionId};
 use datafusion::physical_plan::Statistics;
-use iox_query::chunk_statistics::{create_chunk_statistics, ColumnRanges};
 use parquet_file::chunk::ParquetChunk;
 use schema::sort::SortKey;
 use std::sync::Arc;
@@ -62,15 +61,8 @@ impl QuerierParquetChunk {
     pub fn new(
         parquet_chunk: Arc<ParquetChunk>,
         meta: Arc<QuerierParquetChunkMeta>,
-        column_ranges: ColumnRanges,
+        stats: Arc<Statistics>,
     ) -> Self {
-        let stats = Arc::new(create_chunk_statistics(
-            parquet_chunk.rows() as u64,
-            parquet_chunk.schema(),
-            Some(parquet_chunk.timestamp_min_max()),
-            &column_ranges,
-        ));
-
         Self {
             meta,
             parquet_chunk,
@@ -82,24 +74,17 @@ impl QuerierParquetChunk {
     pub fn meta(&self) -> &QuerierParquetChunkMeta {
         self.meta.as_ref()
     }
-
-    pub fn estimate_size(&self) -> usize {
-        self.parquet_chunk.parquet_file().file_size_bytes as usize
-    }
-
-    pub fn rows(&self) -> usize {
-        self.parquet_chunk.rows()
-    }
 }
 
 #[cfg(test)]
 pub mod tests {
-    use std::collections::HashMap;
-
-    use crate::cache::{
-        namespace::{CachedNamespace, CachedTable},
-        partition::PartitionRequest,
-        CatalogCache,
+    use crate::{
+        cache::{
+            namespace::{CachedNamespace, CachedTable},
+            partition::PartitionRequest,
+            CatalogCache,
+        },
+        table::PruneMetrics,
     };
 
     use super::*;
@@ -212,7 +197,7 @@ pub mod tests {
                     catalog.object_store(),
                     &Handle::current(),
                 )),
-                catalog.metric_registry(),
+                Arc::new(PruneMetrics::new(&catalog.metric_registry())),
             );
 
             let mut repos = catalog.catalog.repositories().await;
@@ -255,13 +240,11 @@ pub mod tests {
                 .into_iter()
                 .next()
                 .unwrap();
-            let cached_partitions =
-                HashMap::from([(self.parquet_file.partition_id.clone(), cached_partition)]);
             self.adapter
                 .new_chunks(
                     Arc::clone(&self.cached_table),
-                    [Arc::clone(&self.parquet_file)],
-                    &cached_partitions,
+                    [(Arc::clone(&self.parquet_file), cached_partition)],
+                    &[],
                     None,
                 )
                 .await

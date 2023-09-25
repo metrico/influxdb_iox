@@ -1,7 +1,5 @@
-use iox_query::{pruning::NotPrunedReason, QueryChunk};
+use iox_query::pruning::NotPrunedReason;
 use metric::{Attributes, U64Counter};
-
-use crate::{ingester::IngesterChunk, parquet::QuerierParquetChunk};
 
 #[derive(Debug)]
 pub struct PruneMetricsGroup {
@@ -47,11 +45,7 @@ impl PruneMetricsGroup {
         }
     }
 
-    pub fn register(&self, chunk: &dyn QueryChunk) {
-        self.register_low_level(chunk_rows(chunk) as u64, chunk_estimate_size(chunk) as u64);
-    }
-
-    fn register_low_level(&self, rows: u64, bytes: u64) {
+    fn register(&self, rows: u64, bytes: u64) {
         self.chunks.inc(1);
         self.rows.inc(rows);
         self.bytes.inc(bytes);
@@ -133,17 +127,17 @@ impl PruneMetrics {
 
     /// Called when the specified chunk was pruned late (i.e. before partition pruning).
     pub fn was_pruned_early(&self, rows: u64, bytes: u64) {
-        self.pruned_early.register_low_level(rows, bytes);
+        self.pruned_early.register(rows, bytes);
     }
 
     /// Called when the specified chunk was pruned late (i.e. after partition pruning).
-    pub fn was_pruned_late(&self, chunk: &dyn QueryChunk) {
-        self.pruned_late.register(chunk);
+    pub fn was_pruned_late(&self, rows: u64, bytes: u64) {
+        self.pruned_late.register(rows, bytes);
     }
 
     /// Called when a chunk was not pruned.
-    pub fn was_not_pruned(&self, chunk: &dyn QueryChunk) {
-        self.not_pruned.register(chunk);
+    pub fn was_not_pruned(&self, rows: u64, bytes: u64) {
+        self.not_pruned.register(rows, bytes);
     }
 
     /// Called when no pruning can happen at all for some reason.
@@ -154,7 +148,7 @@ impl PruneMetrics {
     /// In this case, statistical pruning will not happen and [`was_pruned_early`](Self::was_pruned_early) /
     /// [`was_pruned_late`](Self::was_pruned_late) /
     /// [`was_not_pruned`](Self::was_not_pruned) will NOT be called.
-    pub fn could_not_prune(&self, reason: NotPrunedReason, chunk: &dyn QueryChunk) {
+    pub fn could_not_prune(&self, reason: NotPrunedReason, rows: u64, bytes: u64) {
         let group = match reason {
             NotPrunedReason::NoExpressionOnPredicate => &self.could_not_prune_no_expression,
             NotPrunedReason::CanNotCreatePruningPredicate => {
@@ -163,30 +157,6 @@ impl PruneMetrics {
             NotPrunedReason::DataFusionPruningFailed => &self.could_not_prune_df,
         };
 
-        group.register(chunk);
-    }
-}
-
-fn chunk_estimate_size(chunk: &dyn QueryChunk) -> usize {
-    let chunk = chunk.as_any();
-
-    if let Some(chunk) = chunk.downcast_ref::<IngesterChunk>() {
-        chunk.estimate_size()
-    } else if let Some(chunk) = chunk.downcast_ref::<QuerierParquetChunk>() {
-        chunk.estimate_size()
-    } else {
-        panic!("Unknown chunk type")
-    }
-}
-
-fn chunk_rows(chunk: &dyn QueryChunk) -> usize {
-    let chunk = chunk.as_any();
-
-    if let Some(chunk) = chunk.downcast_ref::<QuerierParquetChunk>() {
-        chunk.rows()
-    } else if let Some(chunk) = chunk.downcast_ref::<IngesterChunk>() {
-        chunk.rows()
-    } else {
-        panic!("Unknown chunk type");
+        group.register(rows, bytes);
     }
 }
