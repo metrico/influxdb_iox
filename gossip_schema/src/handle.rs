@@ -1,6 +1,8 @@
 //! A serialiser and broadcaster of [`gossip`] messages for the
 //! [`Topic::SchemaChanges`] topic.
 
+use std::sync::Arc;
+
 use generated_types::{
     influxdata::iox::gossip::{
         v1::{schema_message::Event, SchemaMessage, TableCreated, TableUpdated},
@@ -40,7 +42,7 @@ impl Drop for SchemaTx {
 impl SchemaTx {
     /// Construct a new [`SchemaTx`] that publishes gossip messages over
     /// `gossip`.
-    pub fn new(gossip: gossip::GossipHandle<Topic>) -> Self {
+    pub fn new(gossip: Arc<gossip::GossipHandle<Topic>>) -> Self {
         let (tx, rx) = mpsc::channel(100);
 
         let task = tokio::spawn(actor_loop(rx, gossip));
@@ -66,7 +68,7 @@ impl SchemaTx {
 
 /// A background task loop that pulls [`Event`] from `rx`, serialises / packs
 /// them into a single gossip frame, and broadcasts the result over `gossip`.
-async fn actor_loop(mut rx: mpsc::Receiver<Event>, gossip: gossip::GossipHandle<Topic>) {
+async fn actor_loop(mut rx: mpsc::Receiver<Event>, gossip: Arc<gossip::GossipHandle<Topic>>) {
     while let Some(event) = rx.recv().await {
         let frames = match event {
             v @ Event::NamespaceCreated(_) => vec![v],

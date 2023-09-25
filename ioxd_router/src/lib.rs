@@ -544,7 +544,7 @@ where
     // This sits above / wraps the NamespaceSchemaGossip layer, ensuring
     // incoming messages processed by that layer are not then broadcast by this
     // node (creating a feedback loop).
-    let ns_cache = SchemaChangeObserver::new(ns_cache, SchemaTx::new(handle));
+    let ns_cache = SchemaChangeObserver::new(ns_cache, SchemaTx::new(Arc::new(handle)));
 
     Ok(ns_cache)
 }
