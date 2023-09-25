@@ -251,3 +251,9 @@ SELECT cumulative_sum(first(writes)) FROM diskio WHERE time >= 00000001300000000
 -- SELECT cumulative_sum(first(writes)) FROM diskio WHERE time >= 0000000130000000000 AND time < 0000000210000000001 GROUP BY time(7s) fill(linear);
 -- group by time and a tag
 SELECT cumulative_sum(first(usage_idle)) FROM cpu WHERE time >= 0000000130000000000 AND time < 0000000210000000001 AND cpu =~ /^cpu(0|1)$/ GROUP BY TIME(30s), cpu;
+
+--
+-- Distinct values grouped by time
+--
+SELECT DISTINCT(usage_system) FROM cpu GROUP BY TIME(1s);
+SELECT DISTINCT(usage_system) FROM cpu GROUP BY TIME(1s), cpu;
