@@ -12,7 +12,7 @@
 )]
 #![allow(clippy::default_constructed_unit_structs)]
 
-use gossip::TopicInterests;
+use gossip::{Bytes, Identity, TopicInterests};
 use gossip_schema::{dispatcher::SchemaRx, handle::SchemaTx};
 use observability_deps::tracing::info;
 // Workaround for "unused crate" lint false positives.
@@ -36,9 +36,12 @@ use ioxd_common::{
     http::error::{HttpApiError, HttpApiErrorSource},
     reexport::{
         generated_types::influxdata::iox::{
-            catalog::v1::catalog_service_server, gossip::Topic,
-            namespace::v1::namespace_service_server, object_store::v1::object_store_service_server,
-            schema::v1::schema_service_server, table::v1::table_service_server,
+            catalog::v1::catalog_service_server,
+            gossip::{v1::anti_entropy_service_server, Topic},
+            namespace::v1::namespace_service_server,
+            object_store::v1::object_store_service_server,
+            schema::v1::schema_service_server,
+            table::v1::table_service_server,
         },
         tonic::transport::Endpoint,
     },
@@ -56,8 +59,14 @@ use router::{
         InstrumentationDecorator, Partitioner, RetentionValidator, RpcWrite,
     },
     gossip::{
-        anti_entropy::mst::{
-            actor::AntiEntropyActor, handle::AntiEntropyHandle, merkle::MerkleTree,
+        anti_entropy::{
+            mst::{actor::AntiEntropyActor, handle::AntiEntropyHandle, merkle::MerkleTree},
+            sync::{
+                actor::ConvergenceActor,
+                consistency_prober::{ProbeDispatcher, SenderAddressResolver},
+                rpc_server::AntiEntropyService,
+                rpc_worker::grpc_connector::GrpcConnector,
+            },
         },
         namespace_cache::NamespaceSchemaGossip,
         schema_change_observer::SchemaChangeObserver,
@@ -107,14 +116,14 @@ pub enum Error {
 
 pub type Result<T, E = Error> = std::result::Result<T, E>;
 
-pub struct RpcWriteRouterServerType<D, N> {
-    server: RpcWriteRouterServer<D, N>,
+pub struct RpcWriteRouterServerType<D, N, T> {
+    server: RpcWriteRouterServer<D, N, T>,
     shutdown: CancellationToken,
     trace_collector: Option<Arc<dyn TraceCollector>>,
 }
 
-impl<D, N> RpcWriteRouterServerType<D, N> {
-    pub fn new(server: RpcWriteRouterServer<D, N>, common_state: &CommonServerState) -> Self {
+impl<D, N, T> RpcWriteRouterServerType<D, N, T> {
+    pub fn new(server: RpcWriteRouterServer<D, N, T>, common_state: &CommonServerState) -> Self {
         Self {
             server,
             shutdown: CancellationToken::new(),
@@ -123,17 +132,18 @@ impl<D, N> RpcWriteRouterServerType<D, N> {
     }
 }
 
-impl<D, N> std::fmt::Debug for RpcWriteRouterServerType<D, N> {
+impl<D, N, T> std::fmt::Debug for RpcWriteRouterServerType<D, N, T> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "Router")
     }
 }
 
 #[async_trait]
-impl<D, N> ServerType for RpcWriteRouterServerType<D, N>
+impl<D, N, T> ServerType for RpcWriteRouterServerType<D, N, T>
 where
     D: DmlHandler<WriteInput = HashMap<String, MutableBatch>, WriteOutput = ()> + 'static,
     N: NamespaceResolver + 'static,
+    T: NamespaceCache<ReadError = CacheMissErr> + Clone + 'static,
 {
     fn name(&self) -> &str {
         "rpc_write_router"
@@ -193,6 +203,12 @@ where
             builder,
             table_service_server::TableServiceServer::new(self.server.grpc().table_service())
         );
+        add_service!(
+            builder,
+            anti_entropy_service_server::AntiEntropyServiceServer::new(
+                self.server.grpc().anti_entropy_service()
+            )
+        );
         serve_builder!(builder);
 
         Ok(())
@@ -230,6 +246,7 @@ impl HttpApiErrorSource for IoxHttpErrorAdaptor {
 }
 
 /// Instantiate a router server that uses the RPC write path
+#[allow(clippy::too_many_arguments)]
 pub async fn create_router_server_type(
     common_state: &CommonServerState,
     metrics: Arc<metric::Registry>,
@@ -238,6 +255,7 @@ pub async fn create_router_server_type(
     router_config: &RouterConfig,
     gossip_config: &GossipConfig,
     trace_context_header_name: String,
+    grpc_bind_port: u16,
 ) -> Result<Arc<dyn ServerType>> {
     let ingester_connections = router_config.ingester_addresses.iter().map(|addr| {
         let addr = addr.to_string();
@@ -292,7 +310,7 @@ pub async fn create_router_server_type(
     // Now the cache and anti-entropy merkle tree have been pre-populated, wrap
     // the namespace cache in an observer that tracks any future changes to the
     // cache content, ensuring the MST remains in-sync.
-    let ns_cache = MerkleTree::new(ns_cache, mst);
+    let ns_cache = MerkleTree::new(ns_cache, mst.clone());
 
     // Optionally initialise the schema gossip subsystem.
     let ns_cache = match gossip_config.gossip_bind_address {
@@ -301,12 +319,19 @@ pub async fn create_router_server_type(
                 ns_cache,
                 *bind_addr,
                 gossip_config.seed_list.clone(),
+                mst.clone(),
+                grpc_bind_port,
                 &metrics,
             )
             .await?,
         ),
         None => MaybeLayer::Without(ns_cache),
     };
+
+    // Initialise the sync/anti-entropy RPC server, implementing the server-side
+    // anti-entropy protocol.
+    let ns_cache = Arc::new(ns_cache);
+    let sync_rpc_server = AntiEntropyService::new(mst, Arc::clone(&ns_cache));
 
     // Wrap the NamespaceCache in a read-through layer that queries the catalog
     // for cache misses, and populates the local cache with the result.
@@ -426,7 +451,7 @@ pub async fn create_router_server_type(
     // Initialize the gRPC API delegate that creates the services relevant to the RPC
     // write router path and use it to create the relevant `RpcWriteRouterServer` and
     // `RpcWriteRouterServerType`.
-    let grpc = RpcWriteGrpcDelegate::new(catalog, object_store);
+    let grpc = RpcWriteGrpcDelegate::new(catalog, object_store, sync_rpc_server);
 
     let router_server =
         RpcWriteRouterServer::new(http, grpc, metrics, common_state.trace_collector());
@@ -508,6 +533,8 @@ async fn init_gossip<T>(
     ns_cache: MerkleTree<T>,
     bind_addr: SocketAddr,
     seed_list: Vec<String>,
+    mst: AntiEntropyHandle,
+    local_rpc_port: u16,
     metrics: &Arc<metric::Registry>,
 ) -> Result<impl NamespaceCache<ReadError = CacheMissErr>, Error>
 where
@@ -527,7 +554,12 @@ where
     // Connect the gossip subsystem (via the "Dispatcher" trait) to the
     // NamespaceSchemaGossip layer, which will apply any incoming gossip
     // messages to the cache it decorates.
-    let dispatcher = SchemaRx::new(Arc::clone(&gossip_apply), 100);
+    let schema_dispatcher = SchemaRx::new(Arc::clone(&gossip_apply), 100);
+
+    // Initialise the consistency probe dispatcher and layer it in a demuxer to
+    // route the topics to the correct dispatcher implementations.
+    let (probe_dispatcher, probe_rx) = ProbeDispatcher::new();
+    let dispatcher = GossipDemuxer::new(probe_dispatcher, schema_dispatcher);
 
     // Initialise the gossip subsystem, delegating message processing to
     // the above dispatcher.
@@ -536,6 +568,7 @@ where
         .with_topic_filter(TopicInterests::default().with_topic(Topic::SchemaChanges))
         .bind(bind_addr)
         .await
+        .map(Arc::new)
         .map_err(Error::GossipBind)?;
 
     // Initialise the local cache diff observer responsible for gossiping any
@@ -544,9 +577,65 @@ where
     // This sits above / wraps the NamespaceSchemaGossip layer, ensuring
     // incoming messages processed by that layer are not then broadcast by this
     // node (creating a feedback loop).
-    let ns_cache = SchemaChangeObserver::new(ns_cache, SchemaTx::new(Arc::new(handle)));
+    let ns_cache = Arc::new(SchemaChangeObserver::new(
+        ns_cache,
+        SchemaTx::new(Arc::clone(&handle)),
+    ));
+
+    //
+    // At this point, the optimistic schema gossiping is fully configured.
+    //
+    // Enable the anti-entropy subsystem to ensure eventual consistency of the
+    // cache content.
+    //
+
+    // Adapt the incoming consistency probes such that after this layer
+    // processes them, they include the sender's socket address.
+    let (resolver, probe_rx) = SenderAddressResolver::new(Arc::clone(&handle), probe_rx);
+    tokio::spawn(resolver.run());
+
+    // Spawn the convergence actor, responsible for performing consistency
+    // probes of peers and driving convergence.
+    let convergence_actor = ConvergenceActor::new(
+        GrpcConnector::default(),
+        gossip_apply,
+        mst.clone(),
+        local_rpc_port,
+        handle,
+        probe_rx,
+    );
+    tokio::spawn(convergence_actor.run());
 
     Ok(ns_cache)
+}
+
+struct GossipDemuxer {
+    consistency_probe: ProbeDispatcher,
+    schema_update: SchemaRx,
+}
+
+impl GossipDemuxer {
+    fn new(consistency_probe: ProbeDispatcher, schema_update: SchemaRx) -> Self {
+        Self {
+            consistency_probe,
+            schema_update,
+        }
+    }
+}
+
+#[async_trait]
+impl gossip::Dispatcher<Topic> for GossipDemuxer {
+    async fn dispatch(&self, topic: Topic, payload: Bytes, sender: Identity) {
+        match topic {
+            Topic::SchemaChanges => self.schema_update.dispatch(topic, payload, sender).await,
+            Topic::SchemaCacheConsistency => {
+                self.consistency_probe
+                    .dispatch(topic, payload, sender)
+                    .await
+            }
+            _ => {}
+        }
+    }
 }
 
 #[cfg(test)]

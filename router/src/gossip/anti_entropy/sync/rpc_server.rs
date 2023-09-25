@@ -51,7 +51,7 @@ impl From<Error> for tonic::Status {
 ///     crate::gossip::anti_entropy::mst::handle::AntiEntropyHandle
 /// [`ConvergenceActor`]:
 ///     crate::gossip::anti_entropy::sync::actor::ConvergenceActor
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct AntiEntropyService<T> {
     mst: AntiEntropyHandle,
 

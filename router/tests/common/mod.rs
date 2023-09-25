@@ -15,6 +15,7 @@ use router::{
         client::mock::MockWriteClient, Chain, DmlHandlerChainExt, FanOutAdaptor,
         InstrumentationDecorator, Partitioned, Partitioner, RetentionValidator, RpcWrite,
     },
+    gossip::anti_entropy::{mst::actor::AntiEntropyActor, sync::rpc_server::AntiEntropyService},
     namespace_cache::{MemoryNamespaceCache, ReadThroughCache, ShardedCache},
     namespace_resolver::{MissingNamespaceAction, NamespaceAutocreation, NamespaceSchemaResolver},
     schema_validator::SchemaValidator,
@@ -94,7 +95,7 @@ impl TestContextBuilder {
 pub struct TestContext {
     client: Arc<MockWriteClient>,
     http_delegate: HttpDelegateStack,
-    grpc_delegate: RpcWriteGrpcDelegate,
+    grpc_delegate: RpcWriteGrpcDelegate<CacheImpl>,
     catalog: Arc<dyn Catalog>,
     metrics: Arc<metric::Registry>,
 
@@ -104,6 +105,8 @@ pub struct TestContext {
     rpc_write_num_probes: u64,
 }
 
+type CacheImpl = Arc<ShardedCache<MemoryNamespaceCache>>;
+
 // This mass of words is certainly a downside of chained handlers.
 //
 // Fortunately the compiler errors are very descriptive and updating this is
@@ -112,10 +115,7 @@ type HttpDelegateStack = HttpDelegate<
     InstrumentationDecorator<
         Chain<
             Chain<
-                Chain<
-                    RetentionValidator,
-                    SchemaValidator<Arc<ReadThroughCache<Arc<ShardedCache<MemoryNamespaceCache>>>>>,
-                >,
+                Chain<RetentionValidator, SchemaValidator<Arc<ReadThroughCache<CacheImpl>>>>,
                 Partitioner,
             >,
             FanOutAdaptor<
@@ -125,8 +125,8 @@ type HttpDelegateStack = HttpDelegate<
         >,
     >,
     NamespaceAutocreation<
-        Arc<ReadThroughCache<Arc<ShardedCache<MemoryNamespaceCache>>>>,
-        NamespaceSchemaResolver<Arc<ReadThroughCache<Arc<ShardedCache<MemoryNamespaceCache>>>>>,
+        Arc<ReadThroughCache<CacheImpl>>,
+        NamespaceSchemaResolver<Arc<ReadThroughCache<CacheImpl>>>,
     >,
 >;
 
@@ -148,12 +148,16 @@ impl TestContext {
             rpc_write_num_probes,
         );
 
-        let ns_cache = Arc::new(ReadThroughCache::new(
-            Arc::new(ShardedCache::new(
-                iter::repeat_with(MemoryNamespaceCache::default).take(10),
-            )),
-            Arc::clone(&catalog),
+        let ns_cache = Arc::new(ShardedCache::new(
+            iter::repeat_with(MemoryNamespaceCache::default).take(10),
         ));
+
+        // TODO: wire this up with the correct cache decorators
+        let (actor, mst) = AntiEntropyActor::new(Arc::clone(&ns_cache));
+        tokio::spawn(actor.run());
+        let sync_rpc_service = AntiEntropyService::new(mst, Arc::clone(&ns_cache));
+
+        let ns_cache = Arc::new(ReadThroughCache::new(ns_cache, Arc::clone(&catalog)));
 
         let schema_validator =
             SchemaValidator::new(Arc::clone(&catalog), Arc::clone(&ns_cache), &metrics);
@@ -190,8 +194,11 @@ impl TestContext {
             write_request_unifier,
         );
 
-        let grpc_delegate =
-            RpcWriteGrpcDelegate::new(Arc::clone(&catalog), Arc::new(InMemory::default()));
+        let grpc_delegate = RpcWriteGrpcDelegate::new(
+            Arc::clone(&catalog),
+            Arc::new(InMemory::default()),
+            sync_rpc_service,
+        );
 
         Self {
             client,
@@ -229,7 +236,7 @@ impl TestContext {
     }
 
     /// Get a reference to the test context's grpc delegate.
-    pub fn grpc_delegate(&self) -> &RpcWriteGrpcDelegate {
+    pub fn grpc_delegate(&self) -> &RpcWriteGrpcDelegate<CacheImpl> {
         &self.grpc_delegate
     }
 

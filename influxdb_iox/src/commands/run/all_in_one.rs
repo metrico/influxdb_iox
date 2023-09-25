@@ -654,6 +654,7 @@ pub async fn command(config: Config) -> Result<()> {
             .tracing_config()
             .traces_jaeger_trace_context_header_name
             .clone(),
+        router_run_config.grpc_bind_address.port(),
     )
     .await?;
 
