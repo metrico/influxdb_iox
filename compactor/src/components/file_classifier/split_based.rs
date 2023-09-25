@@ -149,21 +149,6 @@ where
                 *start_level,
             ),
 
-            CompactType::SimulatedLeadingEdge { .. } => {
-                // file division already done in round_info_source
-                FileClassification {
-                    target_level: op.target_level(),
-                    files_to_make_progress_on: FilesForProgress {
-                        upgrade: vec![],
-                        split_or_compact: FilesToSplitOrCompact::Compact(
-                            files_to_compact,
-                            CompactReason::TotalSizeLessThanMaxCompactSize,
-                        ),
-                    },
-                    files_to_keep: vec![],
-                }
-            }
-
             CompactType::VerticalSplit { split_times } => file_classification_for_vertical_split(
                 split_times,
                 files_to_compact,

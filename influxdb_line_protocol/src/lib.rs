@@ -1176,6 +1176,16 @@ mod test {
     }
 
     #[test]
+    fn parse_lines_returns_all_lines_even_when_a_line_errors() {
+        let input = ",tag1=1,tag2=2 value=1 123\nm,tag1=one,tag2=2 value=1 123";
+        let vals = super::parse_lines(input).collect::<Vec<Result<_>>>();
+        assert!(matches!(
+            &vals[..],
+            &[Err(Error::MeasurementValueInvalid), Ok(_)]
+        ));
+    }
+
+    #[test]
     fn escaped_str_basic() {
         // Demonstrate how strings without any escapes are handled.
         let es = EscapedStr::from("Foo");

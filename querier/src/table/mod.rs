@@ -14,10 +14,7 @@ use data_types::{
 use datafusion::{error::DataFusionError, prelude::Expr};
 use futures::{join, StreamExt};
 use iox_query::{
-    chunk_statistics::create_chunk_statistics,
-    provider,
-    pruning::{prune_chunks, prune_summaries},
-    QueryChunk,
+    chunk_statistics::create_chunk_statistics, provider, pruning::prune_summaries, QueryChunk,
 };
 use observability_deps::tracing::debug;
 use rand::{rngs::StdRng, seq::SliceRandom, SeedableRng};
@@ -242,6 +239,11 @@ impl QuerierTable {
                 span_recorder.child_span("cache GET parquet_file"),
             )
             .await;
+        let num_initial_parquet_file_chunks = parquet_files.files.len();
+        debug!(
+            num_chunks = num_initial_parquet_file_chunks,
+            "Fetched Parquet file chunks"
+        );
 
         let columns: HashSet<ColumnId> = parquet_files
             .files
@@ -282,19 +284,20 @@ impl QuerierTable {
                 span_recorder.child_span("prune partitions"),
             )
             .await;
-        let parquet_files = parquet_files
-            .files
-            .iter()
-            .filter(|f| {
-                if cached_partitions.contains_key(&f.partition_id) {
-                    true
-                } else {
+        let mut num_intermediate_parquet_files = 0;
+        let parquet_files = parquet_files.files.iter().filter_map(|f| {
+            match cached_partitions.get(&f.partition_id) {
+                Some(cached_partition) => {
+                    num_intermediate_parquet_files += 1;
+                    Some((Arc::clone(f), Arc::clone(cached_partition)))
+                }
+                None => {
                     self.prune_metrics
                         .was_pruned_early(f.row_count as u64, f.file_size_bytes as u64);
-                    false
+                    None
                 }
-            })
-            .cloned();
+            }
+        });
 
         // create parquet files
         let parquet_files = self
@@ -302,26 +305,11 @@ impl QuerierTable {
             .new_chunks(
                 Arc::clone(cached_table),
                 parquet_files,
-                &cached_partitions,
+                filters,
                 span_recorder.child_span("new_chunks"),
             )
             .await;
-
-        // Prune Parquet file chunks (assuming the ingester has already pruned ingester chunks)
-        let parquet_file_chunks: Vec<_> = parquet_files
-            .into_iter()
-            .map(|c| Arc::new(c) as Arc<dyn QueryChunk>)
-            .collect();
-        let num_initial_parquet_file_chunks = parquet_file_chunks.len();
-        debug!(num_chunks=%num_initial_parquet_file_chunks, "Fetched Parquet file chunks");
-
-        let pruned_parquet_file_chunks = self.prune_chunks(
-            // use up-to-date schema
-            &cached_table.schema,
-            parquet_file_chunks,
-            filters,
-        );
-        let num_final_parquet_file_chunks = pruned_parquet_file_chunks.len();
+        let num_final_parquet_file_chunks = parquet_files.len();
 
         // build final chunk list from ingester chunks + pruned parquet file chunks
         let chunks: Vec<_> = partitions
@@ -340,12 +328,17 @@ impl QuerierTable {
             })
             .flat_map(|c| c.into_chunks().into_iter())
             .map(|c| Arc::new(c) as Arc<dyn QueryChunk>)
-            .chain(pruned_parquet_file_chunks.into_iter())
+            .chain(
+                parquet_files
+                    .into_iter()
+                    .map(|c| Arc::new(c) as Arc<dyn QueryChunk>),
+            )
             .collect();
 
         debug!(
             ?filters,
             num_initial_parquet_file_chunks,
+            num_intermediate_parquet_files,
             num_final_parquet_file_chunks,
             num_ingester_chunks = chunks.len() - num_final_parquet_file_chunks,
             "pruned with pushed down predicates"
@@ -480,7 +473,8 @@ impl QuerierTable {
                 let ts_min_max = (!p.column_ranges.contains_key(TIME_COLUMN_NAME))
                     .then(|| TimestampMinMax::new(MIN_NANO_TIME, MAX_NANO_TIME));
 
-                let stats = create_chunk_statistics(1, schema, ts_min_max, &p.column_ranges);
+                let stats =
+                    create_chunk_statistics(None, schema, ts_min_max, Some(&p.column_ranges));
                 (Arc::new(stats), Arc::clone(schema.inner()))
             })
             .collect::<Vec<_>>();
@@ -579,40 +573,6 @@ impl QuerierTable {
         let partitions = partitions_result?;
 
         Ok(partitions)
-    }
-
-    fn prune_chunks(
-        &self,
-        table_schema: &Schema,
-        chunks: Vec<Arc<dyn QueryChunk>>,
-        filters: &[Expr],
-    ) -> Vec<Arc<dyn QueryChunk>> {
-        let chunks = match prune_chunks(table_schema, &chunks, filters) {
-            Ok(keeps) => {
-                assert_eq!(chunks.len(), keeps.len());
-                chunks
-                    .into_iter()
-                    .zip(keeps.iter())
-                    .filter_map(|(chunk, keep)| {
-                        if *keep {
-                            self.prune_metrics.was_not_pruned(chunk.as_ref());
-                            Some(chunk)
-                        } else {
-                            self.prune_metrics.was_pruned_late(chunk.as_ref());
-                            None
-                        }
-                    })
-                    .collect()
-            }
-            Err(reason) => {
-                for chunk in &chunks {
-                    self.prune_metrics.could_not_prune(reason, chunk.as_ref())
-                }
-                chunks
-            }
-        };
-
-        chunks
     }
 
     /// clear the parquet file cache

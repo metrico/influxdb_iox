@@ -170,6 +170,8 @@ pub enum Step {
     WriteLineProtocolExpectingError {
         line_protocol: String,
         expected_error_code: StatusCode,
+        expected_error_message: String,
+        expected_line_number: Option<usize>,
     },
 
     /// Writes the specified line protocol to the `/api/v2/write` endpoint
@@ -382,6 +384,8 @@ where
                 Step::WriteLineProtocolExpectingError {
                     line_protocol,
                     expected_error_code,
+                    expected_error_message,
+                    expected_line_number,
                 } => {
                     info!(
                         "====Begin writing line protocol expecting error to v2 HTTP API:\n{}",
@@ -389,6 +393,40 @@ where
                     );
                     let response = state.cluster.write_to_router(line_protocol, None).await;
                     assert_eq!(response.status(), *expected_error_code);
+
+                    let body: serde_json::Value = serde_json::from_slice(
+                        &hyper::body::to_bytes(response.into_body())
+                            .await
+                            .expect("should be able to read response body"),
+                    )
+                    .expect("response body should be valid json");
+
+                    assert_matches::assert_matches!(
+                        body["message"],
+                        serde_json::Value::String(ref s) if s.contains(expected_error_message),
+                        "error message did not match: expected '{}' to contain '{}'",
+                        body["message"],
+                        expected_error_message
+                    );
+
+                    match expected_line_number {
+                        Some(line) => {
+                            assert_matches::assert_matches!(
+                                body["line"],
+                                serde_json::Value::Number(ref n) if n == &serde_json::Number::from(*line),
+                                "error line did not match: expected '{}' to be '{}'",
+                                body["line"],
+                                line
+                            );
+                        }
+                        None => {
+                            assert!(
+                                !body.as_object().unwrap().contains_key("line"),
+                                "error line should not be present"
+                            );
+                        }
+                    };
+
                     info!("====Done writing line protocol expecting error");
                 }
                 Step::WriteLineProtocolWithAuthorization {

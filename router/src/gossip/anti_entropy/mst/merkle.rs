@@ -117,9 +117,9 @@ impl<'a> std::hash::Hash for NamespaceContentHash<'a> {
 mod tests {
     use std::{collections::hash_map::DefaultHasher, hash::Hasher};
 
-    use super::*;
+    use crate::gossip::anti_entropy::prop_gen::arbitrary_namespace_schema;
 
-    use super::super::tests::arbitrary_namespace_schema;
+    use super::*;
 
     use data_types::{
         partition_template::test_table_partition_override, ColumnId, ColumnsByName, NamespaceId,

@@ -33,6 +33,7 @@ pub trait RoundInfoSource: Debug + Display + Send + Sync {
         components: Arc<Components>,
         last_round_info: Option<Arc<RoundInfo>>,
         partition_info: &PartitionInfo,
+        concurrency_limit: usize,
         files: Vec<ParquetFile>,
     ) -> Result<(Arc<RoundInfo>, bool), DynError>;
 }
@@ -61,11 +62,18 @@ impl RoundInfoSource for LoggingRoundInfoWrapper {
         components: Arc<Components>,
         last_round_info: Option<Arc<RoundInfo>>,
         partition_info: &PartitionInfo,
+        concurrency_limit: usize,
         files: Vec<ParquetFile>,
     ) -> Result<(Arc<RoundInfo>, bool), DynError> {
         let res = self
             .inner
-            .calculate(components, last_round_info, partition_info, files)
+            .calculate(
+                components,
+                last_round_info,
+                partition_info,
+                concurrency_limit,
+                files,
+            )
             .await;
         if let Ok((round_info, done)) = &res {
             debug!(round_info_source=%self.inner, %round_info, %done, "running round");
@@ -92,33 +100,6 @@ impl LevelBasedRoundInfo {
             max_num_files_per_plan,
             max_total_file_size_per_plan,
         }
-    }
-
-    /// Returns true if the scenario looks like ManySmallFiles, but we can't group them well into branches.
-    /// TODO: use this or remove it.  For now, keep it in case we need the temporary workaround again.
-    /// This can be used to identify criteria to trigger a SimulatedLeadingEdge as a temporary workaround
-    /// for a situation that isn't well handled, when the desire is to postpone optimal handling to a later PR.
-    #[allow(dead_code)]
-    pub fn many_ungroupable_files(
-        &self,
-        files: &[ParquetFile],
-        start_level: CompactionLevel,
-        max_total_file_size_to_group: usize,
-    ) -> bool {
-        if self.too_many_small_files_to_compact(files, CompactionLevel::Initial) {
-            let start_level_files = files
-                .iter()
-                .filter(|f| f.compaction_level == start_level)
-                .collect::<Vec<_>>();
-            let start_count = start_level_files.len();
-            let mut chains = split_into_chains(start_level_files.into_iter().cloned().collect());
-            chains = merge_small_l0_chains(chains, max_total_file_size_to_group);
-
-            if chains.len() > 1 && chains.len() > start_count / 3 {
-                return true;
-            }
-        }
-        false
     }
 
     /// Returns true if number of files of the given start_level and
@@ -332,15 +313,21 @@ impl LevelBasedRoundInfo {
         &self,
         partition_info: &PartitionInfo,
         last_round_info: Option<Arc<RoundInfo>>,
+        active_range_limit: usize,
         files: Vec<ParquetFile>,
     ) -> (Vec<CompactRange>, Option<Vec<ParquetFile>>) {
+        let mut ranges: Vec<CompactRange>;
+        let l2_files_for_later: Option<Vec<ParquetFile>>;
+
         // We require exactly 1 source of information: either 'files' because this is the first round, or 'last_round_info' from the prior round.
         if let Some(last_round_info) = last_round_info {
             assert!(
                 files.is_empty(),
                 "last_round_info and files must not both be populated"
             );
-            self.evaluate_prior_ranges(partition_info, last_round_info)
+            // All ComapctRanges will have the (stale) op from the prior round.
+            (ranges, l2_files_for_later) =
+                self.evaluate_prior_ranges(partition_info, last_round_info);
         } else {
             assert!(
                 !files.is_empty(),
@@ -348,8 +335,24 @@ impl LevelBasedRoundInfo {
             );
             // This is the first round, so no prior round info.
             // We'll take a look at 'files' and see what we can do.
-            self.split_files_into_ranges(files)
+            // All ComapctRanges will have their op set to None.
+            (ranges, l2_files_for_later) = self.split_files_into_ranges(files);
         }
+
+        // Apply the active_range_limit by marking ranges to the `right` of that threshold Deferred.
+        for (i, range) in ranges.iter_mut().enumerate() {
+            if i < active_range_limit {
+                if let Some(op) = range.op.as_ref() {
+                    if op.is_deferred() {
+                        range.op = None; // Caller preserves Deferred, clear it to determine appropriate op.
+                    }
+                }
+            } else {
+                range.op = Some(CompactType::Deferred {}); // Caller preserves Deferred.
+            }
+        }
+
+        (ranges, l2_files_for_later)
     }
 
     // evaluate_prior_ranges is a helper function for derive_draft_ranges, used when there is prior round info.
@@ -401,7 +404,7 @@ impl LevelBasedRoundInfo {
                 partition_info.partition_id()
             );
 
-            if let Some(split_times) = range.op.split_times() {
+            if let Some(split_times) = range.op.as_ref().unwrap().split_times() {
                 // In the prior round, this range did vertical splitting.  Those split times now divide this range into several ranges.
 
                 if prior_range.is_some() {
@@ -432,7 +435,7 @@ impl LevelBasedRoundInfo {
                     split_ranges.insert(
                         0,
                         CompactRange {
-                            op: CompactType::Deferred {},
+                            op: range.op.clone(),
                             min: split_time + 1,
                             max,
                             cap,
@@ -457,7 +460,7 @@ impl LevelBasedRoundInfo {
                     split_ranges.insert(
                         0,
                         CompactRange {
-                            op: CompactType::Deferred {},
+                            op: range.op.clone(),
                             min: range.min,
                             max,
                             cap,
@@ -483,6 +486,7 @@ impl LevelBasedRoundInfo {
                     prior.cap += range.cap;
                     prior.has_l0s = prior.has_l0s || has_l0s;
                     prior.add_files_for_now(files_for_now);
+                    prior.op = None;
                 } else {
                     if let Some(prior_range) = prior_range {
                         // we'll not be consolidating with with the prior range, so push it
@@ -555,7 +559,7 @@ impl LevelBasedRoundInfo {
             for mut chain in chains {
                 let mut max = chain.iter().map(|f| f.max_time).max().unwrap().get();
 
-                // 'chain' is the L0s that will become a region.  We also need the L1s and L2s that belong in this region.
+                // 'chain' is the L0s that will become a range.  We also need the L1s and L2s that belong in this range.
 
                 (this_split, l1_files) =
                     l1_files.into_iter().partition(|f| f.min_time.get() <= max);
@@ -572,7 +576,7 @@ impl LevelBasedRoundInfo {
                     .sum::<usize>();
 
                 ranges.push(CompactRange {
-                    op: CompactType::Deferred {},
+                    op: None,
                     min,
                     max,
                     cap,
@@ -593,7 +597,7 @@ impl LevelBasedRoundInfo {
                     .sum::<usize>();
 
                 ranges.push(CompactRange {
-                    op: CompactType::Deferred {},
+                    op: None,
                     min,
                     max,
                     cap,
@@ -620,7 +624,7 @@ impl LevelBasedRoundInfo {
                 .sum::<usize>();
             (
                 vec![CompactRange {
-                    op: CompactType::Deferred {},
+                    op: None,
                     min,
                     max,
                     cap,
@@ -644,11 +648,20 @@ impl RoundInfoSource for LevelBasedRoundInfo {
         components: Arc<Components>,
         last_round_info: Option<Arc<RoundInfo>>,
         partition_info: &PartitionInfo,
+        concurrency_limit: usize,
         files: Vec<ParquetFile>,
     ) -> Result<(Arc<RoundInfo>, bool), DynError> {
         // Step 1: Establish range boundaries, with files in each range.
-        let (prior_ranges, mut l2_files_for_later) =
-            self.derive_draft_ranges(partition_info, last_round_info, files);
+        // The op in each range will either be the previous op, None, or Deferred.  If the op comes back from
+        // derive_draft_ranges as Deferred, the CompactRange will be skipped for this round.
+        // derive_draft_ranges will limit the number of active ranges we work on in a round to twice the
+        // concurrency limit, with the excess ranges marked as Deferred.
+        let (prior_ranges, mut l2_files_for_later) = self.derive_draft_ranges(
+            partition_info,
+            last_round_info,
+            concurrency_limit * 2,
+            files,
+        );
 
         let range_cnt = prior_ranges.len();
 
@@ -685,7 +698,10 @@ impl RoundInfoSource for LevelBasedRoundInfo {
                 .iter()
                 .any(|f| f.compaction_level == CompactionLevel::Initial);
 
-            if range.has_l0s {
+            // An op of Deferred will be preserved (and the range will skip compaction this round).
+            // All other ops will be replaced with a new op.  op might be None entering this block,
+            // but it will be Some after this if/else clause.
+            if range.op != Some(CompactType::Deferred {}) && range.has_l0s {
                 let split_times = self.consider_vertical_splitting(
                     partition_info.partition_id(),
                     files_for_now.clone().to_vec(),
@@ -693,47 +709,44 @@ impl RoundInfoSource for LevelBasedRoundInfo {
                 );
 
                 if !split_times.is_empty() {
-                    range.op = CompactType::VerticalSplit { split_times };
+                    range.op = Some(CompactType::VerticalSplit { split_times });
                 } else if self
                     .too_many_small_files_to_compact(&files_for_now, CompactionLevel::Initial)
                 {
-                    range.op = CompactType::ManySmallFiles {
+                    range.op = Some(CompactType::ManySmallFiles {
                         start_level: CompactionLevel::Initial,
                         max_num_files_to_group: self.max_num_files_per_plan,
                         max_total_file_size_to_group: self.max_total_file_size_per_plan,
-                    };
+                    });
                 } else {
-                    range.op = CompactType::TargetLevel {
+                    range.op = Some(CompactType::TargetLevel {
                         target_level: CompactionLevel::FileNonOverlapped,
                         max_total_file_size_to_group: self.max_total_file_size_per_plan,
-                    };
+                    });
                 }
             } else if range_cnt == 1 {
-                range.op = CompactType::TargetLevel {
+                range.op = Some(CompactType::TargetLevel {
                     target_level: CompactionLevel::Final,
                     max_total_file_size_to_group: self.max_total_file_size_per_plan,
-                };
+                });
             } else {
                 // The L0s of this range are compacted, but this range needs to hang out a while until its neighbors catch up.
-                range.op = CompactType::Deferred {};
+                range.op = Some(CompactType::Deferred {});
             };
 
-            if range.op.is_deferred() {
+            if range.op == Some(CompactType::Deferred {}) {
                 range.add_files_for_later(files_for_now);
                 ranges.push(range);
             } else {
-                // start_level is usually the lowest level we have files in, but occasionally we decide to
-                // compact L1->L2 when L0s still exist.  If this comes back as L1, we'll ignore L0s for this
-                // round and force an early L1-L2 compaction.
                 let (files_for_now, mut files_later) = components.round_split.split(
                     files_for_now,
-                    range.op.clone(),
+                    range.op.as_ref().unwrap().clone(),
                     partition_info.partition_id(),
                 );
 
                 let (branches, more_for_later) = components.divide_initial.divide(
                     files_for_now,
-                    range.op.clone(),
+                    range.op.as_ref().unwrap().clone(),
                     partition_info.partition_id(),
                 );
 

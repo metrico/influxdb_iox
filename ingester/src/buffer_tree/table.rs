@@ -353,10 +353,10 @@ fn keep_after_pruning_partition_key(
     );
 
     let chunk_statistics = Arc::new(create_chunk_statistics(
-        data.num_rows(),
+        Some(data.num_rows()),
         data.schema(),
         data.ts_min_max(),
-        &column_ranges,
+        Some(&column_ranges),
     ));
 
     prune_summaries(

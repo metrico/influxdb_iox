@@ -1,5 +1,6 @@
 use hyper::{Body, Response, StatusCode};
 use observability_deps::tracing::warn;
+use serde::Serialize;
 
 /// Constants used in API error codes.
 ///
@@ -91,16 +92,27 @@ impl From<StatusCode> for HttpApiErrorCode {
     }
 }
 
+impl Serialize for HttpApiErrorCode {
+    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        serializer.serialize_str(self.as_text())
+    }
+}
+
 /// Error that is compatible with the Influxdata Cloud 2 HTTP API.
 ///
 /// See <https://docs.influxdata.com/influxdb/v2.1/api/#operation/PostWrite>.
-#[derive(Debug)]
+#[derive(Debug, Serialize)]
 pub struct HttpApiError {
     /// Machine-readable error code.
     code: HttpApiErrorCode,
 
     /// Human-readable message.
+    #[serde(rename = "message")]
     msg: String,
+
+    /// Optional error line (for line protocol errors).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    line: Option<usize>,
 }
 
 impl HttpApiError {
@@ -109,18 +121,18 @@ impl HttpApiError {
         Self {
             code: code.into(),
             msg: msg.into(),
+            line: None,
         }
+    }
+
+    /// Add body to error.
+    pub fn with_line(self, line: Option<usize>) -> Self {
+        Self { line, ..self }
     }
 
     /// Generate response body for this error.
     fn body(&self) -> Body {
-        let json = serde_json::json!({
-            "code": self.code.as_text().to_string(),
-            "message": self.msg.clone(),
-        })
-        .to_string();
-
-        Body::from(json)
+        Body::from(serde_json::to_string(&self).expect("must serialise to json"))
     }
 
     /// Generate response for this error.

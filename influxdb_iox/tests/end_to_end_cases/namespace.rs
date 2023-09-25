@@ -94,6 +94,10 @@ async fn soft_deletion() {
             Step::WriteLineProtocolExpectingError {
                 line_protocol: format!("{table_name},tag1=A,tag2=B val=42i 123456"),
                 expected_error_code: StatusCode::FORBIDDEN,
+                expected_error_message:
+                    "dml handler error: data in table ananas is outside of the retention period"
+                        .into(),
+                expected_line_number: None,
             },
             // Update the retention period again to infinite retention
             Step::Custom(Box::new(move |state: &mut StepTestState| {
@@ -120,6 +124,10 @@ async fn soft_deletion() {
             Step::WriteLineProtocolExpectingError {
                 line_protocol: format!("{table_name},tag1=A,tag2=B val=42i 123456"),
                 expected_error_code: StatusCode::FORBIDDEN,
+                expected_error_message:
+                    "dml handler error: data in table ananas is outside of the retention period"
+                        .into(),
+                expected_line_number: None,
             },
             // Restart the router
             Step::Custom(Box::new(move |state: &mut StepTestState| {
@@ -185,6 +193,8 @@ async fn soft_deletion() {
             Step::WriteLineProtocolExpectingError {
                 line_protocol: format!("{table_name},tag1=A,tag2=B val=126i 12345678"),
                 expected_error_code: StatusCode::INTERNAL_SERVER_ERROR,
+                expected_error_message: "failed to resolve namespace ID".into(),
+                expected_line_number: None,
             },
             // Recreating the same namespace errors
             Step::Custom(Box::new(move |state: &mut StepTestState| {

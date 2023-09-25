@@ -224,6 +224,7 @@ impl std::error::Error for IoxHttpErrorAdaptor {}
 impl HttpApiErrorSource for IoxHttpErrorAdaptor {
     fn to_http_api_error(&self) -> HttpApiError {
         HttpApiError::new(self.0.as_status_code(), self.to_string())
+            .with_line(self.0.get_parse_error_line_index())
     }
 }
 

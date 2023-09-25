@@ -1042,6 +1042,8 @@ impl FieldChecker {
                 } else {
                     ProjectionType::WindowAggregateMixed
                 }
+            } else if self.has_distinct {
+                ProjectionType::RawDistinct
             } else {
                 ProjectionType::Aggregate
             }
@@ -1566,7 +1568,7 @@ pub(crate) enum ProjectionType {
     /// A query that projects no aggregate or selector functions.
     #[default]
     Raw,
-    /// A query that projects a single DISTINCT(field)
+    /// A query that projects a single DISTINCT(field).
     RawDistinct,
     /// A query that projects one or more aggregate functions or
     /// two or more selector functions.
