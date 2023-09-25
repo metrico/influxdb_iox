@@ -54,16 +54,6 @@ impl RoundSplit for ManyFilesRoundSplit {
                 (start_files, rest)
             }
 
-            CompactType::SimulatedLeadingEdge { .. } => {
-                // Split first two levels from the rest
-                let (start_files, rest) = files.into_iter().partition(|f| {
-                    f.compaction_level == CompactionLevel::Initial
-                        || f.compaction_level == CompactionLevel::FileNonOverlapped
-                });
-
-                (start_files, rest)
-            }
-
             CompactType::VerticalSplit { split_times } => {
                 // We're splitting L0 files at split_times.  So any L0 that overlaps a split_time needs processed, and all other files are ignored until later.
                 let (split_files, rest): (Vec<ParquetFile>, Vec<ParquetFile>) =

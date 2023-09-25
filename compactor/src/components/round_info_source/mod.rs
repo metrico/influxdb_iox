@@ -102,33 +102,6 @@ impl LevelBasedRoundInfo {
         }
     }
 
-    /// Returns true if the scenario looks like ManySmallFiles, but we can't group them well into branches.
-    /// TODO: use this or remove it.  For now, keep it in case we need the temporary workaround again.
-    /// This can be used to identify criteria to trigger a SimulatedLeadingEdge as a temporary workaround
-    /// for a situation that isn't well handled, when the desire is to postpone optimal handling to a later PR.
-    #[allow(dead_code)]
-    pub fn many_ungroupable_files(
-        &self,
-        files: &[ParquetFile],
-        start_level: CompactionLevel,
-        max_total_file_size_to_group: usize,
-    ) -> bool {
-        if self.too_many_small_files_to_compact(files, CompactionLevel::Initial) {
-            let start_level_files = files
-                .iter()
-                .filter(|f| f.compaction_level == start_level)
-                .collect::<Vec<_>>();
-            let start_count = start_level_files.len();
-            let mut chains = split_into_chains(start_level_files.into_iter().cloned().collect());
-            chains = merge_small_l0_chains(chains, max_total_file_size_to_group);
-
-            if chains.len() > 1 && chains.len() > start_count / 3 {
-                return true;
-            }
-        }
-        false
-    }
-
     /// Returns true if number of files of the given start_level and
     /// their overlapped files in next level is over limit, and if those
     /// files are sufficiently small.

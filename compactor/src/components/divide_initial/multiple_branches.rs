@@ -1,6 +1,6 @@
 use std::fmt::Display;
 
-use data_types::{CompactionLevel, ParquetFile, Timestamp, TransitionPartitionId};
+use data_types::{CompactionLevel, ParquetFile, TransitionPartitionId};
 use observability_deps::tracing::warn;
 
 use crate::round_info::CompactType;
@@ -29,7 +29,6 @@ impl Display for MultipleBranchesDivideInitial {
 // except for:
 //   - ManySmallFiles, which is cluttered from previous challenges when RoundInfo didn't have as much influence.
 //     this clutter will either be going away, or maybe ManySmallFiles goes away entirely
-//   - SimulatedLeadingEdge which is likley a temporary workaround during the refactoring (i.e. likely go go away)
 //
 // Over time this function should work towards being a simpler grouping into batches for concurrent operations.
 // If that happens (and this layer remains), this should probably be renamed to emphasize its role in branch creation
@@ -130,72 +129,6 @@ impl DivideInitial for MultipleBranchesDivideInitial {
 
                     (vec![for_now], for_later)
                 }
-            }
-
-            CompactType::SimulatedLeadingEdge {
-                max_num_files_to_group,
-                max_total_file_size_to_group,
-            } => {
-                // There may be a lot of L0s, but we're going to keep it simple and just look at the first (few).
-                let start_level = CompactionLevel::Initial;
-
-                // Separate start_level_files (L0s) from target_level_files (L1), and `more_for_later` which is all the rest of the files (L2).
-                // We'll then with the first L0 and see how many L1s it needs to drag into its compaction, and then look at the next L0
-                // and see how many L1s it needs, etc.  We'll end up with 1 or more L0s, and whatever L1s they need to compact with.
-                // When we can't add any more without getting "too big", we'll consider that our branch, and all remaining L0s, L1s & L2s
-                // are returned as
-
-                let (start_level_files, rest): (Vec<ParquetFile>, Vec<ParquetFile>) = files
-                    .into_iter()
-                    .partition(|f| f.compaction_level == start_level);
-
-                let (mut target_level_files, mut more_for_later): (
-                    Vec<ParquetFile>,
-                    Vec<ParquetFile>,
-                ) = rest
-                    .into_iter()
-                    .partition(|f| f.compaction_level == start_level.next());
-
-                let mut start_level_files = order_files(start_level_files, start_level);
-                let mut current_branch = Vec::with_capacity(start_level_files.len());
-                let mut current_branch_size = 0;
-                let mut min_time = Timestamp::new(i64::MAX);
-                let mut max_time = Timestamp::new(0);
-
-                // Until we run out of L0s or return early with a branch to compact, keep adding L0s & their overlapping L1s to the current branch.
-                while !start_level_files.is_empty() {
-                    let f = start_level_files.remove(0);
-
-                    // overlaps of this new file isn't enough - we must look for overlaps of this + all previously added L0s, because the result of
-                    // compacting them will be that whole time range.  Therefore, we must include all L1s overlapping that entire time range.
-                    min_time = min_time.min(f.min_time);
-                    max_time = max_time.max(f.max_time);
-
-                    let (mut overlaps, remainder): (Vec<ParquetFile>, Vec<ParquetFile>) =
-                        target_level_files
-                            .into_iter()
-                            .partition(|f2| f2.overlaps_time_range(min_time, max_time));
-
-                    target_level_files = remainder;
-
-                    if current_branch_size == 0 || // minimum 1 start level file
-                    (current_branch.len() + overlaps.len() < max_num_files_to_group && current_branch_size + f.size() < max_total_file_size_to_group)
-                    {
-                        // This L0 & its overlapping L1s fit in the current branch.
-                        current_branch_size += f.size();
-                        current_branch.push(f);
-                        current_branch.append(&mut overlaps);
-                    } else {
-                        // This L0 & its overlapping L1s would make the current branch too big.
-                        // We're done - what we previously added to the branch will be compacted, everything else goes in more_for_later.
-                        more_for_later.push(f);
-                        more_for_later.append(&mut overlaps);
-                        more_for_later.append(&mut start_level_files);
-                        more_for_later.append(&mut target_level_files);
-                        return (vec![current_branch], more_for_later);
-                    }
-                }
-                (vec![current_branch], more_for_later)
             }
 
             // RoundSplit already eliminated all the files we don't need to work on.
