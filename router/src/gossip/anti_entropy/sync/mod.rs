@@ -5,7 +5,7 @@
 pub mod actor;
 pub mod consistency_prober;
 pub mod rpc_server;
-pub(crate) mod rpc_worker;
+pub mod rpc_worker;
 pub mod traits;
 
 #[cfg(test)]
