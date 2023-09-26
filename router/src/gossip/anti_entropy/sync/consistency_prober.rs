@@ -59,8 +59,8 @@ pub struct ProbeDispatcher {
 }
 
 impl ProbeDispatcher {
-    /// Initialise a new [`ProbeDispatcher`]and enqueuing the probe into the
-    /// returned channel.
+    /// Initialise a new [`ProbeDispatcher`] that enqueues dispatched probes
+    /// into the returned channel.
     pub fn new() -> (Self, mpsc::Receiver<(ConsistencyProbe, Identity)>) {
         let (tx, rx) = mpsc::channel(5);
         (Self { tx }, rx)
