@@ -364,8 +364,6 @@ async fn execute_branch(
     transmit_progress_signal: Arc<Sender<bool>>,
     gossip_handle: Option<Arc<CompactionEventTx>>,
 ) -> Result<Vec<ParquetFile>, DynError> {
-    let files_next: Vec<ParquetFile> = Vec::new();
-
     // Keep the current state as a check to make sure this is the only compactor modifying this branch's
     // files. Check that the catalog state for the files in this set is the same before committing and, if not,
     // throw away the compaction work we've done.
@@ -390,10 +388,10 @@ async fn execute_branch(
     // order to further compact.
     if !components
         .post_classification_partition_filter
-        .apply(&partition_info, &files_to_make_progress_on)
+        .apply(&partition_info, &files_to_make_progress_on, &files_to_keep)
         .await?
     {
-        return Ok(files_next);
+        return Ok(files_to_keep);
     }
 
     let FilesForProgress {

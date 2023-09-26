@@ -3,6 +3,7 @@ use std::fmt::{Debug, Display};
 use async_trait::async_trait;
 
 use crate::{error::DynError, file_classification::FilesForProgress, PartitionInfo};
+use data_types::ParquetFile;
 
 pub mod logging;
 pub mod metrics;
@@ -20,5 +21,6 @@ pub trait PostClassificationPartitionFilter: Debug + Display + Send + Sync {
         &self,
         partition_info: &PartitionInfo,
         files_to_make_progress_on: &FilesForProgress,
+        files_to_keep: &[ParquetFile],
     ) -> Result<bool, DynError>;
 }

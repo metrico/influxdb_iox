@@ -4,6 +4,7 @@ use async_trait::async_trait;
 use observability_deps::tracing::{debug, error, info};
 
 use crate::{error::DynError, file_classification::FilesForProgress, PartitionInfo};
+use data_types::ParquetFile;
 
 use super::PostClassificationPartitionFilter;
 
@@ -43,10 +44,11 @@ where
         &self,
         partition_info: &PartitionInfo,
         files_to_make_progress_on: &FilesForProgress,
+        files_to_keep: &[ParquetFile],
     ) -> Result<bool, DynError> {
         let res = self
             .inner
-            .apply(partition_info, files_to_make_progress_on)
+            .apply(partition_info, files_to_make_progress_on, files_to_keep)
             .await;
         match &res {
             Ok(true) => {
@@ -115,16 +117,16 @@ mod tests {
         let capture = TracingCapture::new();
 
         assert!(filter
-            .apply(&p_info1, &FilesForProgress::empty())
+            .apply(&p_info1, &FilesForProgress::empty(), &[])
             .await
             .unwrap());
         assert!(!filter
-            .apply(&p_info2, &FilesForProgress::empty())
+            .apply(&p_info2, &FilesForProgress::empty(), &[])
             .await
             .unwrap());
         assert_eq!(
             filter
-                .apply(&p_info3, &FilesForProgress::empty())
+                .apply(&p_info3, &FilesForProgress::empty(), &[])
                 .await
                 .unwrap_err()
                 .to_string(),

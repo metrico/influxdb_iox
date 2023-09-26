@@ -89,6 +89,7 @@ pub enum NoneReason {
     NoInputFiles,
     NoFilesToSplitFound,
     Deferred,
+    FilesSkipped,
 }
 
 /// Reasons why there are files to split
@@ -112,6 +113,15 @@ pub enum CompactReason {
 }
 
 impl FilesToSplitOrCompact {
+    /// Generate a FilesToSplitOrCompact from a list of files to compact
+    pub fn from(files_to_compact: Vec<ParquetFile>, reason: CompactReason) -> Self {
+        if files_to_compact.is_empty() {
+            Self::None(NoneReason::FilesSkipped)
+        } else {
+            Self::Compact(files_to_compact, reason)
+        }
+    }
+
     /// Number of files to compact; useful for logging
     pub fn num_files_to_compact(&self) -> usize {
         match &self {

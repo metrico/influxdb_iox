@@ -6,6 +6,7 @@ use std::{
 use async_trait::async_trait;
 
 use crate::{error::DynError, file_classification::FilesForProgress, PartitionInfo};
+use data_types::ParquetFile;
 
 use super::PostClassificationPartitionFilter;
 
@@ -40,6 +41,7 @@ impl PostClassificationPartitionFilter for MockPostClassificationPartitionFilter
         &self,
         _partition_info: &PartitionInfo,
         _files_to_make_progress_on: &FilesForProgress,
+        _files_to_keep: &[ParquetFile],
     ) -> Result<bool, DynError> {
         self.return_values.lock().unwrap().next().unwrap()
     }

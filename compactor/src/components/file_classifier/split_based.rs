@@ -297,7 +297,7 @@ fn file_classification_for_many_files(
 
     let files_to_make_progress_on = FilesForProgress {
         upgrade: vec![],
-        split_or_compact: FilesToSplitOrCompact::Compact(
+        split_or_compact: FilesToSplitOrCompact::from(
             files_to_compact,
             CompactReason::ManySmallFiles,
         ),
