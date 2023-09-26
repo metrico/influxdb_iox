@@ -2,7 +2,10 @@ use std::sync::Arc;
 
 use async_trait::async_trait;
 use ingester_query_grpc::IngesterQueryRequest;
-use trace::{ctx::SpanContext, span::SpanRecorder};
+use trace::{
+    ctx::SpanContext,
+    span::{SpanEvent, SpanRecorder},
+};
 
 use super::flight_client::{Error as FlightClientError, IngesterFlightClient, QueryData};
 
@@ -51,7 +54,7 @@ impl IngesterFlightClient for InvalidateOnErrorFlightClient {
 
         if is_err {
             self.inner.invalidate_connection(ingester_addr).await;
-            span_recorder.event("invalidate connection");
+            span_recorder.event(SpanEvent::new("invalidate connection"));
         }
 
         res

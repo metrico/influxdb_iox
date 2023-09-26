@@ -6343,6 +6343,7 @@ dependencies = [
 name = "trace_http"
 version = "0.1.0"
 dependencies = [
+ "bytes",
  "futures",
  "hashbrown 0.14.0",
  "http",
