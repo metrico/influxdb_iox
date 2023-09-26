@@ -4904,6 +4904,7 @@ dependencies = [
  "tonic",
  "trace",
  "trace_http",
+ "uuid",
  "workspace-hack",
 ]
 

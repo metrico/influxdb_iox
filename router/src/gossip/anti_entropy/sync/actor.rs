@@ -175,6 +175,8 @@ where
         // Wait at least SYNC_ROUND_INTERVAL between consistency checks.
         ticker.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
 
+        let _ = ticker.tick().await;
+
         loop {
             tokio::select! {
                 _ = ticker.tick() =>
@@ -199,7 +201,7 @@ where
     /// If the local node's MST root hash is equal to the peer root hash, this
     /// is a no-op.
     ///
-    /// If the hashes differ, this function switchs the exchange to gRPC/TCP,
+    /// If the hashes differ, this function switches the exchange to gRPC/TCP,
     /// and sends a serialised representation of the MST to the sender (request
     /// 2).
     async fn perform_consistency_check(
@@ -313,15 +315,17 @@ mod tests {
 
         // Wait for a probe to happen.
         let mut calls = async {
-            loop {
+            for _ in 0..100 {
+                tokio::time::pause();
                 let calls = consistency_prober.calls();
                 if !calls.is_empty() {
                     return calls;
                 }
+                tokio::time::resume();
                 tokio::time::sleep(Duration::from_millis(50)).await;
             }
+            panic!("timeout");
         }
-        .with_timeout_panic(Duration::from_secs(5))
         .await;
 
         // It's technically possible that multiple probes could have been sent

@@ -67,6 +67,7 @@ test_helpers = { version = "0.1.0", path = "../test_helpers", features = [
 ] }
 tokio = { version = "1", features = ["test-util"] }
 tokio-stream = { version = "0.1.13", default_features = false, features = [] }
+uuid = { version = "1.4.1", features = ["v4"] }
 
 [lib]
 # Allow --save-baseline to work
