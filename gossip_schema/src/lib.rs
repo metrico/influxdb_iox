@@ -177,12 +177,12 @@ mod tests {
         .await;
 
         let a = Peer {
-            tx: SchemaTx::new(a),
+            tx: SchemaTx::new(Arc::new(a)),
             rx: a_rx,
         };
 
         let b = Peer {
-            tx: SchemaTx::new(b),
+            tx: SchemaTx::new(Arc::new(b)),
             rx: b_rx,
         };
 
