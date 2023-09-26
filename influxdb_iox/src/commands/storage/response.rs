@@ -11,7 +11,9 @@ use generated_types::{
     read_response::{frame::Data, DataType, SeriesFrame},
     Tag,
 };
-use schema::{builder::SchemaBuilder, InfluxColumnType, InfluxFieldType, Schema};
+use schema::{
+    builder::SchemaBuilder, InfluxColumnType, InfluxFieldType, Schema, TIME_DATA_TIMEZONE,
+};
 use snafu::{ResultExt, Snafu};
 
 #[derive(Debug, Snafu)]
@@ -464,9 +466,10 @@ impl TryFrom<IntermediateTable> for RecordBatch {
         }
 
         // time column
-        rb_columns.push(Arc::new(arrow::array::TimestampNanosecondArray::from(
-            table.time_column,
-        )));
+        rb_columns.push(Arc::new(
+            arrow::array::TimestampNanosecondArray::from(table.time_column)
+                .with_timezone_opt(TIME_DATA_TIMEZONE()),
+        ));
 
         Self::try_new(arrow_schema, rb_columns).context(ArrowSnafu)
     }

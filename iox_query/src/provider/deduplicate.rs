@@ -369,6 +369,7 @@ mod test {
 
     use super::*;
     use arrow::array::{DictionaryArray, Int64Array};
+    use schema::TIME_DATA_TIMEZONE;
     use std::iter::FromIterator;
 
     #[tokio::test]
@@ -465,7 +466,8 @@ mod test {
         let f1 = Float64Array::from(vec![Some(1.0), None]);
         let f2 = Float64Array::from(vec![None, Some(3.0)]);
 
-        let time = TimestampNanosecondArray::from(vec![Some(100), Some(100)]);
+        let time = TimestampNanosecondArray::from(vec![Some(100), Some(100)])
+            .with_timezone_opt(TIME_DATA_TIMEZONE());
 
         let batch = RecordBatch::try_from_iter(vec![
             ("f1", Arc::new(f1) as ArrayRef),

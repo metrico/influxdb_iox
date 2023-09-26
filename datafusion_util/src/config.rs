@@ -4,6 +4,7 @@ use datafusion::{
     config::ConfigOptions, execution::runtime_env::RuntimeEnv, prelude::SessionConfig,
 };
 use object_store::ObjectStore;
+use schema::TIME_DATA_TIMEZONE;
 use url::Url;
 
 // The default catalog name - this impacts what SQL queries use if not specified
@@ -20,6 +21,7 @@ pub fn iox_session_config() -> SessionConfig {
     let mut options = ConfigOptions::new();
     options.execution.parquet.pushdown_filters = true;
     options.execution.parquet.reorder_filters = true;
+    options.execution.time_zone = TIME_DATA_TIMEZONE().map(|s| s.to_string());
     options.optimizer.repartition_sorts = true;
 
     SessionConfig::from(options)

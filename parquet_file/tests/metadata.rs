@@ -18,6 +18,7 @@ use parquet_file::{
 };
 use schema::{
     builder::SchemaBuilder, sort::SortKey, InfluxColumnType, InfluxFieldType, TIME_COLUMN_NAME,
+    TIME_DATA_TIMEZONE,
 };
 
 #[tokio::test]
@@ -438,7 +439,11 @@ fn to_string_array(strs: &[&str]) -> ArrayRef {
 }
 
 fn to_timestamp_array(timestamps: &[i64]) -> ArrayRef {
-    let array: TimestampNanosecondArray = timestamps.iter().map(|v| Some(*v)).collect();
+    let array = timestamps
+        .iter()
+        .map(|v| Some(*v))
+        .collect::<TimestampNanosecondArray>()
+        .with_timezone_opt(TIME_DATA_TIMEZONE());
     Arc::new(array)
 }
 

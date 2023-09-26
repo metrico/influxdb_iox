@@ -39,6 +39,7 @@ use parking_lot::Mutex;
 use parquet_file::storage::ParquetExecInput;
 use schema::{
     builder::SchemaBuilder, merge::SchemaMerger, sort::SortKey, Schema, TIME_COLUMN_NAME,
+    TIME_DATA_TIMEZONE,
 };
 use std::{
     any::Any,
@@ -588,8 +589,8 @@ impl TestChunk {
         // Construct stats
         let stats = ColumnStatistics {
             null_count: Some(null_count as usize),
-            max_value: max.map(|v| ScalarValue::TimestampNanosecond(Some(v), None)),
-            min_value: min.map(|v| ScalarValue::TimestampNanosecond(Some(v), None)),
+            max_value: max.map(|v| ScalarValue::TimestampNanosecond(Some(v), TIME_DATA_TIMEZONE())),
+            min_value: min.map(|v| ScalarValue::TimestampNanosecond(Some(v), TIME_DATA_TIMEZONE())),
             distinct_count: distinct_count.map(|c| c.get() as usize),
         };
 
@@ -603,8 +604,14 @@ impl TestChunk {
             .get_mut(TIME_COLUMN_NAME)
             .expect("stats in sync w/ columns");
 
-        stats.min_value = Some(ScalarValue::TimestampNanosecond(Some(min), None));
-        stats.max_value = Some(ScalarValue::TimestampNanosecond(Some(max), None));
+        stats.min_value = Some(ScalarValue::TimestampNanosecond(
+            Some(min),
+            TIME_DATA_TIMEZONE(),
+        ));
+        stats.max_value = Some(ScalarValue::TimestampNanosecond(
+            Some(max),
+            TIME_DATA_TIMEZONE(),
+        ));
 
         self
     }
@@ -684,9 +691,9 @@ impl TestChunk {
                 DataType::Int64 => Arc::new(Int64Array::from(vec![1000])) as ArrayRef,
                 DataType::UInt64 => Arc::new(UInt64Array::from(vec![1000])) as ArrayRef,
                 DataType::Utf8 => Arc::new(StringArray::from(vec!["MA"])) as ArrayRef,
-                DataType::Timestamp(TimeUnit::Nanosecond, _) => {
-                    Arc::new(TimestampNanosecondArray::from(vec![1000])) as ArrayRef
-                }
+                DataType::Timestamp(TimeUnit::Nanosecond, tz) => Arc::new(
+                    TimestampNanosecondArray::from(vec![1000]).with_timezone_opt(tz.clone()),
+                ) as ArrayRef,
                 DataType::Dictionary(key, value)
                     if key.as_ref() == &DataType::Int32 && value.as_ref() == &DataType::Utf8 =>
                 {
@@ -725,9 +732,9 @@ impl TestChunk {
             .iter()
             .map(|(_influxdb_column_type, field)| match field.data_type() {
                 DataType::Int64 => Arc::new(Int64Array::from(vec![field_val])) as ArrayRef,
-                DataType::Timestamp(TimeUnit::Nanosecond, _) => {
-                    Arc::new(TimestampNanosecondArray::from(vec![ts_val])) as ArrayRef
-                }
+                DataType::Timestamp(TimeUnit::Nanosecond, tz) => Arc::new(
+                    TimestampNanosecondArray::from(vec![ts_val]).with_timezone_opt(tz.clone()),
+                ) as ArrayRef,
                 DataType::Dictionary(key, value)
                     if key.as_ref() == &DataType::Int32 && value.as_ref() == &DataType::Utf8 =>
                 {
@@ -775,9 +782,10 @@ impl TestChunk {
                     "tag2" => Arc::new(StringArray::from(vec!["SC", "NC", "RI"])) as ArrayRef,
                     _ => Arc::new(StringArray::from(vec!["TX", "PR", "OR"])) as ArrayRef,
                 },
-                DataType::Timestamp(TimeUnit::Nanosecond, _) => {
-                    Arc::new(TimestampNanosecondArray::from(vec![8000, 10000, 20000])) as ArrayRef
-                }
+                DataType::Timestamp(TimeUnit::Nanosecond, tz) => Arc::new(
+                    TimestampNanosecondArray::from(vec![8000, 10000, 20000])
+                        .with_timezone_opt(tz.clone()),
+                ) as ArrayRef,
                 DataType::Dictionary(key, value)
                     if key.as_ref() == &DataType::Int32 && value.as_ref() == &DataType::Utf8 =>
                 {
@@ -836,11 +844,10 @@ impl TestChunk {
                     "tag2" => Arc::new(StringArray::from(vec!["SC", "NC", "RI", "NC"])) as ArrayRef,
                     _ => Arc::new(StringArray::from(vec!["TX", "PR", "OR", "AL"])) as ArrayRef,
                 },
-                DataType::Timestamp(TimeUnit::Nanosecond, _) => {
-                    Arc::new(TimestampNanosecondArray::from(vec![
-                        28000, 210000, 220000, 210000,
-                    ])) as ArrayRef
-                }
+                DataType::Timestamp(TimeUnit::Nanosecond, tz) => Arc::new(
+                    TimestampNanosecondArray::from(vec![28000, 210000, 220000, 210000])
+                        .with_timezone_opt(tz.clone()),
+                ) as ArrayRef,
                 DataType::Dictionary(key, value)
                     if key.as_ref() == &DataType::Int32 && value.as_ref() == &DataType::Utf8 =>
                 {
@@ -890,54 +897,54 @@ impl TestChunk {
     /// Stats(min, max) : tag1(AL, MT), tag2(AL, MA), time(5, 7000)
     pub fn with_five_rows_of_data(mut self) -> Self {
         // create arrays
-        let columns =
-            self.schema
-                .iter()
-                .map(|(_influxdb_column_type, field)| match field.data_type() {
-                    DataType::Int64 => {
-                        Arc::new(Int64Array::from(vec![1000, 10, 70, 100, 5])) as ArrayRef
-                    }
-                    DataType::Utf8 => match field.name().as_str() {
+        let columns = self
+            .schema
+            .iter()
+            .map(|(_influxdb_column_type, field)| match field.data_type() {
+                DataType::Int64 => {
+                    Arc::new(Int64Array::from(vec![1000, 10, 70, 100, 5])) as ArrayRef
+                }
+                DataType::Utf8 => {
+                    match field.name().as_str() {
                         "tag1" => Arc::new(StringArray::from(vec!["MT", "MT", "CT", "AL", "MT"]))
                             as ArrayRef,
                         "tag2" => Arc::new(StringArray::from(vec!["CT", "AL", "CT", "MA", "AL"]))
                             as ArrayRef,
                         _ => Arc::new(StringArray::from(vec!["CT", "MT", "AL", "AL", "MT"]))
                             as ArrayRef,
-                    },
-                    DataType::Timestamp(TimeUnit::Nanosecond, _) => {
-                        Arc::new(TimestampNanosecondArray::from(vec![
-                            1000, 7000, 100, 50, 5000,
-                        ])) as ArrayRef
                     }
-                    DataType::Dictionary(key, value)
-                        if key.as_ref() == &DataType::Int32
-                            && value.as_ref() == &DataType::Utf8 =>
-                    {
-                        match field.name().as_str() {
-                            "tag1" => Arc::new(
-                                vec!["MT", "MT", "CT", "AL", "MT"]
-                                    .into_iter()
-                                    .collect::<DictionaryArray<Int32Type>>(),
-                            ) as ArrayRef,
-                            "tag2" => Arc::new(
-                                vec!["CT", "AL", "CT", "MA", "AL"]
-                                    .into_iter()
-                                    .collect::<DictionaryArray<Int32Type>>(),
-                            ) as ArrayRef,
-                            _ => Arc::new(
-                                vec!["CT", "MT", "AL", "AL", "MT"]
-                                    .into_iter()
-                                    .collect::<DictionaryArray<Int32Type>>(),
-                            ) as ArrayRef,
-                        }
+                }
+                DataType::Timestamp(TimeUnit::Nanosecond, tz) => Arc::new(
+                    TimestampNanosecondArray::from(vec![1000, 7000, 100, 50, 5000])
+                        .with_timezone_opt(tz.clone()),
+                ) as ArrayRef,
+                DataType::Dictionary(key, value)
+                    if key.as_ref() == &DataType::Int32 && value.as_ref() == &DataType::Utf8 =>
+                {
+                    match field.name().as_str() {
+                        "tag1" => Arc::new(
+                            vec!["MT", "MT", "CT", "AL", "MT"]
+                                .into_iter()
+                                .collect::<DictionaryArray<Int32Type>>(),
+                        ) as ArrayRef,
+                        "tag2" => Arc::new(
+                            vec!["CT", "AL", "CT", "MA", "AL"]
+                                .into_iter()
+                                .collect::<DictionaryArray<Int32Type>>(),
+                        ) as ArrayRef,
+                        _ => Arc::new(
+                            vec!["CT", "MT", "AL", "AL", "MT"]
+                                .into_iter()
+                                .collect::<DictionaryArray<Int32Type>>(),
+                        ) as ArrayRef,
                     }
-                    _ => unimplemented!(
-                        "Unimplemented data type for test database: {:?}",
-                        field.data_type()
-                    ),
-                })
-                .collect::<Vec<_>>();
+                }
+                _ => unimplemented!(
+                    "Unimplemented data type for test database: {:?}",
+                    field.data_type()
+                ),
+            })
+            .collect::<Vec<_>>();
 
         let batch =
             RecordBatch::try_new(self.schema.as_arrow(), columns).expect("made record batch");
@@ -983,11 +990,12 @@ impl TestChunk {
                         "CT", "MT", "AL", "AL", "MT", "CT", "MT", "AL", "AL", "MT",
                     ])) as ArrayRef,
                 },
-                DataType::Timestamp(TimeUnit::Nanosecond, _) => {
-                    Arc::new(TimestampNanosecondArray::from(vec![
+                DataType::Timestamp(TimeUnit::Nanosecond, tz) => Arc::new(
+                    TimestampNanosecondArray::from(vec![
                         1000, 7000, 100, 50, 5, 2000, 7000, 500, 50, 5,
-                    ])) as ArrayRef
-                }
+                    ])
+                    .with_timezone_opt(tz.clone()),
+                ) as ArrayRef,
                 DataType::Dictionary(key, value)
                     if key.as_ref() == &DataType::Int32 && value.as_ref() == &DataType::Utf8 =>
                 {

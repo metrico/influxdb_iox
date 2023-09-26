@@ -51,6 +51,7 @@ use datafusion::{
     scalar::ScalarValue,
 };
 use futures::{Stream, StreamExt};
+use schema::TIME_DATA_TIMEZONE;
 use tokio::sync::mpsc::{Receiver, UnboundedReceiver};
 use tokio_stream::wrappers::{ReceiverStream, UnboundedReceiverStream};
 use watch::WatchedTask;
@@ -113,8 +114,8 @@ pub fn lit_dict(value: &str) -> Expr {
 pub fn make_range_expr(start: i64, end: i64, time: impl AsRef<str>) -> Expr {
     // We need to cast the start and end values to timestamps
     // the equivalent of:
-    let ts_start = ScalarValue::TimestampNanosecond(Some(start), None);
-    let ts_end = ScalarValue::TimestampNanosecond(Some(end), None);
+    let ts_start = ScalarValue::TimestampNanosecond(Some(start), TIME_DATA_TIMEZONE());
+    let ts_end = ScalarValue::TimestampNanosecond(Some(end), TIME_DATA_TIMEZONE());
 
     let time_col = time.as_ref().as_expr();
     let ts_low = lit(ts_start).lt_eq(time_col.clone());
@@ -410,8 +411,12 @@ mod tests {
         // Test that the generated predicate is correct
 
         let ts_predicate_expr = make_range_expr(101, 202, "time");
+        let expected_timezone = match TIME_DATA_TIMEZONE() {
+            Some(tz) => format!("Some(\"{tz}\")"),
+            None => "None".into(),
+        };
         let expected_string =
-            "TimestampNanosecond(101, None) <= time AND time < TimestampNanosecond(202, None)";
+            format!("TimestampNanosecond(101, {expected_timezone}) <= time AND time < TimestampNanosecond(202, {expected_timezone})");
         let actual_string = format!("{ts_predicate_expr}");
 
         assert_eq!(actual_string, expected_string);

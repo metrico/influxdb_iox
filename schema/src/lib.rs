@@ -50,7 +50,7 @@ pub fn TIME_DATA_TIMEZONE() -> Option<Arc<str>> {
     // InfluxDB data model timestamps are relative to. However,
     // DataFusion doesn't currently do a great job with such
     // timezones so punting for now
-    //Some(String::from("UTC"));
+    //Some("UTC".into());
     None
 }
 

@@ -985,7 +985,7 @@ mod tests {
     };
     use data_types::CompactionLevel;
     use datafusion_util::{unbounded_memory_pool, MemoryStream};
-    use schema::builder::SchemaBuilder;
+    use schema::{builder::SchemaBuilder, TIME_DATA_TIMEZONE};
 
     #[test]
     fn iox_metadata_protobuf_round_trip() {
@@ -1101,7 +1101,11 @@ mod tests {
     }
 
     fn to_timestamp_array(timestamps: &[i64]) -> ArrayRef {
-        let array: TimestampNanosecondArray = timestamps.iter().map(|v| Some(*v)).collect();
+        let array = timestamps
+            .iter()
+            .map(|v| Some(*v))
+            .collect::<TimestampNanosecondArray>()
+            .with_timezone_opt(TIME_DATA_TIMEZONE());
         Arc::new(array)
     }
 }

@@ -7,7 +7,7 @@ use datafusion::{
     physical_plan::{ColumnStatistics, Statistics},
     scalar::ScalarValue,
 };
-use schema::{InfluxColumnType, Schema};
+use schema::{InfluxColumnType, Schema, TIME_DATA_TIMEZONE};
 
 /// Represent known min/max values for a specific column.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -38,8 +38,14 @@ pub fn create_chunk_statistics(
                 // prefer explicitely given time range but fall back to column ranges
                 let (min_value, max_value) = match ts_min_max {
                     Some(ts_min_max) => (
-                        Some(ScalarValue::TimestampNanosecond(Some(ts_min_max.min), None)),
-                        Some(ScalarValue::TimestampNanosecond(Some(ts_min_max.max), None)),
+                        Some(ScalarValue::TimestampNanosecond(
+                            Some(ts_min_max.min),
+                            TIME_DATA_TIMEZONE(),
+                        )),
+                        Some(ScalarValue::TimestampNanosecond(
+                            Some(ts_min_max.max),
+                            TIME_DATA_TIMEZONE(),
+                        )),
                     ),
                     None => {
                         let range =
@@ -168,8 +174,14 @@ mod tests {
                     ColumnStatistics::default(),
                     ColumnStatistics {
                         null_count: Some(0),
-                        min_value: Some(ScalarValue::TimestampNanosecond(Some(10), None)),
-                        max_value: Some(ScalarValue::TimestampNanosecond(Some(20), None)),
+                        min_value: Some(ScalarValue::TimestampNanosecond(
+                            Some(10),
+                            TIME_DATA_TIMEZONE(),
+                        )),
+                        max_value: Some(ScalarValue::TimestampNanosecond(
+                            Some(20),
+                            TIME_DATA_TIMEZONE(),
+                        )),
                         distinct_count: None,
                     },
                 ]),
@@ -187,8 +199,14 @@ mod tests {
         let ranges = Arc::new(HashMap::from([(
             Arc::from(TIME_COLUMN_NAME),
             ColumnRange {
-                min_value: Arc::new(ScalarValue::TimestampNanosecond(Some(12), None)),
-                max_value: Arc::new(ScalarValue::TimestampNanosecond(Some(22), None)),
+                min_value: Arc::new(ScalarValue::TimestampNanosecond(
+                    Some(12),
+                    TIME_DATA_TIMEZONE(),
+                )),
+                max_value: Arc::new(ScalarValue::TimestampNanosecond(
+                    Some(22),
+                    TIME_DATA_TIMEZONE(),
+                )),
             },
         )]));
 
@@ -207,8 +225,14 @@ mod tests {
                 ColumnStatistics::default(),
                 ColumnStatistics {
                     null_count: Some(0),
-                    min_value: Some(ScalarValue::TimestampNanosecond(Some(10), None)),
-                    max_value: Some(ScalarValue::TimestampNanosecond(Some(20), None)),
+                    min_value: Some(ScalarValue::TimestampNanosecond(
+                        Some(10),
+                        TIME_DATA_TIMEZONE(),
+                    )),
+                    max_value: Some(ScalarValue::TimestampNanosecond(
+                        Some(20),
+                        TIME_DATA_TIMEZONE(),
+                    )),
                     distinct_count: None,
                 },
             ]),
@@ -224,8 +248,14 @@ mod tests {
         let ranges = Arc::new(HashMap::from([(
             Arc::from(TIME_COLUMN_NAME),
             ColumnRange {
-                min_value: Arc::new(ScalarValue::TimestampNanosecond(Some(12), None)),
-                max_value: Arc::new(ScalarValue::TimestampNanosecond(Some(22), None)),
+                min_value: Arc::new(ScalarValue::TimestampNanosecond(
+                    Some(12),
+                    TIME_DATA_TIMEZONE(),
+                )),
+                max_value: Arc::new(ScalarValue::TimestampNanosecond(
+                    Some(22),
+                    TIME_DATA_TIMEZONE(),
+                )),
             },
         )]));
 
@@ -243,8 +273,14 @@ mod tests {
                 ColumnStatistics::default(),
                 ColumnStatistics {
                     null_count: Some(0),
-                    min_value: Some(ScalarValue::TimestampNanosecond(Some(12), None)),
-                    max_value: Some(ScalarValue::TimestampNanosecond(Some(22), None)),
+                    min_value: Some(ScalarValue::TimestampNanosecond(
+                        Some(12),
+                        TIME_DATA_TIMEZONE(),
+                    )),
+                    max_value: Some(ScalarValue::TimestampNanosecond(
+                        Some(22),
+                        TIME_DATA_TIMEZONE(),
+                    )),
                     distinct_count: None,
                 },
             ]),

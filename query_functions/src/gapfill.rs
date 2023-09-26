@@ -107,6 +107,17 @@ pub(crate) static INTERPOLATE: Lazy<Arc<ScalarUDF>> = Lazy::new(|| {
                 ]
                 .into(),
             )]),
+            TypeSignature::Exact(vec![DataType::Struct(
+                vec![
+                    Field::new("value", influx_type.into(), true),
+                    Field::new(
+                        "time",
+                        DataType::Timestamp(TimeUnit::Nanosecond, Some("UTC".into())),
+                        true,
+                    ),
+                ]
+                .into(),
+            )]),
         ]
     })
     .collect();

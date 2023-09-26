@@ -1043,7 +1043,7 @@ mod tests {
     use arrow_util::test_util::batches_to_lines;
     use datafusion::error::Result;
     use hashbrown::HashMap;
-    use schema::InfluxColumnType;
+    use schema::{InfluxColumnType, TIME_DATA_TIMEZONE};
 
     use crate::exec::gapfill::{
         algo::{AggrColState, Cursor},
@@ -1188,12 +1188,14 @@ mod tests {
         let output_batch_size = 10000;
         let mut cursor = new_cursor_with_batch_size(&params, output_batch_size);
 
-        let time_arr: TimestampNanosecondArray = cursor
-            .clone_for_aggr_col(None)
-            .unwrap()
-            .build_time_vec(&params, &[series], &input_times)
-            .unwrap()
-            .into();
+        let time_arr = TimestampNanosecondArray::from(
+            cursor
+                .clone_for_aggr_col(None)
+                .unwrap()
+                .build_time_vec(&params, &[series], &input_times)
+                .unwrap(),
+        )
+        .with_timezone_opt(TIME_DATA_TIMEZONE());
         let arr = cursor
             .build_aggr_fill_null(&params, &[series], &input_times, &input_aggr_array)
             .unwrap();
@@ -1234,12 +1236,14 @@ mod tests {
         let output_batch_size = 10000;
         let mut cursor = new_cursor_with_batch_size(&params, output_batch_size);
 
-        let time_arr: TimestampNanosecondArray = cursor
-            .clone_for_aggr_col(None)
-            .unwrap()
-            .build_time_vec(&params, &[series], &input_times)
-            .unwrap()
-            .into();
+        let time_arr = TimestampNanosecondArray::from(
+            cursor
+                .clone_for_aggr_col(None)
+                .unwrap()
+                .build_time_vec(&params, &[series], &input_times)
+                .unwrap(),
+        )
+        .with_timezone_opt(TIME_DATA_TIMEZONE());
         let arr =
             cursor.build_aggr_fill_null(&params, &[series], &input_times, &input_aggr_array)?;
         insta::assert_yaml_snapshot!(array_to_lines(&time_arr, &arr), @r###"
@@ -1287,12 +1291,14 @@ mod tests {
         let output_batch_size = 10000;
         let mut cursor = new_cursor_with_batch_size(&params, output_batch_size);
 
-        let time_arr: TimestampNanosecondArray = cursor
-            .clone_for_aggr_col(None)
-            .unwrap()
-            .build_time_vec(&params, &[series], &input_times)
-            .unwrap()
-            .into();
+        let time_arr = TimestampNanosecondArray::from(
+            cursor
+                .clone_for_aggr_col(None)
+                .unwrap()
+                .build_time_vec(&params, &[series], &input_times)
+                .unwrap(),
+        )
+        .with_timezone_opt(TIME_DATA_TIMEZONE());
         let arr = cursor
             .build_aggr_fill_prev(&params, &[series], &input_times, &input_aggr_array)
             .unwrap();
@@ -1343,12 +1349,14 @@ mod tests {
         let output_batch_size = 10000;
         let mut cursor = new_cursor_with_batch_size(&params, output_batch_size);
 
-        let time_arr: TimestampNanosecondArray = cursor
-            .clone_for_aggr_col(None)
-            .unwrap()
-            .build_time_vec(&params, &[series], &input_times)
-            .unwrap()
-            .into();
+        let time_arr = TimestampNanosecondArray::from(
+            cursor
+                .clone_for_aggr_col(None)
+                .unwrap()
+                .build_time_vec(&params, &[series], &input_times)
+                .unwrap(),
+        )
+        .with_timezone_opt(TIME_DATA_TIMEZONE());
         let arr = cursor
             .build_aggr_fill_prev(&params, &[series], &input_times, &input_aggr_array)
             .unwrap();
@@ -1384,7 +1392,8 @@ mod tests {
             // 1000
             Some(1050),
             // 1100
-        ]);
+        ])
+        .with_timezone_opt(TIME_DATA_TIMEZONE());
         let input_aggr_array: ArrayRef = Arc::new(Float64Array::from(vec![10.0, 11.0]));
         let series_ends = vec![1, 2];
 
@@ -1399,12 +1408,14 @@ mod tests {
         let output_batch_size = 10000;
         let mut cursor = new_cursor_with_batch_size(&params, output_batch_size);
 
-        let time_arr: TimestampNanosecondArray = cursor
-            .clone_for_aggr_col(None)
-            .unwrap()
-            .build_time_vec(&params, &series_ends, &input_times)
-            .unwrap()
-            .into();
+        let time_arr = TimestampNanosecondArray::from(
+            cursor
+                .clone_for_aggr_col(None)
+                .unwrap()
+                .build_time_vec(&params, &series_ends, &input_times)
+                .unwrap(),
+        )
+        .with_timezone_opt(TIME_DATA_TIMEZONE());
         let arr = cursor
             .build_aggr_fill_null(&params, &series_ends, &input_times, &input_aggr_array)
             .unwrap();
@@ -1439,7 +1450,8 @@ mod tests {
             Some(1000),
             Some(1050),
             Some(1100),
-        ]);
+        ])
+        .with_timezone_opt(TIME_DATA_TIMEZONE());
         let input_aggr_array: ArrayRef = Arc::new(Float64Array::from(vec![
             // 950
             // 1000
@@ -1463,12 +1475,14 @@ mod tests {
         let output_batch_size = 10000;
         let mut cursor = new_cursor_with_batch_size(&params, output_batch_size);
 
-        let time_arr: TimestampNanosecondArray = cursor
-            .clone_for_aggr_col(None)
-            .unwrap()
-            .build_time_vec(&params, &series_ends, &input_times)
-            .unwrap()
-            .into();
+        let time_arr = TimestampNanosecondArray::from(
+            cursor
+                .clone_for_aggr_col(None)
+                .unwrap()
+                .build_time_vec(&params, &series_ends, &input_times)
+                .unwrap(),
+        )
+        .with_timezone_opt(TIME_DATA_TIMEZONE());
         let arr = cursor
             .build_aggr_fill_prev(&params, &series_ends, &input_times, &input_aggr_array)
             .unwrap();
@@ -1511,7 +1525,8 @@ mod tests {
             Some(1050),
             Some(1100),
             Some(1100),
-        ]);
+        ])
+        .with_timezone_opt(TIME_DATA_TIMEZONE());
         let input_aggr_array: ArrayRef = Arc::new(Float64Array::from(vec![
             // Some(9.0) //  950
             // ^^^^^^^^^ this element has been sliced off
@@ -1552,12 +1567,14 @@ mod tests {
             .collect(),
         };
 
-        let time_arr: TimestampNanosecondArray = cursor
-            .clone_for_aggr_col(None)
-            .unwrap()
-            .build_time_vec(&params, &series_ends, &input_times)
-            .unwrap()
-            .into();
+        let time_arr = TimestampNanosecondArray::from(
+            cursor
+                .clone_for_aggr_col(None)
+                .unwrap()
+                .build_time_vec(&params, &series_ends, &input_times)
+                .unwrap(),
+        )
+        .with_timezone_opt(TIME_DATA_TIMEZONE());
         let arr = cursor
             .build_aggr_fill_prev_stashed(&params, &series_ends, &input_times, &input_aggr_array)
             .unwrap();

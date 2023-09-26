@@ -23,7 +23,7 @@ pub fn group_potential_duplicates(
     // If at least one of the chunks has no time range,
     // all chunks are considered to overlap with each other.
     if ts.iter().any(|ts| ts.is_none()) {
-        debug!("At least one chunk has not timestamp mim max");
+        debug!("At least one chunk has not timestamp min max");
         return vec![chunks];
     }
 
@@ -104,8 +104,8 @@ fn timestamp_min_max(chunk: &dyn QueryChunk) -> Option<TimestampMinMax> {
         })
         .and_then(|stats| {
             if let (
-                Some(ScalarValue::TimestampNanosecond(Some(min), None)),
-                Some(ScalarValue::TimestampNanosecond(Some(max), None)),
+                Some(ScalarValue::TimestampNanosecond(Some(min), _)),
+                Some(ScalarValue::TimestampNanosecond(Some(max), _)),
             ) = (&stats.min_value, &stats.max_value)
             {
                 Some(TimestampMinMax::new(*min, *max))

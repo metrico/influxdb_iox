@@ -204,13 +204,15 @@ mod test {
     use arrow::record_batch::RecordBatch;
     use generated_types::influxdata::iox::querier::v1::influx_ql_metadata::TagKeyColumn;
     use generated_types::influxdata::iox::querier::v1::InfluxQlMetadata;
+    use schema::TIME_DATA_TIMEZONE;
     use std::collections::HashMap;
     use std::sync::Arc;
 
     fn times(vals: &[i64]) -> ArrayRef {
-        Arc::new(TimestampNanosecondArray::from_iter_values(
-            vals.iter().cloned(),
-        ))
+        Arc::new(
+            TimestampNanosecondArray::from_iter_values(vals.iter().cloned())
+                .with_timezone_opt(TIME_DATA_TIMEZONE()),
+        )
     }
 
     fn strs<T: AsRef<str>>(vals: &[Option<T>]) -> ArrayRef {
@@ -231,7 +233,7 @@ mod test {
                 Field::new("iox::measurement", DataType::Utf8, false),
                 Field::new(
                     "time",
-                    DataType::Timestamp(TimeUnit::Nanosecond, None),
+                    DataType::Timestamp(TimeUnit::Nanosecond, TIME_DATA_TIMEZONE()),
                     false,
                 ),
                 Field::new("cpu", DataType::Utf8, true),

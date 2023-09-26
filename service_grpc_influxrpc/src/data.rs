@@ -269,6 +269,7 @@ mod tests {
             SeriesSet,
         },
     };
+    use schema::TIME_DATA_TIMEZONE;
 
     use super::*;
 
@@ -516,9 +517,10 @@ mod tests {
             true, false, false, true, true, false,
         ]));
 
-        let timestamp_array: ArrayRef = Arc::new(TimestampNanosecondArray::from(vec![
-            1000, 2000, 3000, 4000, 5000, 6000,
-        ]));
+        let timestamp_array: ArrayRef = Arc::new(
+            TimestampNanosecondArray::from(vec![1000, 2000, 3000, 4000, 5000, 6000])
+                .with_timezone_opt(TIME_DATA_TIMEZONE()),
+        );
 
         RecordBatch::try_from_iter_with_nullable(vec![
             ("string_field", string_array, true),

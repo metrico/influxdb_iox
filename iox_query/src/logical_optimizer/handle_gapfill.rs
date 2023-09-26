@@ -13,7 +13,7 @@ use datafusion::{
         Aggregate, BuiltinScalarFunction, Extension, LogicalPlan, Projection,
     },
     optimizer::{optimizer::ApplyOrder, OptimizerConfig, OptimizerRule},
-    prelude::{col, Expr},
+    prelude::{col, Column, Expr},
 };
 use hashbrown::{hash_map, HashMap};
 use query_functions::gapfill::{DATE_BIN_GAPFILL_UDF_NAME, INTERPOLATE_UDF_NAME, LOCF_UDF_NAME};
@@ -176,12 +176,18 @@ fn build_gapfill_node(
     let stride = args_iter.next().unwrap();
     validate_scalar_expr("stride argument to DATE_BIN_GAPFILL", &stride)?;
 
+    fn get_column(expr: Expr) -> Result<Column> {
+        match expr {
+            Expr::Column(c) => Ok(c),
+            Expr::Cast(c) => get_column(*c.expr),
+            _ => Err(DataFusionError::Plan(
+                "DATE_BIN_GAPFILL requires a column as the source argument".to_string(),
+            )),
+        }
+    }
+
     // Ensure that the source argument is a column
-    let time_col = args_iter.next().unwrap().try_into_col().map_err(|_| {
-        DataFusionError::Plan(
-            "DATE_BIN_GAPFILL requires a column as the source argument".to_string(),
-        )
-    })?;
+    let time_col = get_column(args_iter.next().unwrap())?;
 
     // Ensure that a time range was specified and is valid for gap filling
     let time_range = range_predicate::find_time_range(new_aggr_plan.inputs()[0], &time_col)?;
