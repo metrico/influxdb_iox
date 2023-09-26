@@ -243,11 +243,13 @@ mod tests {
     use crate::thrift::agent::{AgentSyncHandler, AgentSyncProcessor};
     use chrono::{TimeZone, Utc};
     use iox_time::SystemProvider;
+    use std::borrow::Cow;
+    use std::collections::HashMap;
     use std::sync::{Arc, Mutex};
     use thrift::server::TProcessor;
     use thrift::transport::TBufferChannel;
     use trace::ctx::{SpanContext, SpanId, TraceId};
-    use trace::span::{SpanEvent, SpanStatus};
+    use trace::span::{MetaValue, SpanEvent, SpanStatus};
 
     struct TestHandler {
         batches: Arc<Mutex<Vec<jaeger::Batch>>>,
@@ -382,9 +384,11 @@ mod tests {
         span.events = vec![SpanEvent {
             time: Utc.timestamp_nanos(200000),
             msg: "hello".into(),
+            metadata: HashMap::from([(Cow::from("evt_md"), MetaValue::Int(42))]),
         }];
         span.start = Some(Utc.timestamp_nanos(100000));
         span.end = Some(Utc.timestamp_nanos(300000));
+        span.metadata = HashMap::from([(Cow::from("span_md"), MetaValue::Int(1337))]);
 
         exporter.export(vec![span.clone(), span.clone()]).await;
         exporter.export(vec![span.clone()]).await;
@@ -452,14 +456,18 @@ mod tests {
         let logs = b1_s0.logs.as_ref().unwrap();
         assert_eq!(logs.len(), 1);
         assert_eq!(logs[0].timestamp, 200);
-        assert_eq!(logs[0].fields.len(), 1);
+        assert_eq!(logs[0].fields.len(), 2);
         assert_eq!(logs[0].fields[0].key.as_str(), "event");
         assert_eq!(logs[0].fields[0].v_str.as_ref().unwrap().as_str(), "hello");
+        assert_eq!(logs[0].fields[1].key.as_str(), "evt_md");
+        assert_eq!(logs[0].fields[1].v_long.unwrap(), 42);
 
         let tags = b1_s0.tags.as_ref().unwrap();
-        assert_eq!(tags.len(), 1);
+        assert_eq!(tags.len(), 2);
         assert_eq!(tags[0].key.as_str(), "ok");
         assert!(tags[0].v_bool.unwrap());
+        assert_eq!(tags[1].key.as_str(), "span_md");
+        assert_eq!(tags[1].v_long.unwrap(), 1337);
     }
 
     #[test]

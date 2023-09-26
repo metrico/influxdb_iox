@@ -19,7 +19,10 @@ use observability_deps::tracing::{info, warn};
 use parking_lot::Mutex;
 use pin_project::{pin_project, pinned_drop};
 use rand::rngs::mock::StepRng;
-use trace::{ctx::SpanContext, span::SpanRecorder};
+use trace::{
+    ctx::SpanContext,
+    span::{SpanEvent, SpanRecorder},
+};
 
 use super::flight_client::{Error as FlightClientError, IngesterFlightClient, QueryData};
 
@@ -314,7 +317,8 @@ impl IngesterFlightClient for CircuitBreakerFlightClient {
                                 ingester_address = ingester_addr.as_ref(),
                                 "Circuit open, not contacting ingester",
                             );
-                            span_recorder.event("Circuit open, not contacting ingester");
+                            span_recorder
+                                .event(SpanEvent::new("Circuit open, not contacting ingester"));
                             (true, None, *gen)
                         }
                         Circuit::HalfOpen {
@@ -331,13 +335,15 @@ impl IngesterFlightClient for CircuitBreakerFlightClient {
                                     ingester_address = ingester_addr.as_ref(),
                                     "Circuit half-open and this is a test request",
                                 );
-                                span_recorder.event("Circuit half-open and this is a test request");
+                                span_recorder.event(SpanEvent::new(
+                                    "Circuit half-open and this is a test request",
+                                ));
                             } else {
                                 info!(
                                     ingester_address = ingester_addr.as_ref(),
                                     "Circuit half-open but a test request is already running, not contacting ingester",
                                 );
-                                span_recorder.event("Circuit half-open but a test request is already running, not contacting ingester");
+                                span_recorder.event(SpanEvent::new("Circuit half-open but a test request is already running, not contacting ingester"));
                             }
 
                             (
@@ -417,8 +423,9 @@ impl IngesterFlightClient for CircuitBreakerFlightClient {
                                         ingester_address = ingester_addr.as_ref(),
                                         "Error contacting ingester, circuit opened"
                                     );
-                                    span_recorder
-                                        .event("Error contacting ingester, circuit opened");
+                                    span_recorder.event(SpanEvent::new(
+                                        "Error contacting ingester, circuit opened",
+                                    ));
 
                                     (
                                         Backoff::new_with_rng(
@@ -469,7 +476,7 @@ impl IngesterFlightClient for CircuitBreakerFlightClient {
                         Circuit::HalfOpen { metrics, gen, .. } => {
                             if start_gen == *gen {
                                 info!(ingester_address = ingester_addr.as_ref(), "Circuit closed",);
-                                span_recorder.event("Circuit closed");
+                                span_recorder.event(SpanEvent::new("Circuit closed"));
 
                                 metrics.set_closed();
                                 *o = Circuit::Closed {

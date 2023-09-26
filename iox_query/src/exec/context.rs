@@ -55,7 +55,7 @@ use query_functions::{register_scalar_functions, selectors::register_selector_ag
 use std::{fmt, num::NonZeroUsize, sync::Arc};
 use trace::{
     ctx::SpanContext,
-    span::{MetaValue, Span, SpanExt, SpanRecorder},
+    span::{MetaValue, Span, SpanEvent, SpanExt, SpanRecorder},
 };
 
 // Reuse DataFusion error and Result types for this module
@@ -378,7 +378,7 @@ impl IOxSessionContext {
         debug!(text=%logical_plan.display_indent_schema(), "create_physical_plan: initial plan");
         let physical_plan = ctx.inner.state().create_physical_plan(logical_plan).await?;
 
-        ctx.recorder.event("physical plan");
+        ctx.recorder.event(SpanEvent::new("physical plan"));
         debug!(text=%displayable(physical_plan.as_ref()).indent(false), "create_physical_plan: plan to run");
         Ok(physical_plan)
     }
@@ -671,7 +671,7 @@ impl IOxSessionContext {
 
     /// Record an event on the span recorder
     pub fn record_event(&mut self, name: &'static str) {
-        self.recorder.event(name);
+        self.recorder.event(SpanEvent::new(name));
     }
 
     /// Record an event on the span recorder

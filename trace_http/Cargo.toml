@@ -7,6 +7,7 @@ edition.workspace = true
 license.workspace = true
 
 [dependencies]
+bytes = "1.5"
 trace = { path = "../trace" }
 futures = "0.3"
 hashbrown = { workspace = true }

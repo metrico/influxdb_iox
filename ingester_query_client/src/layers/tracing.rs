@@ -3,7 +3,7 @@
 use async_trait::async_trait;
 use futures::StreamExt;
 use std::{fmt::Debug, sync::Arc, task::Poll};
-use trace::span::{Span, SpanRecorder};
+use trace::span::{Span, SpanEvent, SpanRecorder};
 
 use crate::{
     error::DynError,
@@ -68,7 +68,7 @@ where
             }) => {
                 tracker
                     .span_recorder
-                    .event("ingester response stream starts");
+                    .event(SpanEvent::new("ingester response stream starts"));
 
                 Ok(QueryResponse {
                     metadata,
@@ -79,7 +79,7 @@ where
                             Poll::Ready(Some(Ok(_))) => {
                                 tracker
                                     .span_recorder
-                                    .event("ingester response stream response");
+                                    .event(SpanEvent::new("ingester response stream response"));
                             }
                             Poll::Ready(Some(Err(e))) => {
                                 tracker.span_recorder.error(e.to_string());
@@ -114,7 +114,7 @@ struct CancelationTracker {
 impl Drop for CancelationTracker {
     fn drop(&mut self) {
         if !self.done {
-            self.span_recorder.event("cancelled");
+            self.span_recorder.event(SpanEvent::new("cancelled"));
         }
     }
 }
