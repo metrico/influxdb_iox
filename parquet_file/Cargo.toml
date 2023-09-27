@@ -22,7 +22,7 @@ pbjson-types = "0.5"
 prost = { workspace = true }
 schema = { path = "../schema" }
 snafu = "0.7"
-thiserror = "1.0.48"
+thiserror = "1.0.49"
 thrift = "0.17"
 tokio = { version = "1.32", features = ["macros", "parking_lot", "rt", "rt-multi-thread", "sync"] }
 uuid = { version = "1", features = ["v4"] }
