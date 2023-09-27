@@ -144,7 +144,7 @@ macro_rules! define_service_limit {
                 let data = <i32 as ::sqlx::decode::Decode<'r, DB>>::decode(value)?;
 
                 let data = Self::try_from(data).unwrap_or_else(|_| {
-                    error!("database contains invalid $type_name value {data}");
+                    error!("database contains invalid $type_name value {data}, using default value");
                     Self::default()
                 });
 
