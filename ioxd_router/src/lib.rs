@@ -64,7 +64,7 @@ use router::{
             sync::{
                 actor::ConvergenceActor,
                 consistency_prober::{ProbeDispatcher, SenderAddressResolver},
-                rpc_server::AntiEntropyService,
+                rpc_server::{AntiEntropyService, MAX_SYNC_MSG_SIZE},
                 rpc_worker::grpc_connector::GrpcConnector,
             },
         },
@@ -208,6 +208,8 @@ where
             anti_entropy_service_server::AntiEntropyServiceServer::new(
                 self.server.grpc().anti_entropy_service()
             )
+            .max_decoding_message_size(MAX_SYNC_MSG_SIZE)
+            .max_encoding_message_size(MAX_SYNC_MSG_SIZE)
         );
         serve_builder!(builder);
 

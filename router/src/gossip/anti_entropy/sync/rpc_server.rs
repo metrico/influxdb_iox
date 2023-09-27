@@ -20,6 +20,9 @@ use crate::{
     namespace_cache::{CacheMissErr, NamespaceCache},
 };
 
+/// [`MAX_SYNC_MSG_SIZE`] defines the maximum allowed sync RPC size (over TCP).
+pub const MAX_SYNC_MSG_SIZE: usize = 20 * 1024 * 1024; // 20 MiB
+
 #[derive(Debug, Error)]
 enum Error {
     /// The sender provided an invalid namespace name.
