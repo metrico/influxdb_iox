@@ -565,7 +565,11 @@ where
     // the above dispatcher.
     let handle = gossip::Builder::<_, Topic>::new(seed_list, dispatcher, Arc::clone(metrics))
         // Configure the router to listen to SchemaChange messages.
-        .with_topic_filter(TopicInterests::default().with_topic(Topic::SchemaChanges))
+        .with_topic_filter(
+            TopicInterests::default()
+                .with_topic(Topic::SchemaChanges)
+                .with_topic(Topic::SchemaCacheConsistency),
+        )
         .bind(bind_addr)
         .await
         .map(Arc::new)
