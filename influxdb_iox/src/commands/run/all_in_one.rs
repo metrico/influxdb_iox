@@ -537,6 +537,7 @@ impl Config {
             exec_mem_pool_bytes,
             ingester_circuit_breaker_threshold: u64::MAX, // never for all-in-one-mode
             datafusion_config: Default::default(),
+            v2_ingester_api: false,
         };
 
         SpecializedConfig {

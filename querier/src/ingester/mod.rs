@@ -23,13 +23,18 @@ pub fn create_ingester_connections(
     catalog_cache: Arc<CatalogCache>,
     open_circuit_after_n_errors: u64,
     trace_context_header_name: &str,
+    use_v2: bool,
 ) -> Arc<dyn IngesterConnection> {
-    v1::create_ingester_connections(
-        ingester_addresses,
-        catalog_cache,
-        open_circuit_after_n_errors,
-        trace_context_header_name,
-    )
+    if use_v2 {
+        unimplemented!("v2 ingester API")
+    } else {
+        v1::create_ingester_connections(
+            ingester_addresses,
+            catalog_cache,
+            open_circuit_after_n_errors,
+            trace_context_header_name,
+        )
+    }
 }
 
 /// Create a new ingester suitable for testing

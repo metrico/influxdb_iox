@@ -120,6 +120,14 @@ pub struct QuerierConfig {
         action
     )]
     pub datafusion_config: HashMap<String, String>,
+
+    /// Use the new V2 API to talk to the ingester.
+    ///
+    /// Defaults to "no".
+    ///
+    /// See <https://github.com/influxdata/influxdb_iox/issues/8169>.
+    #[clap(long = "v2-ingester-api", env = "INFLUXDB_IOX_V2_INGESTER_API", action)]
+    pub v2_ingester_api: bool,
 }
 
 fn parse_datafusion_config(

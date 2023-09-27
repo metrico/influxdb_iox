@@ -252,6 +252,7 @@ pub async fn create_querier_server_type(
             Arc::clone(&catalog_cache),
             args.querier_config.ingester_circuit_breaker_threshold,
             &args.trace_context_header_name,
+            args.querier_config.v2_ingester_api,
         ))
     };
 
