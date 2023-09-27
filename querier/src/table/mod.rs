@@ -795,7 +795,7 @@ mod tests {
             .unwrap();
         assert_eq!(chunks.len(), 1);
         let chunk = &chunks[0];
-        assert_eq!(chunk.chunk_type(), "IngesterPartition");
+        assert_eq!(chunk.chunk_type(), "ingester");
 
         // verify chunk schema
         let schema = chunk.schema();
@@ -943,7 +943,7 @@ mod tests {
             .unwrap();
         chunks.sort_by_key(|c| c.chunk_type().to_owned());
         assert_eq!(chunks.len(), 2);
-        assert_eq!(chunks[0].chunk_type(), "IngesterPartition");
+        assert_eq!(chunks[0].chunk_type(), "ingester");
         assert_eq!(chunks[1].chunk_type(), "parquet");
         assert_eq!(
             chunks[1].id().get().as_u128(),

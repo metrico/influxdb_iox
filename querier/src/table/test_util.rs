@@ -1,12 +1,14 @@
 use super::{PruneMetrics, QuerierTable, QuerierTableArgs};
 use crate::{
-    cache::CatalogCache, create_ingester_connection_for_testing, ingester::IngesterPartition,
+    cache::CatalogCache,
+    create_ingester_connection_for_testing,
+    ingester::{IngesterChunkData, IngesterPartition},
     parquet::ChunkAdapter,
 };
 use arrow::record_batch::RecordBatch;
 use data_types::ChunkId;
 use iox_catalog::interface::{get_schema_by_name, SoftDeletedRows};
-use iox_query::chunk_statistics::ColumnRanges;
+use iox_query::{chunk_statistics::ColumnRanges, util::compute_timenanosecond_min_max};
 use iox_tests::{TestCatalog, TestPartition, TestTable};
 use mutable_batch_lp::test_helpers::lp_to_mutable_batch;
 use schema::{Projection, Schema};
@@ -109,6 +111,8 @@ impl IngesterPartitionBuilder {
             .map(|lp| lp_to_record_batch(lp))
             .collect::<Vec<RecordBatch>>();
 
+        let ts_min_max = compute_timenanosecond_min_max(&data).expect("Should have time range");
+
         let schema = data[0].schema();
         assert!(data.iter().all(|b| b.schema() == schema));
         let fields = schema
@@ -123,7 +127,12 @@ impl IngesterPartitionBuilder {
             self.partition.partition.transition_partition_id(),
             0,
         )
-        .push_chunk(ChunkId::new_test(self.ingester_chunk_id), schema, data);
+        .push_chunk(
+            ChunkId::new_test(self.ingester_chunk_id),
+            schema,
+            IngesterChunkData::Eager(data),
+            ts_min_max,
+        );
 
         part.set_partition_column_ranges(&self.partition_column_ranges);
 

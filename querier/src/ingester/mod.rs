@@ -2,11 +2,10 @@ use self::test_util::MockIngesterConnection;
 use crate::cache::{namespace::CachedTable, CatalogCache};
 use arrow::record_batch::RecordBatch;
 use async_trait::async_trait;
-use data_types::{ChunkId, ChunkOrder, NamespaceId, TransitionPartitionId};
+use data_types::{ChunkId, ChunkOrder, NamespaceId, TimestampMinMax, TransitionPartitionId};
 use datafusion::{physical_plan::Statistics, prelude::Expr};
 use iox_query::{
     chunk_statistics::{create_chunk_statistics, ColumnRanges},
-    util::compute_timenanosecond_min_max,
     QueryChunk, QueryChunkData,
 };
 use observability_deps::tracing::trace;
@@ -106,13 +105,15 @@ impl IngesterPartition {
         mut self,
         chunk_id: ChunkId,
         schema: Schema,
-        batches: Vec<RecordBatch>,
+        data: IngesterChunkData,
+        ts_min_max: TimestampMinMax,
     ) -> Self {
         let chunk = IngesterChunk {
             chunk_id,
             partition_id: self.partition_id.clone(),
             schema,
-            batches,
+            data,
+            ts_min_max,
             stats: None,
         };
 
@@ -123,19 +124,16 @@ impl IngesterPartition {
 
     pub(crate) fn set_partition_column_ranges(&mut self, partition_column_ranges: &ColumnRanges) {
         for chunk in &mut self.chunks {
-            // TODO: may want to ask the Ingester to send this value instead of computing it here.
-            let ts_min_max =
-                compute_timenanosecond_min_max(&chunk.batches).expect("Should have time range");
+            let row_count = match &chunk.data {
+                IngesterChunkData::Eager(batches) => {
+                    Some(batches.iter().map(|batch| batch.num_rows()).sum::<usize>())
+                }
+            };
 
-            let row_count = chunk
-                .batches
-                .iter()
-                .map(|batch| batch.num_rows())
-                .sum::<usize>();
             let stats = Arc::new(create_chunk_statistics(
-                Some(row_count),
+                row_count,
                 &chunk.schema,
-                Some(ts_min_max),
+                Some(chunk.ts_min_max),
                 Some(partition_column_ranges),
             ));
             chunk.stats = Some(stats);
@@ -164,42 +162,43 @@ impl IngesterPartition {
 }
 
 #[derive(Debug, Clone)]
+pub enum IngesterChunkData {
+    /// All batches are fetched already.
+    Eager(Vec<RecordBatch>),
+}
+
+impl IngesterChunkData {
+    #[cfg(test)]
+    pub fn eager_ref(&self) -> &[RecordBatch] {
+        match self {
+            Self::Eager(batches) => batches,
+        }
+    }
+}
+
+#[derive(Debug, Clone)]
 pub struct IngesterChunk {
+    /// Chunk ID.
     chunk_id: ChunkId,
 
+    /// Partition ID.
     partition_id: TransitionPartitionId,
 
+    /// Chunk schema.
+    ///
+    /// This may be a subset of the table and partition schema.
     schema: Schema,
 
-    /// The raw table data
-    batches: Vec<RecordBatch>,
+    /// Data.
+    data: IngesterChunkData,
+
+    /// Timestamp range.
+    ts_min_max: TimestampMinMax,
 
     /// Summary Statistics
     ///
     /// Set to `None` if not calculated yet.
     stats: Option<Arc<Statistics>>,
-}
-
-impl IngesterChunk {
-    pub(crate) fn estimate_size(&self) -> usize {
-        self.batches
-            .iter()
-            .map(|batch| {
-                batch
-                    .columns()
-                    .iter()
-                    .map(|array| array.get_array_memory_size())
-                    .sum::<usize>()
-            })
-            .sum::<usize>()
-    }
-
-    pub(crate) fn rows(&self) -> usize {
-        self.batches
-            .iter()
-            .map(|batch| batch.num_rows())
-            .sum::<usize>()
-    }
 }
 
 impl QueryChunk for IngesterChunk {
@@ -231,11 +230,15 @@ impl QueryChunk for IngesterChunk {
     }
 
     fn data(&self) -> QueryChunkData {
-        QueryChunkData::in_mem(self.batches.clone(), Arc::clone(self.schema.inner()))
+        match &self.data {
+            IngesterChunkData::Eager(batches) => {
+                QueryChunkData::in_mem(batches.clone(), Arc::clone(self.schema.inner()))
+            }
+        }
     }
 
     fn chunk_type(&self) -> &str {
-        "IngesterPartition"
+        "ingester"
     }
 
     fn order(&self) -> ChunkOrder {

@@ -25,6 +25,7 @@ use ingester_query_grpc::{
     },
     IngesterQueryRequest,
 };
+use iox_query::util::compute_timenanosecond_min_max;
 use iox_time::{Time, TimeProvider};
 use metric::{DurationHistogram, Metric};
 use observability_deps::tracing::{debug, warn};
@@ -40,7 +41,7 @@ use std::{
 use trace::span::{Span, SpanRecorder};
 use uuid::Uuid;
 
-use super::{DynError, IngesterConnection, IngesterPartition};
+use super::{DynError, IngesterChunkData, IngesterConnection, IngesterPartition};
 
 mod circuit_breaker;
 pub(crate) mod flight_client;
@@ -699,9 +700,21 @@ impl IngesterConnection for IngesterConnectionImpl {
                         for p in partitions {
                             status.n_partitions += 1;
                             for c in p.chunks() {
+                                let IngesterChunkData::Eager(batches) = &c.data;
+
                                 status.n_chunks += 1;
-                                status.n_rows += c.rows();
-                                status.memory_bytes += c.estimate_size()
+                                status.n_rows +=
+                                    batches.iter().map(|batch| batch.num_rows()).sum::<usize>();
+                                status.memory_bytes += batches
+                                    .iter()
+                                    .map(|batch| {
+                                        batch
+                                            .columns()
+                                            .iter()
+                                            .map(|array| array.get_array_memory_size())
+                                            .sum::<usize>()
+                                    })
+                                    .sum::<usize>();
                             }
                         }
 
@@ -766,7 +779,14 @@ pub(crate) fn try_add_chunk(
         .map(|batch| ensure_schema(batch, &expected_schema))
         .collect::<Result<Vec<RecordBatch>>>()?;
 
-    Ok(partition.push_chunk(chunk_id, expected_schema, batches))
+    let ts_min_max = compute_timenanosecond_min_max(&batches).expect("Should have time range");
+
+    Ok(partition.push_chunk(
+        chunk_id,
+        expected_schema,
+        IngesterChunkData::Eager(batches),
+        ts_min_max,
+    ))
 }
 
 /// Ensure that the record batch has the given schema.
@@ -1151,29 +1171,41 @@ mod tests {
         let p1 = &partitions[0];
         assert_eq!(p1.partition_id, partition_id(1));
         assert_eq!(p1.chunks.len(), 2);
-        assert_eq!(p1.chunks[0].schema().as_arrow(), schema_1_1);
-        assert_eq!(p1.chunks[0].batches.len(), 2);
-        assert_eq!(p1.chunks[0].batches[0].schema(), schema_1_1);
-        assert_eq!(p1.chunks[0].batches[1].schema(), schema_1_1);
-        assert_eq!(p1.chunks[1].schema().as_arrow(), schema_1_2);
-        assert_eq!(p1.chunks[1].batches.len(), 1);
-        assert_eq!(p1.chunks[1].batches[0].schema(), schema_1_2);
+
+        let c1_1 = &p1.chunks[0];
+        let batches1_1 = c1_1.data.eager_ref();
+        assert_eq!(c1_1.schema().as_arrow(), schema_1_1);
+        assert_eq!(batches1_1.len(), 2);
+        assert_eq!(batches1_1[0].schema(), schema_1_1);
+        assert_eq!(batches1_1[1].schema(), schema_1_1);
+
+        let c1_2 = &p1.chunks[1];
+        let batches1_2 = c1_2.data.eager_ref();
+        assert_eq!(c1_2.schema().as_arrow(), schema_1_2);
+        assert_eq!(batches1_2.len(), 1);
+        assert_eq!(batches1_2[0].schema(), schema_1_2);
 
         // The Partition for table 3 deterministically sorts second
         let p3 = &partitions[1];
         assert_eq!(p3.partition_id, partition_id(3));
         assert_eq!(p3.chunks.len(), 1);
-        assert_eq!(p3.chunks[0].schema().as_arrow(), schema_3_1);
-        assert_eq!(p3.chunks[0].batches.len(), 1);
-        assert_eq!(p3.chunks[0].batches[0].schema(), schema_3_1);
+
+        let c3_1 = &p3.chunks[0];
+        let batches3_1 = c3_1.data.eager_ref();
+        assert_eq!(c3_1.schema().as_arrow(), schema_3_1);
+        assert_eq!(batches3_1.len(), 1);
+        assert_eq!(batches3_1[0].schema(), schema_3_1);
 
         // The Partition for table 2 deterministically sorts third
         let p2 = &partitions[2];
         assert_eq!(p2.partition_id, partition_id(2));
         assert_eq!(p2.chunks.len(), 1);
-        assert_eq!(p2.chunks[0].schema().as_arrow(), schema_2_1);
-        assert_eq!(p2.chunks[0].batches.len(), 1);
-        assert_eq!(p2.chunks[0].batches[0].schema(), schema_2_1);
+
+        let c2_1 = &p2.chunks[0];
+        let batches2_1 = c2_1.data.eager_ref();
+        assert_eq!(c2_1.schema().as_arrow(), schema_2_1);
+        assert_eq!(batches2_1.len(), 1);
+        assert_eq!(batches2_1[0].schema(), schema_2_1);
     }
 
     #[tokio::test]
@@ -1557,7 +1589,7 @@ mod tests {
             )
             .unwrap();
 
-            for batch in &ingester_partition.chunks[0].batches {
+            for batch in ingester_partition.chunks[0].data.eager_ref() {
                 assert_eq!(batch.schema(), expected_schema.as_arrow());
             }
         }
@@ -1626,7 +1658,7 @@ mod tests {
             )
             .unwrap();
 
-            for batch in &ingester_partition.chunks[0].batches {
+            for batch in ingester_partition.chunks[0].data.eager_ref() {
                 assert_eq!(batch.schema(), expected_schema.as_arrow());
             }
         }
@@ -1668,7 +1700,7 @@ mod tests {
             )
             .unwrap();
 
-            for batch in &ingester_partition.chunks[0].batches {
+            for batch in ingester_partition.chunks[0].data.eager_ref() {
                 assert_eq!(batch.schema(), expected_schema.as_arrow());
             }
         }

@@ -1,10 +1,9 @@
-use super::{DynError, IngesterConnection};
+use super::{DynError, IngesterChunkData, IngesterConnection};
 use crate::cache::namespace::CachedTable;
 use async_trait::async_trait;
 use data_types::NamespaceId;
 use datafusion::prelude::Expr;
 use parking_lot::Mutex;
-use schema::Schema;
 use std::{any::Any, collections::HashSet, sync::Arc};
 use trace::span::Span;
 
@@ -63,19 +62,22 @@ impl IngesterConnection for MockIngesterConnection {
                             .filter(|(_idx, f)| cols.contains(f.name()))
                             .map(|(idx, _f)| idx)
                             .collect::<Vec<_>>();
-                        let batches: Vec<_> = ic
-                            .batches
-                            .iter()
-                            .map(|batch| batch.project(&projection).unwrap())
-                            .collect();
+                        let schema = schema.select_by_indices(&projection);
 
-                        assert!(!batches.is_empty(), "Error: empty batches");
-                        let schema = Schema::try_from(batches[0].schema()).unwrap();
-                        super::IngesterChunk {
-                            batches,
-                            schema,
-                            ..ic
-                        }
+                        let data = match &ic.data {
+                            IngesterChunkData::Eager(batches) => {
+                                let batches: Vec<_> = batches
+                                    .iter()
+                                    .map(|batch| batch.project(&projection).unwrap())
+                                    .collect();
+
+                                assert!(!batches.is_empty(), "Error: empty batches");
+
+                                IngesterChunkData::Eager(batches)
+                            }
+                        };
+
+                        super::IngesterChunk { data, schema, ..ic }
                     })
                     .collect::<Vec<_>>();
 
