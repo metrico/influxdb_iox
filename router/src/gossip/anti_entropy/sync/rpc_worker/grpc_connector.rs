@@ -11,7 +11,10 @@ use tonic::transport::Endpoint;
 
 use crate::gossip::anti_entropy::{
     mst::actor::MerkleSnapshot,
-    sync::traits::{BoxedError, SyncRpcClient, SyncRpcConnector},
+    sync::{
+        rpc_server::MAX_SYNC_MSG_SIZE,
+        traits::{BoxedError, SyncRpcClient, SyncRpcConnector},
+    },
 };
 
 const CONNECT_TIMEOUT: Duration = Duration::from_secs(2);
@@ -32,7 +35,11 @@ impl SyncRpcConnector for GrpcConnector {
 
         let c = endpoint.connect().await?;
 
-        Ok(RpcClient(AntiEntropyServiceClient::new(c)))
+        Ok(RpcClient(
+            AntiEntropyServiceClient::new(c)
+                .max_encoding_message_size(MAX_SYNC_MSG_SIZE)
+                .max_decoding_message_size(MAX_SYNC_MSG_SIZE),
+        ))
     }
 }
 
