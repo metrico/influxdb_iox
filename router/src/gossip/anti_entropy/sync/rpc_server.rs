@@ -21,7 +21,7 @@ use crate::{
 };
 
 /// [`MAX_SYNC_MSG_SIZE`] defines the maximum allowed sync RPC size (over TCP).
-pub const MAX_SYNC_MSG_SIZE: usize = 20 * 1024 * 1024; // 20 MiB
+pub const MAX_SYNC_MSG_SIZE: usize = 50 * 1024 * 1024; // 50 MiB
 
 #[derive(Debug, Error)]
 enum Error {
