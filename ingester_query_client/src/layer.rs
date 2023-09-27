@@ -53,7 +53,7 @@ pub trait Layer: Debug + Send + Sync + 'static {
 #[async_trait]
 impl<T> Layer for Arc<T>
 where
-    T: Layer,
+    T: Layer + ?Sized,
 {
     type Request = T::Request;
     type ResponseMetadata = T::ResponseMetadata;
@@ -65,4 +65,17 @@ where
     ) -> Result<QueryResponse<Self::ResponseMetadata, Self::ResponsePayload>, DynError> {
         self.as_ref().query(request).await
     }
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::assert_impl;
+
+    use super::*;
+
+    assert_impl!(
+        arc_dyn_layer,
+        Arc<dyn Layer<Request = (), ResponseMetadata = (), ResponsePayload = ()>>,
+        Layer
+    );
 }

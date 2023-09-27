@@ -4,7 +4,7 @@ use std::fmt::Debug;
 use async_trait::async_trait;
 use client_util::tower::SetRequestHeadersService;
 use futures::{StreamExt, TryStreamExt};
-use http::{HeaderName, HeaderValue, Uri};
+use http::{HeaderName, HeaderValue};
 use ingester_query_grpc::influxdata::iox::ingester::v2 as proto;
 use tonic::transport::Channel;
 
@@ -12,6 +12,8 @@ use crate::{
     error::DynError,
     layer::{Layer, QueryResponse},
 };
+
+pub use http::Uri;
 
 /// Network layer.
 #[derive(Debug)]

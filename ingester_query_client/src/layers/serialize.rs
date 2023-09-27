@@ -5,12 +5,14 @@ use crate::{
     layer::{Layer, QueryResponse},
 };
 use async_trait::async_trait;
-use http::{header::InvalidHeaderValue, HeaderName, HeaderValue};
+use http::{header::InvalidHeaderValue, HeaderValue};
 use ingester_query_grpc::{influxdata::iox::ingester::v2 as proto, FieldViolation};
 use observability_deps::tracing::warn;
 use snafu::{ResultExt, Snafu};
 use trace::span::Span;
 use trace_http::ctx::format_jaeger_trace_context;
+
+pub use http::HeaderName;
 
 #[derive(Debug, Snafu)]
 #[allow(missing_docs)]

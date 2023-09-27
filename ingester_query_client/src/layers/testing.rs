@@ -26,7 +26,7 @@ where
 
 impl<ResponseMetadata, ResponsePayload> TestResponse<ResponseMetadata, ResponsePayload>
 where
-    ResponseMetadata: Clone + Debug + Default + Send + Sync + 'static,
+    ResponseMetadata: Clone + Debug + Send + Sync + 'static,
     ResponsePayload: Clone + Debug + Send + Sync + 'static,
 {
     /// Create OK response w/o any payload.
