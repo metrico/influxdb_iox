@@ -218,6 +218,9 @@ pub enum Error {
     #[snafu(display("Field missing while parsing IOx metadata: {}", field))]
     IoxMetadataFieldMissing { field: String },
 
+    #[snafu(display("Cannot parse timestamp from parquet metadata: {}", e))]
+    IoxInvalidTimestamp { e: String },
+
     #[snafu(display("Cannot parse IOx metadata from Protobuf: {}", source))]
     IoxMetadataBroken {
         source: Box<dyn std::error::Error + Send + Sync + 'static>,
@@ -534,8 +537,7 @@ fn decode_timestamp_from_field(
     let date_time = value
         .context(IoxMetadataFieldMissingSnafu { field })?
         .try_into()
-        .map_err(|e| Box::new(e) as _)
-        .context(IoxMetadataBrokenSnafu)?;
+        .map_err(|e: &str| Error::IoxInvalidTimestamp { e: e.to_string() })?;
 
     Ok(Time::from_date_time(date_time))
 }

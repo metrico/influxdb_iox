@@ -556,7 +556,7 @@ where
             range,
             predicate,
             gby_agg,
-            TagKeyMetaNames::from_i32(tag_key_meta_names).unwrap_or_default(),
+            TagKeyMetaNames::try_from(tag_key_meta_names).unwrap_or_default(),
             &ctx,
         )
         .await
