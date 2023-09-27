@@ -84,6 +84,13 @@ impl namespace_service_server::NamespaceService for NamespaceService {
 
         debug!(%namespace_name, ?retention_period_ns, "Creating namespace");
 
+        let service_protection_limits = service_protection_limits
+            .map(|limits| {
+                NamespaceServiceProtectionLimitsOverride::try_from(limits)
+                    .map_err(|v| Status::invalid_argument(v.to_string()))
+            })
+            .transpose()?;
+
         let namespace = repos
             .namespaces()
             .create(
@@ -93,7 +100,7 @@ impl namespace_service_server::NamespaceService for NamespaceService {
                     .transpose()
                     .map_err(|v| Status::invalid_argument(v.to_string()))?,
                 retention_period_ns,
-                service_protection_limits.map(NamespaceServiceProtectionLimitsOverride::from),
+                service_protection_limits,
             )
             .await
             .map_err(|e| {
@@ -250,8 +257,8 @@ pub fn namespace_to_proto(namespace: &CatalogNamespace) -> Namespace {
         id: namespace.id.get(),
         name: namespace.name.clone(),
         retention_period_ns: namespace.retention_period_ns,
-        max_tables: namespace.max_tables.get(),
-        max_columns_per_table: namespace.max_columns_per_table.get(),
+        max_tables: namespace.max_tables.get_i32(),
+        max_columns_per_table: namespace.max_columns_per_table.get_i32(),
         partition_template: namespace.partition_template.as_proto().cloned(),
     }
 }
@@ -603,7 +610,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_reject_invalid_service_protection_limits() {
+    async fn reject_updating_with_invalid_service_protection_limits() {
         let catalog: Arc<dyn Catalog> =
             Arc::new(MemCatalog::new(Arc::new(metric::Registry::default())));
 
@@ -638,6 +645,18 @@ mod tests {
             .expect_err("invalid namespace update request for max table limit should fail");
         assert_eq!(status.code(), Code::InvalidArgument);
 
+        // ...and likewise should reject any attempt to set the table limit to a value less than 0.
+        let status = handler
+            .update_namespace_service_protection_limit(Request::new(
+                UpdateNamespaceServiceProtectionLimitRequest {
+                    name: NS_NAME.to_string(),
+                    limit_update: Some(LimitUpdate::MaxTables(-5)),
+                },
+            ))
+            .await
+            .expect_err("invalid namespace update request for max table limit should fail");
+        assert_eq!(status.code(), Code::InvalidArgument);
+
         // ...and likewise should reject any attempt to set the column per table limit to zero.
         let status = handler
             .update_namespace_service_protection_limit(Request::new(
@@ -651,10 +670,25 @@ mod tests {
                 "invalid namespace update request for max columns per table limit should fail",
             );
         assert_eq!(status.code(), Code::InvalidArgument);
+
+        // ...and likewise should reject any attempt to set the column per table limit to a value
+        // less than 0.
+        let status = handler
+            .update_namespace_service_protection_limit(Request::new(
+                UpdateNamespaceServiceProtectionLimitRequest {
+                    name: NS_NAME.to_string(),
+                    limit_update: Some(LimitUpdate::MaxColumnsPerTable(-10)),
+                },
+            ))
+            .await
+            .expect_err(
+                "invalid namespace update request for max columns per table limit should fail",
+            );
+        assert_eq!(status.code(), Code::InvalidArgument);
     }
 
     #[tokio::test]
-    async fn test_create_with_service_protection_limits() {
+    async fn create_with_service_protection_limits() {
         let catalog: Arc<dyn Catalog> =
             Arc::new(MemCatalog::new(Arc::new(metric::Registry::default())));
 
@@ -672,7 +706,7 @@ mod tests {
             }),
         };
         let created_ns = handler
-            .create_namespace(Request::new(req))
+            .create_namespace(Request::new(req.clone()))
             .await
             .expect("failed to create namespace")
             .into_inner()
@@ -682,6 +716,66 @@ mod tests {
         assert_eq!(created_ns.retention_period_ns, Some(RETENTION));
         assert_eq!(created_ns.max_tables, max_tables);
         assert_eq!(created_ns.max_columns_per_table, max_columns_per_table);
+
+        // Zero max_tables is invalid
+        let max_tables = Some(0);
+        let status = handler
+            .create_namespace(Request::new(CreateNamespaceRequest {
+                name: "error_namespace".to_string(),
+                service_protection_limits: Some(ServiceProtectionLimits {
+                    max_tables,
+                    max_columns_per_table: None,
+                }),
+                ..req.clone()
+            }))
+            .await
+            .unwrap_err();
+        assert_eq!(status.code(), Code::InvalidArgument);
+
+        // Negative max_tables is invalid
+        let max_tables = Some(-1);
+        let status = handler
+            .create_namespace(Request::new(CreateNamespaceRequest {
+                name: "error_namespace".to_string(),
+                service_protection_limits: Some(ServiceProtectionLimits {
+                    max_tables,
+                    max_columns_per_table: None,
+                }),
+                ..req.clone()
+            }))
+            .await
+            .unwrap_err();
+        assert_eq!(status.code(), Code::InvalidArgument);
+
+        // Zero max_columns_per_table is invalid
+        let max_columns_per_table = Some(0);
+        let status = handler
+            .create_namespace(Request::new(CreateNamespaceRequest {
+                name: "error_namespace".to_string(),
+                service_protection_limits: Some(ServiceProtectionLimits {
+                    max_tables: None,
+                    max_columns_per_table,
+                }),
+                ..req.clone()
+            }))
+            .await
+            .unwrap_err();
+        assert_eq!(status.code(), Code::InvalidArgument);
+
+        // Negative max_columns_per_table is invalid
+        let max_columns_per_table = Some(-1);
+        let status = handler
+            .create_namespace(Request::new(CreateNamespaceRequest {
+                name: "error_namespace".to_string(),
+                service_protection_limits: Some(ServiceProtectionLimits {
+                    max_tables: None,
+                    max_columns_per_table,
+                }),
+                ..req.clone()
+            }))
+            .await
+            .unwrap_err();
+        assert_eq!(status.code(), Code::InvalidArgument);
     }
 
     macro_rules! test_create_namespace_name {

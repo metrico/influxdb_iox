@@ -4,7 +4,7 @@ use crate::{
     interface::{
         self, CasFailure, Catalog, ColumnRepo, ColumnTypeMismatchSnafu, Error, NamespaceRepo,
         ParquetFileRepo, PartitionRepo, RepoCollection, Result, SoftDeletedRows, TableRepo,
-        MAX_PARQUET_FILES_SELECTED_ONCE_FOR_RETENTION,
+        MAX_PARQUET_FILES_SELECTED_ONCE_FOR_DELETE, MAX_PARQUET_FILES_SELECTED_ONCE_FOR_RETENTION,
     },
     kafkaless_transition::{
         SHARED_QUERY_POOL, SHARED_QUERY_POOL_ID, SHARED_TOPIC_ID, SHARED_TOPIC_NAME,
@@ -22,24 +22,24 @@ use data_types::{
     ParquetFileId, ParquetFileParams, Partition, PartitionHashId, PartitionId, PartitionKey,
     SkippedCompaction, SortedColumnSet, Table, TableId, Timestamp, TransitionPartitionId,
 };
-use serde::{Deserialize, Serialize};
-use std::{collections::HashMap, fmt::Display};
-use std::{collections::HashSet, fmt::Write};
-
-use crate::interface::MAX_PARQUET_FILES_SELECTED_ONCE_FOR_DELETE;
 use iox_time::{SystemProvider, TimeProvider};
 use metric::Registry;
 use observability_deps::tracing::debug;
 use parking_lot::Mutex;
+use serde::{Deserialize, Serialize};
 use snafu::prelude::*;
-use sqlx::sqlite::SqliteRow;
-use sqlx::types::Json;
 use sqlx::{
-    migrate::Migrator, sqlite::SqliteConnectOptions, types::Uuid, Executor, Pool, Row, Sqlite,
-    SqlitePool,
+    migrate::Migrator,
+    sqlite::{SqliteConnectOptions, SqliteRow},
+    types::{Json, Uuid},
+    Executor, Pool, Row, Sqlite, SqlitePool,
 };
-use std::str::FromStr;
-use std::sync::Arc;
+use std::{
+    collections::{HashMap, HashSet},
+    fmt::{Display, Write},
+    str::FromStr,
+    sync::Arc,
+};
 
 static MIGRATOR: Migrator = sqlx::migrate!("sqlite/migrations");
 

@@ -1,11 +1,10 @@
 //! A Postgres backed implementation of the Catalog
 
-use crate::interface::MAX_PARQUET_FILES_SELECTED_ONCE_FOR_DELETE;
 use crate::{
     interface::{
         self, CasFailure, Catalog, ColumnRepo, ColumnTypeMismatchSnafu, Error, NamespaceRepo,
         ParquetFileRepo, PartitionRepo, RepoCollection, Result, SoftDeletedRows, TableRepo,
-        MAX_PARQUET_FILES_SELECTED_ONCE_FOR_RETENTION,
+        MAX_PARQUET_FILES_SELECTED_ONCE_FOR_DELETE, MAX_PARQUET_FILES_SELECTED_ONCE_FOR_RETENTION,
     },
     kafkaless_transition::{
         SHARED_QUERY_POOL, SHARED_QUERY_POOL_ID, SHARED_TOPIC_ID, SHARED_TOPIC_NAME,
@@ -15,7 +14,6 @@ use crate::{
     migrate::IOxMigrator,
 };
 use async_trait::async_trait;
-use data_types::SortedColumnSet;
 use data_types::{
     partition_template::{
         NamespacePartitionTemplateOverride, TablePartitionTemplateOverride, TemplatePart,
@@ -23,7 +21,7 @@ use data_types::{
     Column, ColumnType, CompactionLevel, MaxColumnsPerTable, MaxTables, Namespace, NamespaceId,
     NamespaceName, NamespaceServiceProtectionLimitsOverride, ParquetFile, ParquetFileId,
     ParquetFileParams, Partition, PartitionHashId, PartitionId, PartitionKey, SkippedCompaction,
-    Table, TableId, Timestamp, TransitionPartitionId,
+    SortedColumnSet, Table, TableId, Timestamp, TransitionPartitionId,
 };
 use iox_time::{SystemProvider, TimeProvider};
 use metric::{Attributes, Instrument, MetricKind};
@@ -37,10 +35,17 @@ use sqlx::{
     Acquire, ConnectOptions, Executor, Postgres, Row,
 };
 use sqlx_hotswap_pool::HotSwapPool;
-use std::borrow::Cow;
-use std::collections::HashSet;
-use std::sync::atomic::{AtomicU64, Ordering};
-use std::{collections::HashMap, fmt::Display, str::FromStr, sync::Arc, time::Duration};
+use std::{
+    borrow::Cow,
+    collections::{HashMap, HashSet},
+    fmt::Display,
+    str::FromStr,
+    sync::{
+        atomic::{AtomicU64, Ordering},
+        Arc,
+    },
+    time::Duration,
+};
 
 static MIGRATOR: Lazy<IOxMigrator> =
     Lazy::new(|| IOxMigrator::try_from(&sqlx::migrate!()).expect("valid migration"));

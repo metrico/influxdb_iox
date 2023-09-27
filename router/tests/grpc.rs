@@ -625,7 +625,7 @@ async fn test_update_namespace_limit_max_tables() {
     assert_eq!(got.max_tables, 1);
     assert_eq!(
         got.max_columns_per_table,
-        MaxColumnsPerTable::default().get()
+        MaxColumnsPerTable::default().get_i32(),
     );
 
     // The list namespace RPC should show the updated namespace
@@ -707,7 +707,7 @@ async fn test_update_namespace_limit_max_columns_per_table() {
 
     assert_eq!(got.name, "bananas_test");
     assert_eq!(got.id, 1);
-    assert_eq!(got.max_tables, MaxTables::default().get());
+    assert_eq!(got.max_tables, MaxTables::default().get_i32());
     assert_eq!(got.max_columns_per_table, 1);
 
     // The list namespace RPC should show the updated namespace
@@ -775,7 +775,7 @@ async fn test_update_namespace_limit_max_columns_per_table() {
                 ..
             } => {
             assert_eq!(table_name, "arán_banana");
-                assert_eq!(max_columns_per_table, 1);
+                assert_eq!(max_columns_per_table.get(), 1);
             });
         }
     )

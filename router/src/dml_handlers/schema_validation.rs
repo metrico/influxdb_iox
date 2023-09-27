@@ -394,7 +394,7 @@ mod tests {
             .repositories()
             .await
             .namespaces()
-            .update_table_limit(NAMESPACE.as_str(), MaxTables::new(1))
+            .update_table_limit(NAMESPACE.as_str(), MaxTables::try_from(1).unwrap())
             .await
             .expect("failed to set table limit");
 
@@ -455,7 +455,7 @@ mod tests {
             .repositories()
             .await
             .namespaces()
-            .update_column_limit(NAMESPACE.as_str(), MaxColumnsPerTable::new(3))
+            .update_column_limit(NAMESPACE.as_str(), MaxColumnsPerTable::try_from(3).unwrap())
             .await
             .expect("failed to set column limit");
 

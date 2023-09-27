@@ -3,7 +3,7 @@
 
 use std::{collections::BTreeSet, sync::Arc};
 
-use data_types::{NamespaceId, NamespaceName, NamespaceSchema};
+use data_types::{MaxColumnsPerTable, MaxTables, NamespaceId, NamespaceName, NamespaceSchema};
 use iox_catalog::interface::Catalog;
 use metric::U64Counter;
 use observability_deps::tracing::*;
@@ -212,7 +212,7 @@ pub enum CachedServiceProtectionLimit {
         /// columns.
         merged_column_count: usize,
         /// The configured limit.
-        max_columns_per_table: usize,
+        max_columns_per_table: MaxColumnsPerTable,
     },
 
     /// The number of table would exceed the table limit cached in the
@@ -229,7 +229,7 @@ pub enum CachedServiceProtectionLimit {
         /// tables.
         merged_table_count: usize,
         /// The configured limit.
-        table_count_limit: usize,
+        table_count_limit: MaxTables,
     },
 }
 
@@ -253,7 +253,7 @@ fn validate_schema_limits<'a>(
         // Get the column set for this table from the schema.
         let existing_columns = match schema.tables.get(table_name) {
             Some(v) => v.column_names(),
-            None if column_names.len() > schema.max_columns_per_table.get() as usize => {
+            None if column_names.len() > schema.max_columns_per_table.get() => {
                 // The table does not exist, therefore all the columns in this
                 // write must be created - there's no need to perform a set
                 // union to discover the distinct column count.
@@ -261,7 +261,7 @@ fn validate_schema_limits<'a>(
                     table_name: table_name.into(),
                     merged_column_count: column_names.len(),
                     existing_column_count: 0,
-                    max_columns_per_table: schema.max_columns_per_table.get() as usize,
+                    max_columns_per_table: schema.max_columns_per_table,
                 });
             }
             None => {
@@ -278,11 +278,11 @@ fn validate_schema_limits<'a>(
                 // submitted to multiple router instances, exceeding the schema
                 // limit by some degree (eventual enforcement).
                 let merged_table_count = schema.tables.len() + new_tables;
-                if merged_table_count > schema.max_tables.get() as usize {
+                if merged_table_count > schema.max_tables.get() {
                     return Err(CachedServiceProtectionLimit::Table {
                         existing_table_count: schema.tables.len(),
                         merged_table_count,
-                        table_count_limit: schema.max_tables.get() as usize,
+                        table_count_limit: schema.max_tables,
                     });
                 }
 
@@ -296,7 +296,7 @@ fn validate_schema_limits<'a>(
             table_name,
             existing_columns,
             column_names,
-            schema.max_columns_per_table.get() as usize,
+            schema.max_columns_per_table,
         )?;
     }
 
@@ -307,7 +307,7 @@ fn validate_column_limit<'a>(
     table_name: &'a str,
     mut existing_columns: BTreeSet<&'a str>,
     mut column_names: BTreeSet<&'a str>,
-    max_columns_per_table: usize,
+    max_columns_per_table: MaxColumnsPerTable,
 ) -> Result<(), CachedServiceProtectionLimit> {
     // The union of existing columns and new columns in this write must be
     // calculated to derive the total distinct column count for this table
@@ -323,7 +323,7 @@ fn validate_column_limit<'a>(
     // includes existing columns and doesn't exceed the limit more, this is
     // allowed.
     let columns_were_added_in_this_batch = merged_column_count > existing_column_count;
-    let column_limit_exceeded = merged_column_count > max_columns_per_table;
+    let column_limit_exceeded = merged_column_count > max_columns_per_table.get();
 
     if columns_were_added_in_this_batch && column_limit_exceeded {
         return Err(CachedServiceProtectionLimit::Column {
@@ -341,7 +341,6 @@ fn validate_column_limit<'a>(
 mod tests {
     use std::sync::Arc;
 
-    use assert_matches::assert_matches;
     use data_types::ColumnType;
     use iox_tests::{TestCatalog, TestNamespace};
     use once_cell::sync::Lazy;
@@ -349,6 +348,47 @@ mod tests {
     use super::*;
 
     static NAMESPACE: Lazy<NamespaceName<'static>> = Lazy::new(|| "bananas".try_into().unwrap());
+
+    fn assert_table_error(
+        result: Result<(), CachedServiceProtectionLimit>,
+        existing: usize,
+        merged: usize,
+        max: usize,
+    ) {
+        match result.unwrap_err() {
+            CachedServiceProtectionLimit::Table {
+                existing_table_count,
+                merged_table_count,
+                table_count_limit,
+            } => {
+                assert_eq!(existing_table_count, existing);
+                assert_eq!(merged_table_count, merged);
+                assert_eq!(table_count_limit.get(), max);
+            }
+            other => panic!("Expected CachedServiceProtectionLimit::Table, got {other:?}"),
+        }
+    }
+
+    fn assert_column_error(
+        result: Result<(), CachedServiceProtectionLimit>,
+        existing: usize,
+        merged: usize,
+        max: usize,
+    ) {
+        match result.unwrap_err() {
+            CachedServiceProtectionLimit::Column {
+                table_name: _,
+                existing_column_count,
+                merged_column_count,
+                max_columns_per_table,
+            } => {
+                assert_eq!(existing_column_count, existing);
+                assert_eq!(merged_column_count, merged);
+                assert_eq!(max_columns_per_table.get(), max);
+            }
+            other => panic!("Expected CachedServiceProtectionLimit::Column, got {other:?}"),
+        }
+    }
 
     /// Initialise an in-memory [`MemCatalog`] and create a single namespace
     /// named [`NAMESPACE`].
@@ -378,14 +418,11 @@ mod tests {
                 BTreeSet::from(["tag1", "tag2", "val", "time"]),
             )]
             .into_iter();
-            assert_matches!(
+            assert_column_error(
                 validate_schema_limits(column_names_by_table, &schema),
-                Err(CachedServiceProtectionLimit::Column {
-                    table_name: _,
-                    existing_column_count: 0,
-                    merged_column_count: 4,
-                    max_columns_per_table: 3,
-                })
+                0,
+                4,
+                3,
             );
         }
 
@@ -403,14 +440,11 @@ mod tests {
                 BTreeSet::from(["tag1", "tag2", "val", "time"]),
             )]
             .into_iter();
-            assert_matches!(
+            assert_column_error(
                 validate_schema_limits(column_names_by_table, &schema),
-                Err(CachedServiceProtectionLimit::Column {
-                    table_name: _,
-                    existing_column_count: 0,
-                    merged_column_count: 4,
-                    max_columns_per_table: 3,
-                })
+                0,
+                4,
+                3,
             );
         }
 
@@ -439,14 +473,11 @@ mod tests {
                 BTreeSet::from(["tag1", "tag2", "i_got_music", "time"]),
             )]
             .into_iter();
-            assert_matches!(
+            assert_column_error(
                 validate_schema_limits(column_names_by_table, &schema),
-                Err(CachedServiceProtectionLimit::Column {
-                    table_name: _,
-                    existing_column_count: 1,
-                    merged_column_count: 4,
-                    max_columns_per_table: 3,
-                })
+                1,
+                4,
+                3,
             );
         }
 
@@ -468,14 +499,11 @@ mod tests {
             // Adding columns over the limit is an error
             let column_names_by_table =
                 [("bananas", BTreeSet::from(["i_got_music", "time"]))].into_iter();
-            assert_matches!(
+            assert_column_error(
                 validate_schema_limits(column_names_by_table, &schema),
-                Err(CachedServiceProtectionLimit::Column {
-                    table_name: _,
-                    existing_column_count: 3,
-                    merged_column_count: 4,
-                    max_columns_per_table: 3,
-                })
+                3,
+                4,
+                3,
             );
         }
     }
@@ -514,13 +542,11 @@ mod tests {
                 ("platanos", BTreeSet::from(["val", "time"])),
             ]
             .into_iter();
-            assert_matches!(
+            assert_table_error(
                 validate_schema_limits(column_names_by_table, &schema),
-                Err(CachedServiceProtectionLimit::Table {
-                    existing_table_count: 0,
-                    merged_table_count: 3,
-                    table_count_limit: 2
-                })
+                0,
+                3,
+                2,
             );
         }
 
@@ -547,13 +573,11 @@ mod tests {
                 ("nope", BTreeSet::from(["val", "time"])),
             ]
             .into_iter();
-            assert_matches!(
+            assert_table_error(
                 validate_schema_limits(column_names_by_table, &schema),
-                Err(CachedServiceProtectionLimit::Table {
-                    existing_table_count: 1,
-                    merged_table_count: 3,
-                    table_count_limit: 2
-                })
+                1,
+                3,
+                2,
             );
         }
 
@@ -590,13 +614,11 @@ mod tests {
                 ("nope", BTreeSet::from(["val", "time"])),
             ]
             .into_iter();
-            assert_matches!(
+            assert_table_error(
                 validate_schema_limits(column_names_by_table, &schema),
-                Err(CachedServiceProtectionLimit::Table {
-                    existing_table_count: 2,
-                    merged_table_count: 3,
-                    table_count_limit: 1,
-                })
+                2,
+                3,
+                1,
             );
         }
         {
@@ -606,25 +628,21 @@ mod tests {
                 ("nope", BTreeSet::from(["val", "time"])),
             ]
             .into_iter();
-            assert_matches!(
+            assert_table_error(
                 validate_schema_limits(column_names_by_table, &schema),
-                Err(CachedServiceProtectionLimit::Table {
-                    existing_table_count: 2,
-                    merged_table_count: 3,
-                    table_count_limit: 1,
-                })
+                2,
+                3,
+                1,
             );
         }
         {
             let schema = namespace.schema().await;
             let column_names_by_table = [("nope", BTreeSet::from(["val", "time"]))].into_iter();
-            assert_matches!(
+            assert_table_error(
                 validate_schema_limits(column_names_by_table, &schema),
-                Err(CachedServiceProtectionLimit::Table {
-                    existing_table_count: 2,
-                    merged_table_count: 3,
-                    table_count_limit: 1,
-                })
+                2,
+                3,
+                1,
             );
         }
     }

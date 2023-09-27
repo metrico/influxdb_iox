@@ -186,8 +186,8 @@ mod tests {
         NamespaceSchema {
             id: TEST_NAMESPACE_ID,
             tables: Default::default(),
-            max_tables: MaxTables::new(24),
-            max_columns_per_table: MaxColumnsPerTable::new(50),
+            max_tables: MaxTables::try_from(24).unwrap(),
+            max_columns_per_table: MaxColumnsPerTable::try_from(50).unwrap(),
             retention_period_ns: Some(876),
             partition_template: Default::default(),
         }
@@ -198,8 +198,8 @@ mod tests {
         NamespaceSchema {
             id: TEST_NAMESPACE_ID,
             tables: Default::default(),
-            max_tables: MaxTables::new(42),
-            max_columns_per_table: MaxColumnsPerTable::new(10),
+            max_tables: MaxTables::try_from(42).unwrap(),
+            max_columns_per_table: MaxColumnsPerTable::try_from(10).unwrap(),
             retention_period_ns: Some(876),
             partition_template: Default::default(),
         }
@@ -484,16 +484,17 @@ mod tests {
                 arbitrary_table_schema(),
                 (0, 10) // Set size range
             ),
-            max_tables in any::<usize>(),
-            max_columns_per_table in any::<usize>(),
+            max_tables in 1..std::i32::MAX as usize,
+            max_columns_per_table in 1..std::i32::MAX as usize,
             retention_period_ns in any::<Option<i64>>(),
         ) -> NamespaceSchema {
             let tables = tables.into_iter().map(|(k, v)| (k.to_string(), v)).collect();
             NamespaceSchema {
                 id: TEST_NAMESPACE_ID,
                 tables,
-                max_tables: MaxTables::new(max_tables as i32),
-                max_columns_per_table: MaxColumnsPerTable::new(max_columns_per_table as i32),
+                max_tables: MaxTables::try_from(max_tables).unwrap(),
+                max_columns_per_table: MaxColumnsPerTable::try_from(max_columns_per_table)
+                    .unwrap(),
                 retention_period_ns,
                 partition_template: Default::default(),
             }

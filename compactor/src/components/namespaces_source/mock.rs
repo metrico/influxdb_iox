@@ -185,8 +185,8 @@ mod tests {
                     ns: Namespace {
                         id,
                         name: "ns".to_string(),
-                        max_tables: MaxTables::new(10),
-                        max_columns_per_table: MaxColumnsPerTable::new(10),
+                        max_tables: MaxTables::try_from(10).unwrap(),
+                        max_columns_per_table: MaxColumnsPerTable::try_from(10).unwrap(),
                         retention_period_ns: None,
                         deleted_at: None,
                         partition_template: Default::default(),
@@ -194,8 +194,8 @@ mod tests {
                     schema: NamespaceSchema {
                         id,
                         tables,
-                        max_tables: MaxTables::new(42),
-                        max_columns_per_table: MaxColumnsPerTable::new(10),
+                        max_tables: MaxTables::try_from(42).unwrap(),
+                        max_columns_per_table: MaxColumnsPerTable::try_from(10).unwrap(),
                         retention_period_ns: None,
                         partition_template: Default::default(),
                     },

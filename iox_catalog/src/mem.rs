@@ -1,17 +1,15 @@
 //! This module implements an in-memory implementation of the iox_catalog interface. It can be
 //! used for testing or for an IOx designed to run without catalog persistence.
 
-use crate::interface::MAX_PARQUET_FILES_SELECTED_ONCE_FOR_DELETE;
 use crate::{
     interface::{
         CasFailure, Catalog, ColumnRepo, ColumnTypeMismatchSnafu, Error, NamespaceRepo,
         ParquetFileRepo, PartitionRepo, RepoCollection, Result, SoftDeletedRows, TableRepo,
-        MAX_PARQUET_FILES_SELECTED_ONCE_FOR_RETENTION,
+        MAX_PARQUET_FILES_SELECTED_ONCE_FOR_DELETE, MAX_PARQUET_FILES_SELECTED_ONCE_FOR_RETENTION,
     },
     metrics::MetricDecorator,
 };
 use async_trait::async_trait;
-use data_types::SortedColumnSet;
 use data_types::{
     partition_template::{
         NamespacePartitionTemplateOverride, TablePartitionTemplateOverride, TemplatePart,
@@ -19,7 +17,7 @@ use data_types::{
     Column, ColumnId, ColumnType, CompactionLevel, MaxColumnsPerTable, MaxTables, Namespace,
     NamespaceId, NamespaceName, NamespaceServiceProtectionLimitsOverride, ParquetFile,
     ParquetFileId, ParquetFileParams, Partition, PartitionHashId, PartitionId, PartitionKey,
-    SkippedCompaction, Table, TableId, Timestamp, TransitionPartitionId,
+    SkippedCompaction, SortedColumnSet, Table, TableId, Timestamp, TransitionPartitionId,
 };
 use iox_time::{SystemProvider, TimeProvider};
 use snafu::ensure;
@@ -306,7 +304,7 @@ impl TableRepo for MemTxn {
                         .iter()
                         .filter(|t| t.namespace_id == namespace_id)
                         .count();
-                    if tables_count >= max_tables.get().try_into().unwrap() {
+                    if tables_count >= max_tables.get() {
                         return Err(Error::TableCreateLimitError {
                             table_name: name.to_string(),
                             namespace_id,
@@ -430,7 +428,7 @@ impl ColumnRepo for MemTxn {
                             .iter()
                             .filter(|t| t.table_id == table_id)
                             .count();
-                        if columns_count >= max_columns_per_table.get().try_into().unwrap() {
+                        if columns_count >= max_columns_per_table.get() {
                             return Err(Error::ColumnCreateLimitError {
                                 column_name: name.to_string(),
                                 table_id,
